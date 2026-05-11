@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="id" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CuanSync</title>
+    <meta
+      name="description"
+      content="CuanSync, aplikasi pengatur keuangan pribadi multi-mata uang dengan React, Tailwind CSS, Google OAuth, dan Supabase."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      try {
+        const themeKey = "monefy-theme";
+        const legacyThemeKey = "kas-poipet-theme";
+        const themeRaw =
+          window.localStorage.getItem(themeKey) ??
+          window.localStorage.getItem(legacyThemeKey) ??
+          '"light"';
+        const savedTheme = JSON.parse(themeRaw);
+        if (!window.localStorage.getItem(themeKey) && window.localStorage.getItem(legacyThemeKey)) {
+          window.localStorage.setItem(themeKey, themeRaw);
+        }
+        document.documentElement.classList.toggle("dark", savedTheme === "dark");
+      } catch {}
+    </script>
+    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
+    <script>
+      if (window.tailwind) {
+        window.tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              fontFamily: {
+                sans: ["Plus Jakarta Sans", "ui-sans-serif", "system-ui"],
+                display: ["Space Grotesk", "ui-sans-serif", "system-ui"],
+              },
+              colors: {
+                brand: {
+                  50: "#f3faf7",
+                  100: "#dbf2e8",
+                  500: "#2aa876",
+                  600: "#1f8a61",
+                  700: "#18674a",
+                  900: "#11352a",
+                },
+                midnight: "#0e1726",
+                ink: "#111827",
+                mist: "#f7faf9",
+              },
+              boxShadow: {
+                float: "0 18px 50px rgba(17, 24, 39, 0.12)",
+              },
+            },
+          },
+        };
+      }
+    </script>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body class="min-h-full bg-mist text-ink transition-colors duration-300 dark:bg-slate-950 dark:text-slate-50">
+    <div id="root"></div>
+    <script type="module" src="./src/bootstrap.js"></script>
+  </body>
+</html>
