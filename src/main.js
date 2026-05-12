@@ -94,6 +94,20 @@ const CATEGORY_LOOKUP = Object.fromEntries(
   CATEGORY_OPTIONS.map((item) => [item.value, item]),
 );
 
+const HISTORY_CATEGORY_EMOJI = {
+  Makan: "🍜",
+  "Makan Harian": "🍜",
+  Belanja: "🛒",
+  "Belanja Kebutuhan": "🛒",
+  Transport: "🚕",
+  Tagihan: "💡",
+  Kesehatan: "🩺",
+  Internet: "📶",
+  "Internet & Pulsa": "📶",
+  "Tempat Tinggal": "🏠",
+  Lainnya: "🧾",
+};
+
 const DEFAULT_CATEGORY = "Makan";
 const UNIVERSAL_BUDGET_GROUP = "needs";
 
@@ -104,7 +118,7 @@ const TYPE_META = {
       "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
   },
   exchange: {
-    label: "Pemasukan THB",
+    label: "Tukar Mata Uang",
     chip: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
   },
   expense: {
@@ -540,13 +554,63 @@ function getCategoryMeta(category) {
   );
 }
 
+const LEGACY_EXCHANGE_KEYWORDS = [
+  "beli thb",
+  "tukar thb",
+  "exchange",
+  "convert",
+  "currency exchange",
+];
+
+function looksLikeLegacyExchange(row) {
+  if (row.type !== "income") return false;
+  const amountThb = Number(row.amount_thb || 0);
+  if (amountThb <= 0) return false;
+
+  const searchable = [
+    row.description,
+    row.category,
+    row.category_group,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return LEGACY_EXCHANGE_KEYWORDS.some((keyword) =>
+    searchable.includes(keyword),
+  );
+}
+
 function normalizeTransaction(row) {
-  return {
+  const normalized = {
     ...row,
     amount_idr: row.amount_idr == null ? null : Number(row.amount_idr),
     amount_thb: row.amount_thb == null ? null : Number(row.amount_thb),
     locked_rate: row.locked_rate == null ? null : Number(row.locked_rate),
   };
+
+  if (!looksLikeLegacyExchange(normalized)) return normalized;
+
+  const amountIdr = Number(normalized.amount_idr || 0);
+  const amountThb = Number(normalized.amount_thb || 0);
+  const inferredRate =
+    Number(normalized.locked_rate || 0) > 0
+      ? Number(normalized.locked_rate)
+      : amountIdr > 0 && amountThb > 0
+        ? amountIdr / amountThb
+        : null;
+
+  return {
+    ...normalized,
+    type: "exchange",
+    category: null,
+    category_group: null,
+    locked_rate: inferredRate,
+  };
+}
+
+function normalizeTransactions(rows) {
+  return rows.map(normalizeTransaction);
 }
 
 function normalizeBudget(row) {
@@ -872,8 +936,21 @@ function computeMetrics(transactions, budgets, goals) {
   const incomeIdr = ordered
     .filter((item) => item.type === "income")
     .reduce((sum, item) => sum + Number(item.amount_idr || 0), 0);
-  const exchangedIdr = ordered
-    .filter((item) => item.type === "exchange")
+  const exchangeIdrOut = ordered
+    .filter(
+      (item) =>
+        item.type === "exchange" &&
+        Number(item.amount_thb || 0) > 0 &&
+        Number(item.amount_idr || 0) > 0,
+    )
+    .reduce((sum, item) => sum + Number(item.amount_idr || 0), 0);
+  const exchangeIdrIn = ordered
+    .filter(
+      (item) =>
+        item.type === "exchange" &&
+        Number(item.amount_thb || 0) < 0 &&
+        Number(item.amount_idr || 0) > 0,
+    )
     .reduce((sum, item) => sum + Number(item.amount_idr || 0), 0);
   const receivedThb = ordered
     .filter((item) => item.type === "exchange")
@@ -972,7 +1049,7 @@ function computeMetrics(transactions, budgets, goals) {
     totalGoalTarget > 0 ? totalGoalSaved / totalGoalTarget : 0;
   const nextGoal =
     goalInsights.find((item) => item.status !== "done") || goalInsights[0] || null;
-  const balanceIdrBase = incomeIdr - exchangedIdr - directSpentIdr;
+  const balanceIdrBase = incomeIdr + exchangeIdrIn - exchangeIdrOut - directSpentIdr;
   const allocatedToGoalsIdr = totalGoalSaved;
   const availableBalanceIdr = balanceIdrBase - allocatedToGoalsIdr;
 
@@ -993,17 +1070,13 @@ function computeMetrics(transactions, budgets, goals) {
     return amountThb > 0 && itemRate > 0 ? amountThb * itemRate : 0;
   };
   const monthlyIncomeIdr = currentMonthTransactions
-    .filter((item) => item.type === "income" || item.type === "exchange")
+    .filter((item) => item.type === "income")
     .reduce((sum, item) => sum + resolveIdrValue(item), 0);
   const monthlyExpenseIdr = currentMonthTransactions
     .filter((item) => item.type === "expense")
     .reduce((sum, item) => sum + resolveIdrValue(item), 0);
   const monthlyExternalIncomeIdr = currentMonthTransactions
-    .filter(
-      (item) =>
-        item.type === "income" ||
-        (item.type === "exchange" && Number(item.amount_idr || 0) <= 0),
-    )
+    .filter((item) => item.type === "income")
     .reduce((sum, item) => sum + resolveIdrValue(item), 0);
   const monthlyNetChangeIdr = monthlyExternalIncomeIdr - monthlyExpenseIdr;
   const overviewDailyExpenses = buildOverviewDailyExpenses(
@@ -1098,6 +1171,7 @@ const HISTORY_TYPE_OPTIONS = [
   { value: "all", label: "Semua tipe" },
   { value: "income", label: "Uang masuk" },
   { value: "expense", label: "Uang keluar" },
+  { value: "exchange", label: "Transfer / Exchange" },
 ];
 
 const HISTORY_CURRENCY_OPTIONS = [
@@ -1106,15 +1180,30 @@ const HISTORY_CURRENCY_OPTIONS = [
   { value: "thb", label: "THB" },
 ];
 
+const TRANSACTION_FILTER_TABS = [
+  { value: "all", label: "Semua" },
+  { value: "income", label: "Masuk" },
+  { value: "expense", label: "Keluar" },
+  { value: "exchange", label: "Exchange" },
+];
+
 function getTransactionPreview(transaction) {
   if (transaction.type === "income") {
     return formatCurrency(transaction.amount_idr, "idr");
   }
   if (transaction.type === "exchange") {
-    if (Number(transaction.amount_idr || 0) > 0) {
-      return `${formatCurrency(transaction.amount_idr, "idr")} -> ${formatCurrency(transaction.amount_thb, "thb")}`;
+    const amountIdr = Number(transaction.amount_idr || 0);
+    const amountThb = Number(transaction.amount_thb || 0);
+    if (amountThb < 0 && amountIdr > 0) {
+      return `THB -${formatCurrency(Math.abs(amountThb), "thb")} -> IDR +${formatCurrency(amountIdr, "idr")}`;
     }
-    return `+ ${formatCurrency(transaction.amount_thb, "thb")}`;
+    if (amountIdr > 0 && amountThb > 0) {
+      return `IDR -${formatCurrency(amountIdr, "idr")} -> THB ${formatCurrency(amountThb, "thb")}`;
+    }
+    if (amountThb > 0) {
+      return `THB +${formatCurrency(amountThb, "thb")}`;
+    }
+    return "Transfer / Exchange";
   }
   if (Number(transaction.amount_thb || 0) <= 0) {
     return formatCurrency(transaction.amount_idr, "idr");
@@ -1123,13 +1212,14 @@ function getTransactionPreview(transaction) {
 }
 
 function getTransactionFlow(transaction) {
+  if (transaction.type === "exchange") return "exchange";
   return transaction.type === "expense" ? "expense" : "income";
 }
 
 function getTransactionTypeLabel(transaction) {
-  return getTransactionFlow(transaction) === "income"
-    ? "Uang masuk"
-    : "Uang keluar";
+  const flow = getTransactionFlow(transaction);
+  if (flow === "exchange") return "Tukar Mata Uang";
+  return flow === "income" ? "Uang masuk" : "Uang keluar";
 }
 
 function getTransactionCurrency(transaction) {
@@ -1158,8 +1248,36 @@ function getTransactionIdrValuation(transaction) {
   return null;
 }
 
+function getTransactionIdrValuationWithRate(transaction, fallbackRate = 0) {
+  const directValuation = getTransactionIdrValuation(transaction);
+  if (directValuation != null) return directValuation;
+
+  const amountThb = Number(transaction.amount_thb || 0);
+  const rate = Number(transaction.locked_rate || fallbackRate || 0);
+  if (amountThb > 0 && rate > 0) {
+    return amountThb * rate;
+  }
+
+  return null;
+}
+
 function getTransactionComparableAmount(transaction) {
   return getTransactionIdrValuation(transaction) ?? getTransactionMainAmount(transaction);
+}
+
+function getExchangeTitle(transaction) {
+  const amountIdr = Number(transaction.amount_idr || 0);
+  const amountThb = Number(transaction.amount_thb || 0);
+  if (amountThb < 0 && amountIdr > 0) return "Jual THB";
+  if (amountThb > 0 && amountIdr > 0) return "Beli THB";
+  return "Tukar Mata Uang";
+}
+
+function getExchangeVolumeIdr(transaction, fallbackRate = 0) {
+  if (transaction.type !== "exchange") return 0;
+  const amountIdr = Math.abs(Number(transaction.amount_idr || 0));
+  if (amountIdr > 0) return amountIdr;
+  return Math.abs(getTransactionIdrValuationWithRate(transaction, fallbackRate) || 0);
 }
 
 function getTransactionCategoryKey(transaction) {
@@ -1170,9 +1288,29 @@ function getTransactionCategoryKey(transaction) {
 
 function getTransactionCategoryLabel(transaction) {
   if (transaction.category) return getCategoryMeta(transaction.category).label;
-  if (transaction.type === "exchange") return "Pemasukan THB";
+  if (transaction.type === "exchange") return "Transfer / Exchange";
   if (transaction.type === "income") return "Pemasukan IDR";
   return "Lainnya";
+}
+
+function formatEditNumericValue(value) {
+  const numericValue = Math.abs(Number(value || 0));
+  return numericValue > 0 ? formatNumericInput(String(numericValue)) : "";
+}
+
+function getTransactionEditForm(transaction) {
+  const flow = getTransactionFlow(transaction);
+  const amountThb = Number(transaction.amount_thb || 0);
+
+  return {
+    occurred_at: toInputDateTime(new Date(transaction.occurred_at || Date.now())),
+    description: transaction.description || "",
+    category: transaction.category || DEFAULT_CATEGORY,
+    expense_currency: flow === "expense" && amountThb > 0 ? "thb" : "idr",
+    amount_idr: formatEditNumericValue(transaction.amount_idr),
+    amount_thb: formatEditNumericValue(transaction.amount_thb),
+    locked_rate: formatEditNumericValue(transaction.locked_rate),
+  };
 }
 
 function getHistoryCategoryOptions(transactions) {
@@ -1188,7 +1326,7 @@ function getHistoryCategoryOptions(transactions) {
   return [
     { value: "all", label: "Semua kategori" },
     { value: "income", label: "Pemasukan IDR" },
-    { value: "exchange", label: "Pemasukan THB" },
+    { value: "exchange", label: "Transfer / Exchange" },
     ...CATEGORY_OPTIONS.map((category) => ({
       value: category.value,
       label: category.label,
@@ -1217,6 +1355,54 @@ function compareTransactionsByDate(a, b) {
   return aTime.createdAt - bTime.createdAt;
 }
 
+function formatShortDateTime(value) {
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatShortTime(value) {
+  return new Intl.DateTimeFormat("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function getTransactionGroupLabel(dayKey) {
+  const todayKey = getLocalDayKey(new Date());
+  const yesterdayDate = new Date();
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterdayKey = getLocalDayKey(yesterdayDate);
+
+  if (dayKey === todayKey) return "Hari Ini";
+  if (dayKey === yesterdayKey) return "Kemarin";
+  return formatLongDate(`${dayKey}T00:00:00`);
+}
+
+function groupTransactionsByDay(transactions) {
+  const groups = [];
+  const groupMap = new Map();
+
+  transactions.forEach((transaction) => {
+    const dayKey = getLocalDayKey(transaction.occurred_at);
+    if (!groupMap.has(dayKey)) {
+      const group = {
+        key: dayKey,
+        label: getTransactionGroupLabel(dayKey),
+        transactions: [],
+      };
+      groupMap.set(dayKey, group);
+      groups.push(group);
+    }
+    groupMap.get(dayKey).transactions.push(transaction);
+  });
+
+  return groups;
+}
+
 function hasActiveTransactionFilters(filters) {
   return Object.keys(DEFAULT_TRANSACTION_FILTERS).some(
     (key) => filters[key] !== DEFAULT_TRANSACTION_FILTERS[key],
@@ -1232,20 +1418,27 @@ function filterAndSortTransactions(transactions, filters) {
     .filter((transaction) => {
       const dayKey = getLocalDayKey(transaction.occurred_at);
       const flow = getTransactionFlow(transaction);
-      const currency = getTransactionCurrency(transaction);
       const categoryKey = getTransactionCategoryKey(transaction);
       const comparableAmount = getTransactionComparableAmount(transaction);
+      const amountIdr = Math.abs(Number(transaction.amount_idr || 0));
+      const amountThb = Math.abs(Number(transaction.amount_thb || 0));
+      const currencyMatches =
+        filters.currency === "all" ||
+        (filters.currency === "idr" && amountIdr > 0) ||
+        (filters.currency === "thb" && amountThb > 0);
       const filterAmount =
-        filters.currency === "all"
-          ? comparableAmount
-          : getTransactionMainAmount(transaction);
+        filters.currency === "idr"
+          ? amountIdr
+          : filters.currency === "thb"
+            ? amountThb
+            : comparableAmount;
       const description = String(transaction.description || "").toLowerCase();
 
       if (filters.startDate && dayKey < filters.startDate) return false;
       if (filters.endDate && dayKey > filters.endDate) return false;
       if (filters.type !== "all" && flow !== filters.type) return false;
       if (filters.category !== "all" && categoryKey !== filters.category) return false;
-      if (filters.currency !== "all" && currency !== filters.currency) return false;
+      if (!currencyMatches) return false;
       if (Number.isFinite(minAmount) && minAmount > 0 && filterAmount < minAmount) {
         return false;
       }
@@ -1268,14 +1461,22 @@ function filterAndSortTransactions(transactions, filters) {
     });
 }
 
-function computeTransactionSummary(transactions) {
+function computeTransactionSummary(transactions, allTransactions = transactions) {
+  const latestRate = getLatestRateUntil(
+    allTransactions,
+    new Date(8640000000000000),
+  );
+
   return transactions.reduce(
     (summary, transaction) => {
-      const valuation = getTransactionIdrValuation(transaction) ?? 0;
-      if (getTransactionFlow(transaction) === "income") {
+      const valuation = getTransactionIdrValuationWithRate(transaction, latestRate) ?? 0;
+      if (transaction.type === "income") {
         summary.totalIncomeIdr += valuation;
-      } else {
+      } else if (transaction.type === "expense") {
         summary.totalExpenseIdr += valuation;
+      } else if (transaction.type === "exchange") {
+        summary.totalExchangeIdr += getExchangeVolumeIdr(transaction, latestRate);
+        summary.exchangeCount += 1;
       }
       summary.count += 1;
       summary.netIdr = summary.totalIncomeIdr - summary.totalExpenseIdr;
@@ -1284,8 +1485,11 @@ function computeTransactionSummary(transactions) {
     {
       totalIncomeIdr: 0,
       totalExpenseIdr: 0,
+      totalExchangeIdr: 0,
       netIdr: 0,
+      exchangeCount: 0,
       count: 0,
+      fallbackRate: latestRate,
     },
   );
 }
@@ -1339,10 +1543,10 @@ function summarizeReportMonth(transactions, monthKey, fallbackRate = 0) {
       if (transaction.type === "exchange") {
         const thbAmount = Number(transaction.amount_thb || 0);
         summary.thbReceived += thbAmount;
-        if (Number(transaction.amount_idr || 0) > 0) {
+        summary.exchangeVolumeIdr += getExchangeVolumeIdr(transaction);
+        summary.exchangeCount += 1;
+        if (Number(transaction.amount_idr || 0) > 0 && thbAmount > 0) {
           summary.thbTopupCostIdr += Number(transaction.amount_idr || 0);
-        } else {
-          summary.externalIncomeIdr += valueIdr;
         }
       }
 
@@ -1370,6 +1574,8 @@ function summarizeReportMonth(transactions, monthKey, fallbackRate = 0) {
       expenseThb: 0,
       thbReceived: 0,
       thbTopupCostIdr: 0,
+      exchangeVolumeIdr: 0,
+      exchangeCount: 0,
       netCashflowIdr: 0,
     },
   );
@@ -1400,9 +1606,7 @@ function buildReportDailySeries(transactions, monthKey, fallbackRate = 0) {
       if (!bucket) return;
 
       const valueIdr = resolveReportValueIdr(transaction, fallbackRate);
-      const isIncome =
-        transaction.type === "income" ||
-        (transaction.type === "exchange" && Number(transaction.amount_idr || 0) <= 0);
+      const isIncome = transaction.type === "income";
 
       if (isIncome) bucket.incomeIdr += valueIdr;
       if (transaction.type === "expense") bucket.expenseIdr += valueIdr;
@@ -3001,7 +3205,7 @@ function ExchangeSummaryPanel({ activeExchange, currentMonthLabel, monthlyExpens
       <div className="relative">
         <h3 className="font-display text-xl font-bold">Ringkasan Kurs & Modal</h3>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-          Pemasukan THB ber-rate menjadi fondasi valuasi IDR untuk semua uang keluar harian.
+          Transfer THB ber-rate menjadi fondasi valuasi IDR untuk semua uang keluar harian.
         </p>
       </div>
 
@@ -3021,7 +3225,7 @@ function ExchangeSummaryPanel({ activeExchange, currentMonthLabel, monthlyExpens
             `
           : html`
               <div className="rounded-2xl border border-dashed border-white/15 bg-white/5 p-4 text-sm text-slate-600 backdrop-blur-xl dark:bg-slate-900/25 dark:text-slate-300/80">
-                Belum ada pemasukan THB ber-rate. Tambahkan rate pada pemasukan THB agar valuasi pengeluaran THB terhadap IDR bisa terkunci.
+                Belum ada transfer THB ber-rate. Tambahkan rate pada transaksi beli/tukar THB agar valuasi pengeluaran THB terhadap IDR bisa terkunci.
               </div>
             `}
 
@@ -3077,6 +3281,13 @@ function SummaryCards({ summary }) {
       halo: "from-amber-300/26 to-transparent",
     },
     {
+      title: "Transfer / Exchange",
+      value: formatCurrency(summary.totalExchangeIdr, "idr"),
+      helper: `${summary.exchangeCount} transaksi`,
+      tone: "text-sky-700 dark:text-sky-300",
+      halo: "from-sky-300/26 to-transparent",
+    },
+    {
       title: "Saldo bersih",
       value: formatCurrency(summary.netIdr, "idr"),
       tone:
@@ -3097,7 +3308,7 @@ function SummaryCards({ summary }) {
   ];
 
   return html`
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
       ${cards.map(
         (card) => html`
           <div
@@ -3112,6 +3323,13 @@ function SummaryCards({ summary }) {
               <p className=${`mt-3 break-words text-2xl font-black tracking-[-0.02em] ${card.tone}`}>
                 ${card.value}
               </p>
+              ${card.helper
+                ? html`
+                    <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                      ${card.helper}
+                    </p>
+                  `
+                : null}
             </div>
           </div>
         `,
@@ -3120,7 +3338,13 @@ function SummaryCards({ summary }) {
   `;
 }
 
-function TransactionFilter({ filters, onChange, onReset, categoryOptions }) {
+function TransactionFilter({
+  filters,
+  onChange,
+  onReset,
+  categoryOptions,
+  showSearch = true,
+}) {
   function updateFilter(field, value) {
     onChange((current) => ({ ...current, [field]: value }));
   }
@@ -3129,17 +3353,21 @@ function TransactionFilter({ filters, onChange, onReset, categoryOptions }) {
     <section className=${`${PREMIUM_PANEL_SOFT} p-4 md:p-5`}>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
       <div className="relative grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <label className="block md:col-span-2 xl:col-span-4">
-          <span className="mb-2 block text-sm font-medium">Cari catatan</span>
-          <input
-            type="search"
-            autoComplete="off"
-            placeholder="Cari dari deskripsi atau catatan"
-            value=${filters.search}
-            onChange=${(event) => updateFilter("search", event.target.value)}
-            className=${GLASS_INPUT}
-          />
-        </label>
+        ${showSearch
+          ? html`
+              <label className="block md:col-span-2 xl:col-span-4">
+                <span className="mb-2 block text-sm font-medium">Cari catatan</span>
+                <input
+                  type="search"
+                  autoComplete="off"
+                  placeholder="Cari dari deskripsi atau catatan"
+                  value=${filters.search}
+                  onChange=${(event) => updateFilter("search", event.target.value)}
+                  className=${GLASS_INPUT}
+                />
+              </label>
+            `
+          : null}
 
         <label className="block">
           <span className="mb-2 block text-sm font-medium">Dari tanggal</span>
@@ -3271,117 +3499,521 @@ function TransactionFilter({ filters, onChange, onReset, categoryOptions }) {
   `;
 }
 
-function TransactionCard({ transaction, onDelete }) {
+function getTransactionIconLabel(transaction) {
+  const flow = getTransactionFlow(transaction);
+  if (flow === "income") return "IN";
+  if (flow === "exchange") return "FX";
+  const category = String(transaction.category || "");
+  const match = CATEGORY_OPTIONS.find((item) => item.value === category);
+  if (!match) return "OUT";
+  return match.label
+    .split(" ")
+    .map((word) => word[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function getHistoryTransactionEmoji(transaction) {
+  const flow = getTransactionFlow(transaction);
+  if (flow === "exchange") return "🔄";
+  if (flow === "income") return "💰";
+  const category = String(transaction.category || "");
+  const categoryLabel = getCategoryMeta(category).label;
+  return HISTORY_CATEGORY_EMOJI[category] || HISTORY_CATEGORY_EMOJI[categoryLabel] || "🧾";
+}
+
+function getTransactionTone(transaction) {
+  const flow = getTransactionFlow(transaction);
+  if (flow === "income") {
+    return {
+      icon: "bg-emerald-100 text-emerald-700 ring-emerald-400/20 dark:bg-emerald-500/15 dark:text-emerald-300 dark:ring-emerald-300/15",
+      historyIcon: "bg-emerald-50 ring-emerald-200/75 dark:bg-emerald-400/10 dark:ring-emerald-300/20",
+      amount: "text-emerald-700 dark:text-emerald-300",
+      chip: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+    };
+  }
+  if (flow === "exchange") {
+    return {
+      icon: "bg-sky-100 text-sky-700 ring-sky-400/20 dark:bg-sky-500/15 dark:text-sky-300 dark:ring-sky-300/15",
+      historyIcon: "bg-sky-50 ring-sky-200/75 dark:bg-sky-400/10 dark:ring-sky-300/20",
+      amount: "text-sky-700 dark:text-sky-300",
+      chip: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+    };
+  }
+  return {
+    icon: "bg-amber-100 text-amber-700 ring-amber-400/20 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-300/15",
+    historyIcon: "bg-amber-50 ring-amber-200/75 dark:bg-amber-400/10 dark:ring-amber-300/20",
+    amount: "text-rose-700 dark:text-rose-300",
+    chip: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+  };
+}
+
+function getTransactionDisplayTitle(transaction) {
+  const isExchange = getTransactionFlow(transaction) === "exchange";
+  return (
+    transaction.description ||
+    (isExchange ? getExchangeTitle(transaction) : TYPE_META[transaction.type]?.label) ||
+    "Transaksi"
+  );
+}
+
+function getTransactionCompactAmount(transaction, fallbackRate = 0) {
   const flow = getTransactionFlow(transaction);
   const currency = getTransactionCurrency(transaction);
   const mainAmount = getTransactionMainAmount(transaction);
-  const valuationIdr = getTransactionIdrValuation(transaction);
+  if (flow === "income") {
+    return {
+      primary: `+${formatCurrency(mainAmount, currency)}`,
+      secondary: currency.toUpperCase(),
+    };
+  }
+  if (flow === "expense") {
+    const valuationIdr = getTransactionIdrValuationWithRate(transaction, fallbackRate);
+    return {
+      primary: `-${formatCurrency(mainAmount, currency)}`,
+      secondary:
+        currency === "thb" && valuationIdr != null
+          ? `Valuasi ${formatCurrency(valuationIdr, "idr")}`
+          : currency.toUpperCase(),
+    };
+  }
+
+  const amountIdr = Number(transaction.amount_idr || 0);
+  const amountThb = Number(transaction.amount_thb || 0);
+  if (amountThb < 0 && amountIdr > 0) {
+    return {
+      primary: `+${formatCurrency(amountIdr, "idr")}`,
+      secondary: `THB -${formatCurrency(Math.abs(amountThb), "thb")}`,
+    };
+  }
+  if (amountIdr > 0 && amountThb > 0) {
+    return {
+      primary: `-${formatCurrency(amountIdr, "idr")}`,
+      secondary: `THB +${formatCurrency(amountThb, "thb")}`,
+    };
+  }
+  return {
+    primary: getTransactionPreview(transaction),
+    secondary: "Exchange",
+  };
+}
+
+function TransactionItem({ transaction, onOpen, fallbackRate = 0 }) {
+  const tone = getTransactionTone(transaction);
+  const compactAmount = getTransactionCompactAmount(transaction, fallbackRate);
+  const title = getTransactionDisplayTitle(transaction);
   const categoryLabel = getTransactionCategoryLabel(transaction);
-  const categoryMeta = getCategoryMeta(transaction.category);
-  const typeChip =
-    flow === "income"
-      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-      : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300";
-  const amountTone =
-    flow === "income"
-      ? "text-emerald-700 dark:text-emerald-300"
-      : "text-rose-700 dark:text-rose-300";
-  const signedPrefix = flow === "income" ? "+" : "-";
-  const description =
-    transaction.description || TYPE_META[transaction.type]?.label || "Transaksi";
-  const showThbValuation = currency === "thb";
+  const flow = getTransactionFlow(transaction);
 
   return html`
-    <article className=${`${PREMIUM_ITEM} p-4 md:p-5`}>
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.16),transparent_45%,rgba(255,255,255,0.04))] opacity-0 transition duration-500 group-hover:opacity-100"></div>
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/35 to-transparent opacity-0 transition duration-500 group-hover:opacity-100"></div>
+    <button
+      type="button"
+      onClick=${() => onOpen(transaction)}
+      className="history-transaction-item transaction-item group grid min-h-[76px] w-full grid-cols-[44px_1fr_auto] items-center gap-3 rounded-[22px] border border-slate-200/70 bg-white/60 px-3 py-2.5 text-left shadow-[0_10px_30px_rgba(15,23,42,0.06)] backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:border-brand-300/30 hover:bg-white/82 dark:border-white/10 dark:bg-slate-900/52 dark:shadow-black/20 dark:hover:bg-slate-900/75"
+      aria-label=${`Buka detail ${title}`}
+    >
+      <span className=${`history-icon-badge flex h-11 w-11 items-center justify-center rounded-2xl text-[21px] leading-none ring-1 transition duration-300 group-hover:scale-105 ${tone.historyIcon}`}>
+        ${getHistoryTransactionEmoji(transaction)}
+      </span>
 
-      <div className="relative grid min-w-0 gap-4 lg:grid-cols-[1.05fr_0.8fr_0.9fr_1.2fr_1fr_auto] lg:items-center">
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-            Tanggal & waktu
-          </p>
-          <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
-            ${formatDateTime(transaction.occurred_at)}
-          </p>
-        </div>
-
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-            Tipe
-          </p>
-          <span className=${`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${typeChip}`}>
-            ${getTransactionTypeLabel(transaction)}
+      <span className="min-w-0">
+        <span className="history-item-title block truncate text-sm font-black text-slate-950 dark:text-white">
+          ${title}
+        </span>
+        <span className="history-item-meta mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+          <span className=${`history-chip max-w-[8rem] truncate rounded-full px-2 py-0.5 ${tone.chip}`}>
+            ${flow === "exchange" ? "Exchange" : categoryLabel}
           </span>
-        </div>
+          <span>${formatShortDateTime(transaction.occurred_at)}</span>
+        </span>
+      </span>
 
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-            Kategori
-          </p>
-          <span className=${`mt-2 inline-flex max-w-full rounded-full px-2.5 py-1 text-xs font-semibold ${transaction.category ? categoryMeta.chip : "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300"}`}>
-            <span className="truncate">${categoryLabel}</span>
-          </span>
-        </div>
+      <span className="min-w-0 text-right">
+        <span className=${`block max-w-[8.5rem] truncate text-sm font-black ${tone.amount}`}>
+          ${compactAmount.primary}
+        </span>
+        <span className="history-item-secondary mt-1 block max-w-[8.5rem] truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+          ${compactAmount.secondary}
+        </span>
+      </span>
+    </button>
+  `;
+}
 
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-            Deskripsi
-          </p>
-          <p className="mt-1 break-words text-sm font-semibold text-slate-900 dark:text-slate-100">
-            ${description}
-          </p>
-          ${transaction.locked_rate
-            ? html`
-                <p className="mt-1 text-xs font-medium text-brand-700 dark:text-brand-300">
-                  Rate terkunci: ${formatRate(transaction.locked_rate)}
-                </p>
-              `
-            : null}
-        </div>
+function TransactionEditForm({
+  transaction,
+  form,
+  onChange,
+  onSave,
+  onCancel,
+  loading = false,
+}) {
+  const flow = getTransactionFlow(transaction);
+  const isIncome = flow === "income";
+  const isExpense = flow === "expense";
+  const isExchange = flow === "exchange";
+  const isExpenseThb = isExpense && form.expense_currency === "thb";
+  const amountIdr = Number(normalizeNumericInput(form.amount_idr));
+  const amountThb = Number(normalizeNumericInput(form.amount_thb));
+  const submitDisabled =
+    loading ||
+    (isIncome && amountIdr <= 0) ||
+    (isExpense && (isExpenseThb ? amountThb <= 0 : amountIdr <= 0)) ||
+    (isExchange && amountThb <= 0);
 
-        <div className="min-w-0 lg:text-right">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-            Jumlah
-          </p>
-          <p className=${`mt-1 break-words text-lg font-black ${amountTone}`}>
-            ${signedPrefix}${formatCurrency(mainAmount, currency)}
-          </p>
-          <p className="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-            ${currency.toUpperCase()}
-          </p>
-          ${showThbValuation
-            ? html`
-                <p className="mt-2 text-xs text-slate-600 dark:text-slate-300/80">
-                  Valuasi IDR:
-                  ${valuationIdr ? formatCurrency(valuationIdr, "idr") : "Belum tersedia"}
-                </p>
-              `
-            : null}
-        </div>
+  function updateField(field, value) {
+    onChange({ ...form, [field]: value });
+  }
 
-        <div className="flex lg:justify-end">
+  async function handleSubmit(event) {
+    event.preventDefault();
+    await onSave(form);
+  }
+
+  return html`
+    <form className="mt-5 grid gap-4" onSubmit=${handleSubmit}>
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Tanggal & waktu
+        </span>
+        <input
+          type="datetime-local"
+          required
+          value=${form.occurred_at}
+          onChange=${(event) => updateField("occurred_at", event.target.value)}
+          className=${GLASS_INPUT}
+        />
+      </label>
+
+      <label className="block">
+        <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
+          Deskripsi / catatan
+        </span>
+        <input
+          type="text"
+          value=${form.description}
+          onChange=${(event) => updateField("description", event.target.value)}
+          placeholder="Catatan transaksi"
+          className=${GLASS_INPUT}
+        />
+      </label>
+
+      ${isExpense
+        ? html`
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Kategori
+              </span>
+              <select
+                value=${form.category}
+                onChange=${(event) => updateField("category", event.target.value)}
+                className=${GLASS_INPUT}
+              >
+                ${CATEGORY_OPTIONS.map(
+                  (category) => html`
+                    <option key=${category.value} value=${category.value}>
+                      ${category.label}
+                    </option>
+                  `,
+                )}
+              </select>
+            </label>
+
+            <div>
+              <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Mata uang pengeluaran
+              </span>
+              <div className="cuan-segment grid grid-cols-2 gap-2 rounded-2xl p-1">
+                ${["idr", "thb"].map((currency) => {
+                  const active = form.expense_currency === currency;
+                  return html`
+                    <button
+                      key=${currency}
+                      type="button"
+                      onClick=${() => updateField("expense_currency", currency)}
+                      className=${`min-h-11 rounded-2xl px-3 py-2 text-sm font-black transition ${active ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.20)] dark:bg-emerald-500" : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"}`}
+                    >
+                      ${currency.toUpperCase()}
+                    </button>
+                  `;
+                })}
+              </div>
+            </div>
+          `
+        : null}
+
+      ${(isIncome || (isExpense && !isExpenseThb) || isExchange)
+        ? html`
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                ${isExchange ? "Nominal IDR" : isIncome ? "Nominal uang masuk IDR" : "Nominal uang keluar IDR"}
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                value=${form.amount_idr}
+                onChange=${(event) =>
+                  updateField("amount_idr", formatNumericInput(event.target.value))}
+                placeholder=${isExchange ? "Opsional" : "0"}
+                required=${!isExchange}
+                className=${GLASS_INPUT}
+              />
+            </label>
+          `
+        : null}
+
+      ${(isExpenseThb || isExchange)
+        ? html`
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                ${isExchange ? "Nominal THB" : "Nominal uang keluar THB"}
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                required
+                value=${form.amount_thb}
+                onChange=${(event) =>
+                  updateField("amount_thb", formatNumericInput(event.target.value))}
+                placeholder="0"
+                className=${GLASS_INPUT}
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
+                Rate IDR / 1 THB
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                value=${form.locked_rate}
+                onChange=${(event) =>
+                  updateField("locked_rate", formatNumericInput(event.target.value))}
+                placeholder="Opsional"
+                className=${GLASS_INPUT}
+              />
+            </label>
+          `
+        : null}
+
+      <div className="grid grid-cols-2 gap-3 pt-2">
+        <button
+          type="button"
+          onClick=${onCancel}
+          className="cuan-secondary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+        >
+          Batal
+        </button>
+        <button
+          type="submit"
+          disabled=${submitDisabled}
+          className="min-h-12 rounded-2xl bg-brand-600 px-4 py-3 text-sm font-black text-white shadow-[0_18px_44px_rgba(16,185,129,0.22)] transition hover:-translate-y-0.5 hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 dark:bg-emerald-500 dark:disabled:bg-slate-800 dark:disabled:text-slate-500"
+        >
+          ${loading ? "Menyimpan..." : "Simpan edit"}
+        </button>
+      </div>
+    </form>
+  `;
+}
+
+function TransactionDetailSheet({
+  transaction,
+  onClose,
+  onDelete,
+  onUpdate,
+  fallbackRate = 0,
+  loading = false,
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editForm, setEditForm] = useState(null);
+
+  useEffect(() => {
+    if (!transaction) return undefined;
+    setIsEditing(false);
+    setEditForm(getTransactionEditForm(transaction));
+    function handleKeyDown(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [transaction, onClose]);
+
+  if (!transaction) return null;
+
+  const flow = getTransactionFlow(transaction);
+  const tone = getTransactionTone(transaction);
+  const currency = getTransactionCurrency(transaction);
+  const mainAmount = getTransactionMainAmount(transaction);
+  const valuationIdr = getTransactionIdrValuationWithRate(transaction, fallbackRate);
+  const categoryLabel = getTransactionCategoryLabel(transaction);
+  const isExchange = flow === "exchange";
+  const signedPrefix = flow === "income" ? "+" : "-";
+  const description = getTransactionDisplayTitle(transaction);
+  const amountText = isExchange
+    ? getTransactionPreview(transaction)
+    : `${signedPrefix}${formatCurrency(mainAmount, currency)}`;
+  const currencyLabel = isExchange ? "Transfer / Exchange" : currency.toUpperCase();
+  const showValuation = valuationIdr != null;
+  const detailRows = [
+    ["Tanggal & waktu", formatDateTime(transaction.occurred_at)],
+    ["Tipe", getTransactionTypeLabel(transaction)],
+    ["Kategori", categoryLabel],
+    ["Deskripsi", description],
+    ["Jumlah", amountText],
+    ["Mata uang", currencyLabel],
+    ["Valuasi IDR", showValuation ? formatCurrency(valuationIdr, "idr") : "Belum tersedia"],
+    ["Rate", transaction.locked_rate ? formatRate(transaction.locked_rate) : "Tidak ada"],
+  ];
+
+  async function handleSaveEdit(nextForm) {
+    const succeeded = await onUpdate(transaction, nextForm);
+    if (succeeded) {
+      setIsEditing(false);
+      onClose();
+    }
+  }
+
+  return html`
+    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center">
+      <button
+        type="button"
+        aria-label="Tutup detail transaksi"
+        className="absolute inset-0 bg-slate-950/45 backdrop-blur-sm"
+        onClick=${onClose}
+      ></button>
+      <section className="history-detail-sheet transaction-sheet relative max-h-[86svh] w-full overflow-y-auto rounded-t-[30px] border border-slate-200/70 bg-white/92 p-5 shadow-[0_-24px_80px_rgba(15,23,42,0.22)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/94 md:max-w-lg md:rounded-[30px] md:shadow-[0_28px_90px_rgba(0,0,0,0.42)]">
+        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-slate-300 dark:bg-slate-700 md:hidden"></div>
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className=${`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-xs font-black ring-1 ${tone.icon}`}>
+              ${getTransactionIconLabel(transaction)}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-lg font-black text-slate-950 dark:text-white">
+                ${description}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                ${formatShortTime(transaction.occurred_at)} | ${getTransactionTypeLabel(transaction)}
+              </p>
+            </div>
+          </div>
           <button
             type="button"
-            onClick=${() => onDelete(transaction)}
-            className="min-h-11 rounded-2xl border border-rose-300/25 bg-rose-400/10 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:-translate-y-0.5 hover:bg-rose-400/15 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200"
+            onClick=${onClose}
+            className="cuan-secondary inline-flex min-h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-lg font-black"
+            aria-label="Tutup"
           >
-            Hapus
+            x
           </button>
         </div>
-      </div>
-    </article>
+
+        ${isEditing && editForm
+          ? html`
+              <${TransactionEditForm}
+                transaction=${transaction}
+                form=${editForm}
+                onChange=${setEditForm}
+                onSave=${handleSaveEdit}
+                onCancel=${() => {
+                  setIsEditing(false);
+                  setEditForm(getTransactionEditForm(transaction));
+                }}
+                loading=${loading}
+              />
+            `
+          : html`
+              <div className="mt-5 rounded-[24px] border border-slate-200/70 bg-white/58 p-4 dark:border-white/10 dark:bg-slate-900/50">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                  Nominal
+                </p>
+                <p className=${`mt-2 break-words text-2xl font-black ${tone.amount}`}>
+                  ${amountText}
+                </p>
+                <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                  ${currencyLabel}
+                </p>
+              </div>
+
+              <div className="mt-4 grid gap-2">
+                ${detailRows.map(
+                  ([label, value]) => html`
+                    <div
+                      key=${label}
+                      className="grid grid-cols-[7.5rem_1fr] gap-3 rounded-2xl border border-slate-200/60 bg-white/45 px-3 py-2.5 text-sm dark:border-white/10 dark:bg-slate-900/38"
+                    >
+                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                        ${label}
+                      </span>
+                      <span className="min-w-0 break-words text-right font-semibold text-slate-900 dark:text-slate-100">
+                        ${value}
+                      </span>
+                    </div>
+                  `,
+                )}
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick=${() => setIsEditing(true)}
+                  className="min-h-12 rounded-2xl border border-brand-300/30 bg-brand-500/12 px-4 py-3 text-sm font-black text-brand-700 transition hover:-translate-y-0.5 hover:bg-brand-500/18 dark:border-brand-300/20 dark:bg-brand-400/10 dark:text-brand-200"
+                >
+                  Edit data
+                </button>
+                <button
+                  type="button"
+                  onClick=${() => {
+                    onClose();
+                    onDelete(transaction);
+                  }}
+                  className="min-h-12 rounded-2xl border border-rose-300/25 bg-rose-400/10 px-4 py-3 text-sm font-black text-rose-700 transition hover:-translate-y-0.5 hover:bg-rose-400/15 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200"
+                >
+                  Hapus
+                </button>
+              </div>
+            `}
+      </section>
+    </div>
+  `;
+}
+
+function TransactionFilterTabs({ value, onChange }) {
+  return html`
+    <div className="cuan-segment grid grid-cols-4 gap-1 rounded-[22px] p-1">
+      ${TRANSACTION_FILTER_TABS.map((tab) => {
+        const active = value === tab.value;
+        return html`
+          <button
+            key=${tab.value}
+            type="button"
+            onClick=${() => onChange(tab.value)}
+            className=${`min-h-11 rounded-2xl px-2 text-xs font-black transition duration-300 ${active ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.22)] dark:bg-emerald-500" : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"}`}
+          >
+            ${tab.label}
+          </button>
+        `;
+      })}
+    </div>
   `;
 }
 
 function TransactionList({
   transactions,
   onDelete,
+  onUpdate,
+  loading = false,
   title = "Aktivitas Terakhir",
   description = "Semua perubahan angka langsung menggerakkan chart, kategori, dan budget.",
   emptyMessage = "Belum ada transaksi.",
 }) {
   const [filters, setFilters] = useState(DEFAULT_TRANSACTION_FILTERS);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [selectedTransaction, setSelectedTransaction] = useState(null);
   const categoryOptions = useMemo(
     () => getHistoryCategoryOptions(transactions),
     [transactions],
@@ -3391,10 +4023,22 @@ function TransactionList({
     [transactions, filters],
   );
   const summary = useMemo(
-    () => computeTransactionSummary(filteredTransactions),
+    () => computeTransactionSummary(filteredTransactions, transactions),
+    [filteredTransactions, transactions],
+  );
+  const groupedTransactions = useMemo(
+    () => groupTransactionsByDay(filteredTransactions),
     [filteredTransactions],
   );
+  const latestRate = useMemo(
+    () => getLatestRateUntil(transactions, new Date(8640000000000000)),
+    [transactions],
+  );
   const hasFilters = hasActiveTransactionFilters(filters);
+
+  function updateFilter(field, value) {
+    setFilters((current) => ({ ...current, [field]: value }));
+  }
 
   function resetFilters() {
     setFilters({ ...DEFAULT_TRANSACTION_FILTERS });
@@ -3414,32 +4058,79 @@ function TransactionList({
 
       <${SummaryCards} summary=${summary} />
 
-      <${TransactionFilter}
-        filters=${filters}
-        onChange=${setFilters}
-        onReset=${resetFilters}
-        categoryOptions=${categoryOptions}
-      />
+      <section className="history-filter-panel sticky top-3 z-20 rounded-[26px] border border-slate-200/70 bg-white/82 p-3 shadow-[0_18px_50px_rgba(15,23,42,0.10)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/82 dark:shadow-black/30">
+        <div className="grid gap-3">
+          <input
+            type="search"
+            autoComplete="off"
+            placeholder="Cari transaksi"
+            value=${filters.search}
+            onChange=${(event) => updateFilter("search", event.target.value)}
+            className=${GLASS_INPUT}
+          />
+          <${TransactionFilterTabs}
+            value=${filters.type}
+            onChange=${(value) => updateFilter("type", value)}
+          />
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              ${filteredTransactions.length} dari ${transactions.length} transaksi
+            </p>
+            <button
+              type="button"
+              onClick=${() => setShowAdvancedFilters((current) => !current)}
+              className="cuan-secondary min-h-11 rounded-2xl px-4 py-2 text-xs font-black transition hover:-translate-y-0.5"
+            >
+              ${showAdvancedFilters ? "Tutup filter" : "Filter lanjutan"}
+            </button>
+          </div>
+        </div>
+      </section>
 
-      <section className=${`${PREMIUM_PANEL} p-4 md:p-5`}>
+      ${showAdvancedFilters
+        ? html`
+            <${TransactionFilter}
+              filters=${filters}
+              onChange=${setFilters}
+              onReset=${resetFilters}
+              categoryOptions=${categoryOptions}
+              showSearch=${false}
+            />
+          `
+        : null}
+
+      <section className="history-list-panel relative overflow-hidden rounded-[30px] p-3 md:p-5">
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
         ${filteredTransactions.length
           ? html`
-              <div className="relative space-y-3">
-                ${filteredTransactions.map(
-                  (transaction) => html`
-                    <${TransactionCard}
-                      key=${transaction.id}
-                      transaction=${transaction}
-                      onDelete=${onDelete}
-                    />
+              <div className="relative grid gap-5">
+                ${groupedTransactions.map(
+                  (group) => html`
+                    <div key=${group.key} className="grid gap-3">
+                      <div className="history-date-header relative z-0 mt-1 flex items-center justify-between rounded-2xl border border-slate-200/65 bg-white/80 px-3 py-2 text-xs font-black text-slate-600 shadow-[0_10px_28px_rgba(15,23,42,0.06)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/78 dark:text-slate-300">
+                        <span>${group.label}</span>
+                        <span>${group.transactions.length}</span>
+                      </div>
+                      <div className="grid gap-2.5">
+                        ${group.transactions.map(
+                          (transaction) => html`
+                            <${TransactionItem}
+                              key=${transaction.id}
+                              transaction=${transaction}
+                              onOpen=${setSelectedTransaction}
+                              fallbackRate=${latestRate}
+                            />
+                          `,
+                        )}
+                      </div>
+                    </div>
                   `,
                 )}
               </div>
             `
           : html`
-              <div className="relative rounded-[24px] border border-dashed border-white/15 bg-white/5 p-6 text-center backdrop-blur-xl dark:bg-slate-900/25 md:p-8">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-white/10 bg-brand-500/10 text-xl font-black text-brand-700 dark:text-brand-300">
+              <div className="relative rounded-[24px] border border-dashed border-slate-300/70 bg-white/52 p-6 text-center backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/25 md:p-8">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-brand-300/25 bg-brand-500/10 text-xl font-black text-brand-700 dark:border-brand-300/20 dark:text-brand-300">
                   0
                 </div>
                 <h4 className="mt-4 font-display text-xl font-bold text-slate-950 dark:text-white">
@@ -3459,11 +4150,20 @@ function TransactionList({
                       >
                         Reset filter
                       </button>
-                    `
+                    ` 
                   : null}
               </div>
             `}
       </section>
+
+      <${TransactionDetailSheet}
+        transaction=${selectedTransaction}
+        onClose=${() => setSelectedTransaction(null)}
+        onDelete=${onDelete}
+        onUpdate=${onUpdate}
+        fallbackRate=${latestRate}
+        loading=${loading}
+      />
     </div>
   `;
 }
@@ -4149,7 +4849,7 @@ function TransactionForm({ transactions, onSubmit, loading }) {
                   className=${GLASS_INPUT}
                 >
                   <option value="purchase">Tukar / Beli THB</option>
-                  <option value="bonus">Pemasukan THB</option>
+                  <option value="bonus">THB masuk non-cashflow</option>
                 </select>
               </label>
             `
@@ -4201,7 +4901,7 @@ function TransactionForm({ transactions, onSubmit, loading }) {
           ? html`
               <label className="block">
                 <span className="mb-2 block text-sm font-medium">
-                  ${isIncome ? "Jumlah uang masuk (THB)" : "Jumlah uang keluar (THB)"}
+                  ${isIncome ? "Jumlah THB diterima" : "Jumlah uang keluar (THB)"}
                 </span>
                 <input
                   type="text"
@@ -4277,7 +4977,7 @@ function TransactionForm({ transactions, onSubmit, loading }) {
                         Rate aktif: ${formatRate(activeExchange.locked_rate)}
                       </p>
                       <p className="mt-1 text-slate-600 dark:text-slate-300/80">
-                        Pengeluaran ini otomatis dihitung ke IDR dari pemasukan THB ber-rate pada ${formatDateTime(activeExchange.occurred_at)}.
+                        Pengeluaran ini otomatis dihitung ke IDR dari transfer THB ber-rate pada ${formatDateTime(activeExchange.occurred_at)}.
                       </p>
                     `
                   : html`
@@ -4285,7 +4985,7 @@ function TransactionForm({ transactions, onSubmit, loading }) {
                         Belum ada rate aktif
                       </p>
                       <p className="mt-1 text-slate-600 dark:text-slate-300/80">
-                        Tambahkan pemasukan THB ber-rate dulu kalau kamu ingin valuasi otomatis ke IDR.
+                        Tambahkan transfer THB ber-rate dulu kalau kamu ingin valuasi otomatis ke IDR.
                       </p>
                     `}
               </div>
@@ -4301,7 +5001,11 @@ function TransactionForm({ transactions, onSubmit, loading }) {
           : null}
 
         <${SubmitActionBar}
-          label=${isIncome ? "Simpan uang masuk" : "Simpan uang keluar"}
+          label=${isIncome && isThb
+            ? "Simpan transfer THB"
+            : isIncome
+              ? "Simpan uang masuk"
+              : "Simpan uang keluar"}
           loading=${loading}
           disabled=${submitDisabled}
         />
@@ -4665,7 +5369,11 @@ function App() {
 
     async function loadDashboardData() {
       if (mode === "demo") {
-        setTransactions(orderTransactions(readAppStorage("demoTransactions", [])));
+        const normalizedDemoTransactions = orderTransactions(
+          normalizeTransactions(readAppStorage("demoTransactions", [])),
+        );
+        writeAppStorage("demoTransactions", normalizedDemoTransactions);
+        setTransactions(normalizedDemoTransactions);
         setBudgets(readAppStorage("demoBudgets", []).map(normalizeBudget));
         setGoals(readAppStorage("demoGoals", []).map(normalizeGoal));
         return;
@@ -4704,7 +5412,7 @@ function App() {
         setTransactions([]);
       } else {
         setTransactions(
-          orderTransactions((transactionResult.data || []).map(normalizeTransaction)),
+          orderTransactions(normalizeTransactions(transactionResult.data || [])),
         );
       }
 
@@ -4768,9 +5476,13 @@ function App() {
 
   function handleDemoLogin() {
     writeAppStorage("demoAuth", true);
+    const normalizedDemoTransactions = orderTransactions(
+      normalizeTransactions(readAppStorage("demoTransactions", [])),
+    );
+    writeAppStorage("demoTransactions", normalizedDemoTransactions);
     setUser(DEMO_USER);
     setMode("demo");
-    setTransactions(orderTransactions(readAppStorage("demoTransactions", [])));
+    setTransactions(normalizedDemoTransactions);
     setBudgets(readAppStorage("demoBudgets", []).map(normalizeBudget));
     setGoals(readAppStorage("demoGoals", []).map(normalizeGoal));
     setMessage("Demo lokal aktif. Semua modul analytics, budget, dan goals berjalan di browser ini.");
@@ -4798,7 +5510,7 @@ function App() {
   }
 
   async function persistDemoTransactions(nextTransactions) {
-    const ordered = orderTransactions(nextTransactions);
+    const ordered = orderTransactions(normalizeTransactions(nextTransactions));
     writeAppStorage("demoTransactions", ordered);
     setTransactions(ordered);
   }
@@ -4868,10 +5580,10 @@ function calculateTHBBalance(transactions) {
         const resolvedRate =
           exchangeRate > 0 ? exchangeRate : fallbackRate > 0 ? fallbackRate : null;
         if (!amountThb || amountThb <= 0) {
-          throw new Error("Masukkan nominal THB masuk yang valid.");
+          throw new Error("Masukkan nominal THB diterima yang valid.");
         }
         if (exchangeSource === "purchase" && (!exchangeRate || exchangeRate <= 0)) {
-          throw new Error("Masukkan rate yang valid untuk pemasukan THB dari beli/tukar.");
+          throw new Error("Masukkan rate yang valid untuk beli/tukar THB.");
         }
         record.amount_idr =
           exchangeSource === "purchase" ? amountThb * exchangeRate : 0;
@@ -4958,6 +5670,132 @@ function calculateTHBBalance(transactions) {
     }
   }
 
+  async function handleUpdateTransaction(transaction, payload) {
+    try {
+      setLoading(true);
+      setMessage("");
+      setToast(null);
+
+      const occurredAt = new Date(payload.occurred_at);
+      if (Number.isNaN(occurredAt.getTime())) {
+        throw new Error("Tanggal transaksi tidak valid.");
+      }
+
+      const flow = getTransactionFlow(transaction);
+      const amountIdr = Number(normalizeNumericInput(payload.amount_idr));
+      const amountThb = Number(normalizeNumericInput(payload.amount_thb));
+      const lockedRate = Number(normalizeNumericInput(payload.locked_rate));
+      const record = {
+        type: transaction.type,
+        occurred_at: occurredAt.toISOString(),
+        description: String(payload.description || "").trim(),
+        category: null,
+        category_group: null,
+        amount_idr: null,
+        amount_thb: null,
+        locked_rate: null,
+      };
+
+      if (flow === "income") {
+        if (!amountIdr || amountIdr <= 0) {
+          throw new Error("Jumlah pemasukan IDR harus lebih besar dari 0.");
+        }
+        record.amount_idr = amountIdr;
+      }
+
+      if (flow === "exchange") {
+        if (!amountThb || amountThb <= 0) {
+          throw new Error("Nominal THB exchange harus lebih besar dari 0.");
+        }
+        const previousThb = Number(transaction.amount_thb || 0);
+        const isSellExchange = previousThb < 0;
+        const resolvedIdr =
+          amountIdr > 0
+            ? amountIdr
+            : lockedRate > 0 && !isSellExchange
+              ? amountThb * lockedRate
+              : 0;
+
+        record.amount_idr = resolvedIdr;
+        record.amount_thb = isSellExchange ? -amountThb : amountThb;
+        record.locked_rate =
+          lockedRate > 0
+            ? lockedRate
+            : resolvedIdr > 0
+              ? resolvedIdr / amountThb
+              : null;
+      }
+
+      if (flow === "expense") {
+        const expenseCurrency =
+          payload.expense_currency === "idr" ? "idr" : "thb";
+        record.category = payload.category || DEFAULT_CATEGORY;
+        record.category_group =
+          expenseCurrency === "thb" ? UNIVERSAL_BUDGET_GROUP : null;
+
+        if (expenseCurrency === "idr") {
+          if (!amountIdr || amountIdr <= 0) {
+            throw new Error("Jumlah pengeluaran IDR harus lebih besar dari 0.");
+          }
+          record.amount_idr = amountIdr;
+          record.amount_thb = null;
+          record.locked_rate = null;
+        } else {
+          if (!amountThb || amountThb <= 0) {
+            throw new Error("Jumlah pengeluaran THB harus lebih besar dari 0.");
+          }
+          const activeExchange = getLockedExchange(transactions, record.occurred_at);
+          const fallbackRate = Number(
+            activeExchange?.locked_rate ||
+              getLatestRateUntil(transactions, new Date(record.occurred_at)) ||
+              0,
+          );
+          const resolvedRate =
+            lockedRate > 0 ? lockedRate : fallbackRate > 0 ? fallbackRate : null;
+
+          record.amount_thb = amountThb;
+          record.locked_rate = resolvedRate;
+          record.amount_idr = resolvedRate ? amountThb * resolvedRate : null;
+        }
+      }
+
+      if (mode === "demo") {
+        await persistDemoTransactions(
+          transactions.map((item) =>
+            item.id === transaction.id ? { ...item, ...record } : item,
+          ),
+        );
+      } else {
+        const { data, error } = await supabase
+          .from("transactions")
+          .update(record)
+          .eq("id", transaction.id)
+          .eq("user_id", user.id)
+          .select()
+          .single();
+        if (error) throw error;
+        setTransactions((current) =>
+          orderTransactions(
+            current.map((item) =>
+              item.id === transaction.id ? normalizeTransaction(data) : item,
+            ),
+          ),
+        );
+      }
+
+      setMessage("Transaksi berhasil diperbarui.");
+      setMessageTone("success");
+      setToast({ message: "Transaksi berhasil diperbarui." });
+      return true;
+    } catch (error) {
+      setMessage(error.message || "Gagal memperbarui transaksi.");
+      setMessageTone("error");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function handleDeleteTransaction(transaction) {
     const confirmation = window.confirm(
       `Hapus transaksi "${transaction.description || TYPE_META[transaction.type].label}"?`,
@@ -4986,6 +5824,7 @@ function calculateTHBBalance(transactions) {
 
       setMessage("Transaksi dihapus.");
       setMessageTone("info");
+      setToast({ message: "Transaksi dihapus." });
     } catch (error) {
       setMessage(error.message || "Gagal menghapus transaksi.");
       setMessageTone("error");
@@ -5484,6 +6323,8 @@ function calculateTHBBalance(transactions) {
                       <${TransactionList}
                         transactions=${historyTransactions}
                         onDelete=${handleDeleteTransaction}
+                        onUpdate=${handleUpdateTransaction}
+                        loading=${loading}
                         title="Riwayat Transaksi"
                         description="Semua pemasukan, pengeluaran, dan pergerakan saldo ada di sini."
                         emptyMessage="Belum ada transaksi."
