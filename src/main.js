@@ -13,6 +13,7 @@ const STORAGE_KEYS = {
   demoBudgets: "monefy-demo-budgets",
   demoGoals: "monefy-demo-goals",
   profilePhotos: "monefy-profile-photos",
+  balanceVisible: "monefy-balance-visible",
 };
 
 const LEGACY_STORAGE_KEYS = {
@@ -22,6 +23,7 @@ const LEGACY_STORAGE_KEYS = {
   demoBudgets: "kas-poipet-demo-budgets",
   demoGoals: "kas-poipet-demo-goals",
   profilePhotos: "kas-poipet-profile-photos",
+  balanceVisible: "kas-poipet-balance-visible",
 };
 
 const DEMO_USER = {
@@ -336,6 +338,70 @@ function AvatarBadge({ src, initials, size = "md" }) {
   `;
 }
 
+function EyeToggleIcon({ visible }) {
+  if (visible) {
+    return html`
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-4 w-4"
+      >
+        <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"></path>
+        <circle cx="12" cy="12" r="3"></circle>
+      </svg>
+    `;
+  }
+
+  return html`
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4"
+    >
+      <path d="M9.88 9.88A3 3 0 0 0 14.12 14.12"></path>
+      <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c6.5 0 10 7 10 7a17.56 17.56 0 0 1-2.07 3.02"></path>
+      <path d="M6.61 6.61C3.7 8.63 2 12 2 12s3.5 7 10 7a9.76 9.76 0 0 0 5.39-1.61"></path>
+      <path d="M2 2l20 20"></path>
+    </svg>
+  `;
+}
+
+function BalancePrivacyPill({ balanceIdr, balanceThb, visible, onToggle }) {
+  const idrText = visible ? formatCurrency(balanceIdr, "idr") : "••••••";
+  const thbText = visible ? formatCurrency(balanceThb, "thb") : "••••••";
+
+  return html`
+    <div className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-2xl border border-brand-300/30 bg-brand-600 px-3 py-1.5 text-[11px] font-semibold uppercase text-white shadow-[0_12px_30px_rgba(16,185,129,0.22)] sm:flex-none sm:rounded-full sm:text-xs">
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-white/75">IDR</span>
+        <span className="min-w-[4.75rem] break-all tabular-nums">${idrText}</span>
+        <span className="hidden text-white/45 min-[360px]:inline">|</span>
+        <span className="text-white/75">THB</span>
+        <span className="min-w-[4.25rem] break-all tabular-nums">${thbText}</span>
+      </div>
+      <button
+        type="button"
+        onClick=${onToggle}
+        aria-label=${visible ? "Sembunyikan saldo" : "Tampilkan saldo"}
+        title=${visible ? "Sembunyikan saldo" : "Tampilkan saldo"}
+        className="inline-flex min-h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/18 bg-white/12 text-white transition hover:-translate-y-0.5 hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/45"
+      >
+        <${EyeToggleIcon} visible=${visible} />
+      </button>
+    </div>
+  `;
+}
+
 function getLocalDayKey(value) {
   const date = new Date(value);
   const year = date.getFullYear();
@@ -349,6 +415,38 @@ function getMonthKey(value = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   return `${year}-${month}`;
+}
+
+function getMonthParts(monthKey = getMonthKey(new Date())) {
+  const [yearRaw, monthRaw] = String(monthKey).split("-");
+  const year = Number(yearRaw) || new Date().getFullYear();
+  const month = Number(monthRaw) || new Date().getMonth() + 1;
+  return { year, month };
+}
+
+function getMonthMeta(monthKey = getMonthKey(new Date())) {
+  const { year, month } = getMonthParts(monthKey);
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 0, 23, 59, 59, 999);
+  const daysInMonth = end.getDate();
+  const isCurrentMonth = monthKey === getMonthKey(new Date());
+  const elapsedDays = isCurrentMonth ? new Date().getDate() : daysInMonth;
+
+  return {
+    year,
+    month,
+    start,
+    end,
+    daysInMonth,
+    elapsedDays: Math.max(Math.min(elapsedDays, daysInMonth), 1),
+    isCurrentMonth,
+    label: formatMonthKey(monthKey),
+  };
+}
+
+function shiftMonthKey(monthKey, offset) {
+  const { year, month } = getMonthParts(monthKey);
+  return getMonthKey(new Date(year, month - 1 + offset, 1));
 }
 
 function getDateInputValue(value = new Date()) {
@@ -1192,6 +1290,248 @@ function computeTransactionSummary(transactions) {
   );
 }
 
+function getAvailableReportMonths(transactions, selectedMonthKey) {
+  const months = new Set([selectedMonthKey, getMonthKey(new Date())]);
+  transactions.forEach((transaction) => {
+    if (transaction.occurred_at) {
+      months.add(getMonthKey(transaction.occurred_at));
+    }
+  });
+
+  return [...months].sort((a, b) => b.localeCompare(a));
+}
+
+function getLatestRateUntil(transactions, endDate) {
+  return Number(
+    orderTransactions(transactions)
+      .filter(
+        (item) =>
+          item.type === "exchange" &&
+          Number(item.locked_rate || 0) > 0 &&
+          new Date(item.occurred_at).getTime() <= endDate.getTime(),
+      )
+      .at(-1)?.locked_rate || 0,
+  );
+}
+
+function resolveReportValueIdr(transaction, fallbackRate = 0) {
+  const amountIdr = Number(transaction.amount_idr || 0);
+  if (amountIdr > 0) return amountIdr;
+
+  const amountThb = Number(transaction.amount_thb || 0);
+  const rate = Number(transaction.locked_rate || fallbackRate || 0);
+  return amountThb > 0 && rate > 0 ? amountThb * rate : 0;
+}
+
+function summarizeReportMonth(transactions, monthKey, fallbackRate = 0) {
+  const monthTransactions = orderTransactions(transactions).filter(
+    (item) => getMonthKey(item.occurred_at) === monthKey,
+  );
+
+  return monthTransactions.reduce(
+    (summary, transaction) => {
+      const valueIdr = resolveReportValueIdr(transaction, fallbackRate);
+
+      if (transaction.type === "income") {
+        summary.externalIncomeIdr += valueIdr;
+      }
+
+      if (transaction.type === "exchange") {
+        const thbAmount = Number(transaction.amount_thb || 0);
+        summary.thbReceived += thbAmount;
+        if (Number(transaction.amount_idr || 0) > 0) {
+          summary.thbTopupCostIdr += Number(transaction.amount_idr || 0);
+        } else {
+          summary.externalIncomeIdr += valueIdr;
+        }
+      }
+
+      if (transaction.type === "expense") {
+        summary.expenseIdr += valueIdr;
+        summary.expenseThb += Number(transaction.amount_thb || 0);
+        if (Number(transaction.amount_thb || 0) > 0) {
+          summary.thbExpenseValueIdr += valueIdr;
+        } else {
+          summary.directExpenseIdr += Number(transaction.amount_idr || 0);
+        }
+      }
+
+      summary.count += 1;
+      summary.netCashflowIdr = summary.externalIncomeIdr - summary.expenseIdr;
+      return summary;
+    },
+    {
+      monthKey,
+      count: 0,
+      externalIncomeIdr: 0,
+      expenseIdr: 0,
+      directExpenseIdr: 0,
+      thbExpenseValueIdr: 0,
+      expenseThb: 0,
+      thbReceived: 0,
+      thbTopupCostIdr: 0,
+      netCashflowIdr: 0,
+    },
+  );
+}
+
+function buildReportDailySeries(transactions, monthKey, fallbackRate = 0) {
+  const meta = getMonthMeta(monthKey);
+  const days = [];
+
+  for (let day = 1; day <= meta.daysInMonth; day += 1) {
+    const date = new Date(meta.year, meta.month - 1, day);
+    days.push({
+      key: getLocalDayKey(date),
+      label: String(day).padStart(2, "0"),
+      tooltipLabel: formatDay(date),
+      incomeIdr: 0,
+      expenseIdr: 0,
+      netIdr: 0,
+      transactionCount: 0,
+    });
+  }
+
+  const map = new Map(days.map((item) => [item.key, item]));
+  transactions
+    .filter((transaction) => getMonthKey(transaction.occurred_at) === monthKey)
+    .forEach((transaction) => {
+      const bucket = map.get(getLocalDayKey(transaction.occurred_at));
+      if (!bucket) return;
+
+      const valueIdr = resolveReportValueIdr(transaction, fallbackRate);
+      const isIncome =
+        transaction.type === "income" ||
+        (transaction.type === "exchange" && Number(transaction.amount_idr || 0) <= 0);
+
+      if (isIncome) bucket.incomeIdr += valueIdr;
+      if (transaction.type === "expense") bucket.expenseIdr += valueIdr;
+      bucket.netIdr = bucket.incomeIdr - bucket.expenseIdr;
+      bucket.transactionCount += 1;
+    });
+
+  return days;
+}
+
+function buildMonthlyReport(transactions, budgets, selectedMonthKey) {
+  const monthKey = selectedMonthKey || getMonthKey(new Date());
+  const meta = getMonthMeta(monthKey);
+  const previousMonthKey = shiftMonthKey(monthKey, -1);
+  const fallbackRate = getLatestRateUntil(transactions, meta.end);
+  const summary = summarizeReportMonth(transactions, monthKey, fallbackRate);
+  const previousSummary = summarizeReportMonth(
+    transactions,
+    previousMonthKey,
+    getLatestRateUntil(transactions, getMonthMeta(previousMonthKey).end),
+  );
+  const monthTransactions = orderTransactions(transactions).filter(
+    (item) => getMonthKey(item.occurred_at) === monthKey,
+  );
+  const expenseTransactions = monthTransactions.filter(
+    (item) => item.type === "expense",
+  );
+  const dailySeries = buildReportDailySeries(transactions, monthKey, fallbackRate);
+  const categoryAccumulator = {};
+
+  expenseTransactions.forEach((transaction) => {
+    const category = transaction.category || "Lainnya";
+    const valueIdr = resolveReportValueIdr(transaction, fallbackRate);
+    if (!categoryAccumulator[category]) {
+      categoryAccumulator[category] = {
+        valueIdr: 0,
+        valueThb: 0,
+        count: 0,
+      };
+    }
+
+    categoryAccumulator[category].valueIdr += valueIdr;
+    categoryAccumulator[category].valueThb += Number(transaction.amount_thb || 0);
+    categoryAccumulator[category].count += 1;
+  });
+
+  const categoryBreakdown = Object.entries(categoryAccumulator)
+    .map(([category, data]) => ({
+      key: category,
+      label: getCategoryMeta(category).label,
+      meta: getCategoryMeta(category),
+      valueIdr: data.valueIdr,
+      valueThb: data.valueThb,
+      count: data.count,
+      share: summary.expenseIdr > 0 ? data.valueIdr / summary.expenseIdr : 0,
+    }))
+    .sort((a, b) => b.valueIdr - a.valueIdr);
+
+  const budgetLimitThb = budgets
+    .filter(
+      (budget) =>
+        budget.month_key === monthKey &&
+        (budget.group_key || UNIVERSAL_BUDGET_GROUP) === UNIVERSAL_BUDGET_GROUP,
+    )
+    .reduce((sum, budget) => sum + Number(budget.limit_thb || 0), 0);
+  const budgetSpentThb = summary.expenseThb;
+  const budgetUsage = budgetLimitThb > 0 ? budgetSpentThb / budgetLimitThb : 0;
+  const budgetRemainingThb = budgetLimitThb - budgetSpentThb;
+  const budgetStatus =
+    budgetLimitThb <= 0
+      ? "none"
+      : budgetUsage > 1
+        ? "over"
+        : budgetUsage >= 0.85
+          ? "warning"
+          : "safe";
+  const budgetStatusLabel =
+    budgetStatus === "none"
+      ? "Belum ada budget"
+      : budgetStatus === "over"
+        ? "Melewati batas"
+        : budgetStatus === "warning"
+          ? "Hati-hati"
+          : "Aman";
+  const dailyAverageExpenseIdr =
+    meta.elapsedDays > 0 ? summary.expenseIdr / meta.elapsedDays : 0;
+  const projectedExpenseIdr = meta.isCurrentMonth
+    ? dailyAverageExpenseIdr * meta.daysInMonth
+    : summary.expenseIdr;
+  const savingsRatio =
+    summary.externalIncomeIdr > 0
+      ? summary.netCashflowIdr / summary.externalIncomeIdr
+      : 0;
+  const previousDeltaIdr =
+    previousSummary.count > 0
+      ? summary.netCashflowIdr - previousSummary.netCashflowIdr
+      : null;
+  const strongestDay = [...dailySeries].sort(
+    (a, b) => b.expenseIdr - a.expenseIdr,
+  )[0];
+  const topCategory = categoryBreakdown[0] || null;
+  const recentTransactions = [...monthTransactions].reverse().slice(0, 5);
+
+  return {
+    monthKey,
+    previousMonthKey,
+    meta,
+    fallbackRate,
+    summary,
+    previousSummary,
+    previousDeltaIdr,
+    dailySeries,
+    categoryBreakdown,
+    topCategory,
+    strongestDay,
+    recentTransactions,
+    budgetLimitThb,
+    budgetSpentThb,
+    budgetUsage,
+    budgetRemainingThb,
+    budgetStatus,
+    budgetStatusLabel,
+    dailyAverageExpenseIdr,
+    projectedExpenseIdr,
+    savingsRatio,
+    hasTransactions: monthTransactions.length > 0,
+  };
+}
+
 function PremiumMeshBackground() {
   return html`
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
@@ -1696,6 +2036,578 @@ function OverviewPage({ metrics, transactions, onNavigate }) {
         transactions=${latestTransactions}
         onNavigate=${onNavigate}
       />
+    </div>
+  `;
+}
+
+function ReportMonthPicker({ months, value, onChange }) {
+  const previousKey = shiftMonthKey(value, -1);
+  const nextKey = shiftMonthKey(value, 1);
+  const latestAllowed = getMonthKey(new Date());
+  const nextDisabled = nextKey > latestAllowed && !months.includes(nextKey);
+
+  return html`
+    <div className="grid grid-cols-[44px_1fr_44px] items-center gap-2">
+      <button
+        type="button"
+        onClick=${() => onChange(previousKey)}
+        className="cuan-secondary inline-flex min-h-11 items-center justify-center rounded-2xl px-3 text-sm font-black transition hover:-translate-y-0.5"
+        aria-label="Bulan sebelumnya"
+      >
+        ${"<"}
+      </button>
+      <select
+        value=${value}
+        onChange=${(event) => onChange(event.target.value)}
+        className=${`${GLASS_INPUT} text-center font-semibold`}
+        aria-label="Pilih bulan laporan"
+      >
+        ${months.map(
+          (month) => html`
+            <option key=${month} value=${month}>${formatMonthKey(month)}</option>
+          `,
+        )}
+      </select>
+      <button
+        type="button"
+        disabled=${nextDisabled}
+        onClick=${() => onChange(nextKey)}
+        className="cuan-secondary inline-flex min-h-11 items-center justify-center rounded-2xl px-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-45"
+        aria-label="Bulan berikutnya"
+      >
+        ${">"}
+      </button>
+    </div>
+  `;
+}
+
+function MonthlyReportHero({ report }) {
+  const netPositive = report.summary.netCashflowIdr >= 0;
+  const trendText =
+    report.previousDeltaIdr == null
+      ? "Belum ada pembanding bulan lalu"
+      : `${report.previousDeltaIdr >= 0 ? "Naik" : "Turun"} ${formatCurrency(
+          Math.abs(report.previousDeltaIdr),
+          "idr",
+        )} vs bulan lalu`;
+  const statusLabel = netPositive ? "Surplus" : "Defisit";
+
+  return html`
+    <section className=${`${PREMIUM_PANEL} report-reveal report-glow-sweep p-5 md:p-6`}>
+      <div className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-brand-400/20 blur-3xl dark:bg-brand-400/14"></div>
+      <div className="pointer-events-none absolute -bottom-24 left-6 h-48 w-48 rounded-full bg-sky-300/16 blur-3xl dark:bg-sky-400/10"></div>
+      <div className="relative grid gap-5 lg:grid-cols-[1.15fr_0.85fr] lg:items-end">
+        <div>
+          <div className="inline-flex rounded-full border border-brand-300/25 bg-brand-500/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-brand-800 dark:border-brand-400/20 dark:text-brand-200">
+            Laporan ${report.meta.label}
+          </div>
+          <p className="mt-4 text-sm font-semibold text-slate-600 dark:text-slate-300">
+            Cashflow bersih bulan ini
+          </p>
+          <h2 className=${`mt-2 break-words font-display text-4xl font-black text-slate-950 dark:text-white md:text-5xl ${netPositive ? "" : "text-rose-700 dark:text-rose-300"}`}>
+            ${netPositive ? "+" : "-"}${formatCurrency(Math.abs(report.summary.netCashflowIdr), "idr")}
+          </h2>
+          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-700 dark:text-slate-300">
+            ${statusLabel} dari pemasukan eksternal dikurangi semua pengeluaran.
+            Top up THB dicatat terpisah sebagai perpindahan aset.
+          </p>
+        </div>
+
+        <div className="grid gap-3 rounded-[24px] border border-slate-200/70 bg-white/58 p-4 shadow-[0_18px_44px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/45">
+          <div className="flex items-center justify-between gap-3">
+            <span className=${`rounded-full px-3 py-1 text-xs font-black ${netPositive ? "bg-brand-500/12 text-brand-700 dark:text-brand-200" : "bg-rose-500/12 text-rose-700 dark:text-rose-200"}`}>
+              ${statusLabel}
+            </span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              ${trendText}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                Pemasukan
+              </p>
+              <p className="mt-2 break-words text-base font-black text-brand-700 dark:text-brand-300">
+                ${formatCurrency(report.summary.externalIncomeIdr, "idr")}
+              </p>
+            </div>
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                Pengeluaran
+              </p>
+              <p className="mt-2 break-words text-base font-black text-rose-700 dark:text-rose-300">
+                ${formatCurrency(report.summary.expenseIdr, "idr")}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function MonthlyReportKpis({ report }) {
+  const stats = [
+    {
+      title: "Pemasukan",
+      value: formatCurrency(report.summary.externalIncomeIdr, "idr"),
+      helper: "Uang masuk eksternal",
+    },
+    {
+      title: "Pengeluaran",
+      value: formatCurrency(report.summary.expenseIdr, "idr"),
+      helper: "Total belanja bulan ini",
+    },
+    {
+      title: "Rasio simpan",
+      value:
+        report.summary.externalIncomeIdr > 0
+          ? formatPercent(report.savingsRatio)
+          : "-",
+      helper: "Cashflow / pemasukan",
+    },
+    {
+      title: "Top up THB",
+      value: formatCurrency(report.summary.thbTopupCostIdr, "idr"),
+      helper: `${formatCurrency(report.summary.thbReceived, "thb")} diterima`,
+    },
+    {
+      title: "Rata-rata",
+      value: formatCurrency(report.dailyAverageExpenseIdr, "idr"),
+      helper: "Pengeluaran per hari",
+    },
+    {
+      title: "Transaksi",
+      value: report.summary.count,
+      helper: "Aktivitas bulan ini",
+    },
+  ];
+
+  return html`
+    <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+      ${stats.map(
+        (item, index) => html`
+          <div
+            key=${item.title}
+            className="cuan-card-soft report-reveal rounded-[22px] p-4"
+            style=${{ animationDelay: `${80 + index * 45}ms` }}
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+              ${item.title}
+            </p>
+            <p className="mt-2 break-words text-base font-black text-slate-950 dark:text-white md:text-lg">
+              ${item.value}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+              ${item.helper}
+            </p>
+          </div>
+        `,
+      )}
+    </section>
+  `;
+}
+
+function MonthlyBudgetPulse({ report }) {
+  const width = `${Math.min(Math.max(report.budgetUsage * 100, report.budgetUsage > 0 ? 8 : 0), 100)}%`;
+  const barClass =
+    report.budgetStatus === "over"
+      ? "from-rose-500 to-rose-400"
+      : report.budgetStatus === "warning"
+        ? "from-amber-400 to-orange-500"
+        : "from-brand-500 to-emerald-300";
+  const chipClass =
+    report.budgetStatus === "over"
+      ? "bg-rose-500/12 text-rose-700 dark:text-rose-200"
+      : report.budgetStatus === "warning"
+        ? "bg-amber-500/12 text-amber-700 dark:text-amber-200"
+        : report.budgetStatus === "safe"
+          ? "bg-brand-500/12 text-brand-700 dark:text-brand-200"
+          : "bg-slate-500/12 text-slate-600 dark:text-slate-300";
+
+  return html`
+    <section className=${`${PREMIUM_PANEL} report-reveal p-5 md:p-6`}>
+      <div className="relative flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-display text-xl font-bold text-slate-950 dark:text-white">
+            Budget Pulse
+          </h3>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            Status budget THB untuk ${report.meta.label}.
+          </p>
+        </div>
+        <span className=${`rounded-full px-3 py-1 text-xs font-black ${chipClass}`}>
+          ${report.budgetStatusLabel}
+        </span>
+      </div>
+
+      <div className="relative mt-5 grid grid-cols-3 gap-3">
+        ${[
+          ["Budget", formatCurrency(report.budgetLimitThb, "thb")],
+          ["Terpakai", formatCurrency(report.budgetSpentThb, "thb")],
+          ["Sisa", formatCurrency(Math.max(report.budgetRemainingThb, 0), "thb")],
+        ].map(
+          ([label, value]) => html`
+            <div key=${label}>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                ${label}
+              </p>
+              <p className="mt-2 break-words text-sm font-black text-slate-950 dark:text-white">
+                ${value}
+              </p>
+            </div>
+          `,
+        )}
+      </div>
+
+      <div className="relative mt-5 h-3 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
+        <div
+          className=${`report-bar-fill h-full rounded-full bg-gradient-to-r ${barClass}`}
+          style=${{ width }}
+        ></div>
+      </div>
+      <p className="relative mt-2 text-xs text-slate-600 dark:text-slate-300">
+        ${report.budgetLimitThb > 0
+          ? `${formatPercent(report.budgetUsage)} dari budget sudah terpakai.`
+          : "Belum ada budget aktif untuk bulan ini."}
+      </p>
+    </section>
+  `;
+}
+
+function MonthlyReportCharts({ report }) {
+  const cashflowMax = Math.max(
+    report.summary.externalIncomeIdr,
+    report.summary.expenseIdr,
+    1,
+  );
+  const dailyMax = Math.max(
+    ...report.dailySeries.map((item) => item.expenseIdr),
+    1,
+  );
+
+  return html`
+    <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
+      <div className=${`${PREMIUM_PANEL} report-reveal p-5 md:p-6`}>
+        <div className="relative">
+          <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
+            Cashflow
+          </h3>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            Pemasukan vs pengeluaran bulan ini.
+          </p>
+        </div>
+        <div className="relative mt-5 grid gap-4">
+          ${[
+            ["Pemasukan", report.summary.externalIncomeIdr, "from-brand-500 to-emerald-300"],
+            ["Pengeluaran", report.summary.expenseIdr, "from-rose-500 to-amber-400"],
+          ].map(([label, value, gradient], index) => {
+            const width = `${Math.max((Number(value) / cashflowMax) * 100, value > 0 ? 8 : 0)}%`;
+            return html`
+              <div key=${label}>
+                <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+                  <span className="font-semibold text-slate-600 dark:text-slate-300">
+                    ${label}
+                  </span>
+                  <span className="font-bold text-slate-950 dark:text-white">
+                    ${formatCurrency(value, "idr")}
+                  </span>
+                </div>
+                <div className="h-3 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
+                  <div
+                    className=${`report-bar-fill h-full rounded-full bg-gradient-to-r ${gradient}`}
+                    style=${{ width, animationDelay: `${index * 120}ms` }}
+                  ></div>
+                </div>
+              </div>
+            `;
+          })}
+        </div>
+      </div>
+
+      <div className=${`${PREMIUM_PANEL} report-reveal p-5 md:p-6`}>
+        <div className="relative">
+          <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
+            Ritme Pengeluaran
+          </h3>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            Pola harian sepanjang ${report.meta.label}.
+          </p>
+        </div>
+        <div className="relative mt-5 flex h-36 items-end gap-1">
+          ${report.dailySeries.map((item, index) => {
+            const height = Math.max((item.expenseIdr / dailyMax) * 100, item.expenseIdr > 0 ? 10 : 4);
+            const showLabel =
+              index === 0 ||
+              index === report.dailySeries.length - 1 ||
+              Number(item.label) % 5 === 0;
+            return html`
+              <div key=${item.key} className="flex min-w-0 flex-1 flex-col items-center gap-2">
+                <div className="flex h-24 w-full items-end">
+                  <div
+                    title=${`${item.tooltipLabel}: ${formatCurrency(item.expenseIdr, "idr")}`}
+                    className="report-column w-full rounded-t-xl bg-gradient-to-t from-brand-600 to-emerald-300 dark:from-brand-500 dark:to-emerald-200"
+                    style=${{
+                      height: `${height}%`,
+                      animationDelay: `${index * 18}ms`,
+                    }}
+                  ></div>
+                </div>
+                <span className="h-3 text-[9px] font-semibold text-slate-500 dark:text-slate-400">
+                  ${showLabel ? item.label : ""}
+                </span>
+              </div>
+            `;
+          })}
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function MonthlyCategoryBreakdown({ report }) {
+  const topCategories = report.categoryBreakdown.slice(0, 5);
+
+  return html`
+    <section className=${`${PREMIUM_PANEL} report-reveal p-5 md:p-6`}>
+      <div className="relative flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
+            Kategori Terbesar
+          </h3>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            Ke mana uang paling banyak pergi.
+          </p>
+        </div>
+      </div>
+
+      ${topCategories.length
+        ? html`
+            <div className="relative mt-5 grid gap-3">
+              ${topCategories.map((item, index) => html`
+                <div key=${item.key} className="rounded-2xl border border-slate-200/70 bg-white/50 p-3 dark:border-white/10 dark:bg-slate-800/45">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-black text-slate-950 dark:text-white">
+                        ${item.label}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        ${item.count} transaksi
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-black text-slate-950 dark:text-white">
+                        ${formatCurrency(item.valueIdr, "idr")}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                        ${formatPercent(item.share)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
+                    <div
+                      className=${`report-bar-fill h-full rounded-full bg-gradient-to-r ${item.meta.bar}`}
+                      style=${{
+                        width: `${Math.max(item.share * 100, 6)}%`,
+                        animationDelay: `${index * 70}ms`,
+                      }}
+                    ></div>
+                  </div>
+                </div>
+              `)}
+            </div>
+          `
+        : html`
+            <div className="relative mt-5 rounded-2xl border border-dashed border-slate-300/70 bg-white/45 p-5 text-sm text-slate-600 dark:border-white/10 dark:bg-slate-800/35 dark:text-slate-300">
+              Belum ada pengeluaran di bulan ini.
+            </div>
+          `}
+    </section>
+  `;
+}
+
+function MonthlyReportInsights({ report }) {
+  const topCategory = report.topCategory;
+  const budgetHelper =
+    report.budgetLimitThb > 0
+      ? `${formatPercent(report.budgetUsage)} terpakai dari ${formatCurrency(report.budgetLimitThb, "thb")}`
+      : "Tambahkan budget agar laporan bisa memberi sinyal risiko.";
+  const rhythmHelper = report.meta.isCurrentMonth
+    ? `Proyeksi akhir bulan ${formatCurrency(report.projectedExpenseIdr, "idr")}.`
+    : "Rata-rata real dari bulan yang sudah selesai.";
+  const focusHelper =
+    topCategory && topCategory.share >= 0.45
+      ? `${topCategory.label} mengambil ${formatPercent(topCategory.share)} dari pengeluaran.`
+      : topCategory
+        ? "Pengeluaran relatif tersebar di beberapa kategori."
+        : "Belum ada kategori pengeluaran.";
+  const insights = [
+    {
+      title: "Fokus kategori",
+      value: topCategory ? topCategory.label : "-",
+      helper: focusHelper,
+    },
+    {
+      title: "Laju harian",
+      value: formatCurrency(report.dailyAverageExpenseIdr, "idr"),
+      helper: rhythmHelper,
+    },
+    {
+      title: "Budget",
+      value: report.budgetStatusLabel,
+      helper: budgetHelper,
+    },
+  ];
+
+  return html`
+    <section className="grid gap-3 md:grid-cols-3">
+      ${insights.map(
+        (item, index) => html`
+          <div
+            key=${item.title}
+            className="cuan-card-soft report-reveal rounded-[22px] p-4"
+            style=${{ animationDelay: `${140 + index * 55}ms` }}
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+              ${item.title}
+            </p>
+            <p className="mt-2 break-words text-base font-black text-slate-950 dark:text-white">
+              ${item.value}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+              ${item.helper}
+            </p>
+          </div>
+        `,
+      )}
+    </section>
+  `;
+}
+
+function MonthlyReportRecent({ report, onNavigate }) {
+  return html`
+    <section className=${`${PREMIUM_PANEL} report-reveal p-5 md:p-6`}>
+      <div className="relative flex items-center justify-between gap-3">
+        <div>
+          <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
+            Transaksi Bulan Ini
+          </h3>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            5 aktivitas terakhir di ${report.meta.label}.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick=${() => onNavigate("history")}
+          className="cuan-secondary min-h-11 rounded-2xl px-4 py-2 text-sm font-semibold transition hover:-translate-y-0.5"
+        >
+          Riwayat
+        </button>
+      </div>
+
+      <div className="relative mt-4 grid gap-2">
+        ${report.recentTransactions.map((item) => html`
+          <div
+            key=${item.id}
+            className="grid grid-cols-[1fr_auto] gap-3 rounded-2xl border border-slate-200/70 bg-white/50 p-3 dark:border-white/10 dark:bg-slate-800/45"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-slate-950 dark:text-white">
+                ${item.description || TYPE_META[item.type]?.label || "Transaksi"}
+              </p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                ${formatDateTime(item.occurred_at)}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-sm font-black text-slate-950 dark:text-white">
+                ${getTransactionPreview(item)}
+              </p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                ${getTransactionTypeLabel(item)}
+              </p>
+            </div>
+          </div>
+        `)}
+      </div>
+    </section>
+  `;
+}
+
+function MonthlyReportEmptyState({ onNavigate }) {
+  return html`
+    <section className=${`${PREMIUM_PANEL} report-reveal p-6 text-center md:p-8`}>
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.16),transparent_48%)]"></div>
+      <div className="relative mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-brand-300/25 bg-brand-500/12 text-2xl font-black text-brand-700 dark:text-brand-200">
+        +
+      </div>
+      <h3 className="relative mt-4 font-display text-2xl font-bold text-slate-950 dark:text-white">
+        Laporan bulan ini masih kosong
+      </h3>
+      <p className="relative mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-slate-300">
+        Tambahkan transaksi agar CUANSYNC bisa membuat cashflow, chart kategori, dan insight bulanan.
+      </p>
+      <button
+        type="button"
+        onClick=${() => onNavigate("add")}
+        className="relative mt-5 min-h-12 rounded-2xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(16,185,129,0.22)] transition hover:-translate-y-0.5 hover:bg-brand-700 dark:bg-emerald-500"
+      >
+        Tambah transaksi
+      </button>
+    </section>
+  `;
+}
+
+function MonthlyReportPage({
+  transactions,
+  budgets,
+  selectedMonthKey,
+  onMonthChange,
+  onNavigate,
+}) {
+  const months = useMemo(
+    () => getAvailableReportMonths(transactions, selectedMonthKey),
+    [transactions, selectedMonthKey],
+  );
+  const report = useMemo(
+    () => buildMonthlyReport(transactions, budgets, selectedMonthKey),
+    [transactions, budgets, selectedMonthKey],
+  );
+
+  return html`
+    <div className="grid gap-4">
+      <section className="grid gap-3 md:grid-cols-[1fr_minmax(18rem,24rem)] md:items-end">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+            Monthly report
+          </p>
+          <h2 className="mt-2 font-display text-2xl font-black text-slate-950 dark:text-white md:text-3xl">
+            Laporan Keuangan Bulanan
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+            Ringkasan cashflow, budget, kategori, dan ritme pengeluaran dalam satu layar.
+          </p>
+        </div>
+        <${ReportMonthPicker}
+          months=${months}
+          value=${selectedMonthKey}
+          onChange=${onMonthChange}
+        />
+      </section>
+
+      ${report.hasTransactions
+        ? html`
+            <${MonthlyReportHero} report=${report} />
+            <${MonthlyReportKpis} report=${report} />
+            <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
+              <${MonthlyBudgetPulse} report=${report} />
+              <${MonthlyCategoryBreakdown} report=${report} />
+            </div>
+            <${MonthlyReportInsights} report=${report} />
+            <${MonthlyReportCharts} report=${report} />
+            <${MonthlyReportRecent} report=${report} onNavigate=${onNavigate} />
+          `
+        : html`<${MonthlyReportEmptyState} onNavigate=${onNavigate} />`}
     </div>
   `;
 }
@@ -3682,6 +4594,10 @@ function App() {
   const [messageTone, setMessageTone] = useState("info");
   const [toast, setToast] = useState(null);
   const [activeTab, setActiveTab] = useState("today");
+  const [reportMonthKey, setReportMonthKey] = useState(getMonthKey(new Date()));
+  const [balanceVisible, setBalanceVisible] = useState(() =>
+    readAppStorage("balanceVisible", false),
+  );
   const [menuOpen, setMenuOpen] = useState(false);
 
   const supabaseReady = Boolean(supabase);
@@ -4395,6 +5311,7 @@ function calculateTHBBalance(transactions) {
     { key: "add", label: "Tambah" },
     { key: "history", label: "Riwayat" },
     { key: "overview", label: "Overview" },
+    { key: "report", label: "Laporan" },
     { key: "investment", label: "Investasi" },
     { key: "settings", label: "Profil" },
   ];
@@ -4435,6 +5352,14 @@ function calculateTHBBalance(transactions) {
     setMessageTone("info");
   }
 
+  function handleToggleBalanceVisibility() {
+    setBalanceVisible((current) => {
+      const next = !current;
+      writeAppStorage("balanceVisible", next);
+      return next;
+    });
+  }
+
   return html`
     <main className="app-shell relative isolate min-h-screen overflow-hidden px-4 pt-5 md:px-6 md:py-6 lg:px-8">
       <${PremiumMeshBackground} />
@@ -4448,13 +5373,12 @@ function calculateTHBBalance(transactions) {
             </div>
 
             <div className="flex min-w-0 items-center justify-between gap-3 sm:justify-end">
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1 rounded-2xl border border-brand-300/30 bg-brand-600 px-3 py-2 text-[11px] font-semibold uppercase text-white shadow-[0_12px_30px_rgba(16,185,129,0.22)] sm:flex-none sm:rounded-full sm:text-xs">
-                <span className="text-white/75">IDR</span>
-                <span className="break-all">${formatCurrency(metrics.balanceIdr, "idr")}</span>
-                <span className="text-white/45">|</span>
-                <span className="text-white/75">THB</span>
-                <span className="break-all">${formatCurrency(metrics.balanceThb, "thb")}</span>
-              </div>
+              <${BalancePrivacyPill}
+                balanceIdr=${metrics.balanceIdr}
+                balanceThb=${metrics.balanceThb}
+                visible=${balanceVisible}
+                onToggle=${handleToggleBalanceVisibility}
+              />
 
               <button
                 type="button"
@@ -4579,7 +5503,22 @@ function calculateTHBBalance(transactions) {
                         />
                       </section>
                     `
-                  : activeTab === "settings"
+                  : activeTab === "report"
+                    ? html`
+                        <section className="mt-6">
+                          <${MonthlyReportPage}
+                            transactions=${transactions}
+                            budgets=${budgets}
+                            selectedMonthKey=${reportMonthKey}
+                            onMonthChange=${setReportMonthKey}
+                            onNavigate=${(tab) => {
+                              setActiveTab(tab);
+                              setMenuOpen(false);
+                            }}
+                          />
+                        </section>
+                      `
+                    : activeTab === "settings"
                     ? html`
                         <section className="mt-6">
                           <${SettingsPanel}
