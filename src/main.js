@@ -643,9 +643,28 @@ function normalizeBudget(row) {
   };
 }
 
-function normalizeGoal(row) {
+function createLegacyGoalId(row, index = 0) {
+  const seed = [
+    row.created_at,
+    row.name,
+    row.target_amount_idr,
+    row.saved_amount_idr,
+    row.deadline,
+    index,
+  ]
+    .map((part) => String(part ?? ""))
+    .join("|");
+  let hash = 0;
+  for (let indexSeed = 0; indexSeed < seed.length; indexSeed += 1) {
+    hash = (hash * 31 + seed.charCodeAt(indexSeed)) >>> 0;
+  }
+  return `legacy-goal-${hash.toString(36)}-${index}`;
+}
+
+function normalizeGoal(row, index = 0) {
   return {
     ...row,
+    id: row.id || createLegacyGoalId(row, index),
     target_amount_idr: Number(row.target_amount_idr || 0),
     saved_amount_idr: Number(row.saved_amount_idr || 0),
   };
@@ -3582,20 +3601,20 @@ function GoalTracker({ goals, onDelete, onContribute }) {
     <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.14),transparent_50%)] opacity-80"></div>
       <div className="relative">
-        <h3 className="font-display text-xl font-bold">Progress Tracker Tujuan</h3>
+        <h3 className="font-display text-xl font-bold">Target Keuangan</h3>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-          Pantau capaian dana darurat atau target finansial lain dengan progress bar yang hidup.
+          Daftar goal yang sedang kamu kejar, dibuat compact agar nyaman dipantau di mobile.
         </p>
       </div>
 
       ${goals.length
         ? html`
-            <div className="relative mt-5 space-y-3">
+            <div className="relative mt-5 grid gap-3">
               ${goals.map(
                 (goal) => html`
                   <div
                     key=${goal.id}
-                    className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40"
+                    className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 dark:bg-slate-900/40"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div>
@@ -3637,7 +3656,7 @@ function GoalTracker({ goals, onDelete, onContribute }) {
                       <span>Sisa ${formatCurrency(goal.remainingIdr, "idr")}</span>
                     </div>
 
-                    <div className="mt-4 flex flex-wrap gap-2">
+                    <div className="mt-4 grid grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick=${() => {
@@ -3646,9 +3665,9 @@ function GoalTracker({ goals, onDelete, onContribute }) {
                             current === goal.id ? null : goal.id,
                           );
                         }}
-                        className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-semibold text-slate-700 backdrop-blur-xl transition hover:-translate-y-0.5 dark:bg-slate-900/40 dark:text-slate-200"
+                        className="min-h-11 rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-xs font-black text-slate-700 backdrop-blur-xl transition hover:-translate-y-0.5 dark:bg-slate-900/40 dark:text-slate-200"
                       >
-                        Setor dari Saldo Utama
+                        Setor
                       </button>
                       <button
                         type="button"
@@ -3658,14 +3677,14 @@ function GoalTracker({ goals, onDelete, onContribute }) {
                             current === goal.id ? null : goal.id,
                           );
                         }}
-                        className="rounded-full border border-sky-300/25 bg-sky-400/10 px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:-translate-y-0.5 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-200"
+                        className="min-h-11 rounded-2xl border border-sky-300/25 bg-sky-400/10 px-3 py-2 text-xs font-black text-sky-700 transition hover:-translate-y-0.5 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-200"
                       >
-                        Tarik ke Saldo Utama
+                        Tarik
                       </button>
                       <button
                         type="button"
                         onClick=${() => onDelete(goal)}
-                        className="rounded-full border border-rose-300/25 bg-rose-400/10 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:-translate-y-0.5 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200"
+                        className="min-h-11 rounded-2xl border border-rose-300/25 bg-rose-400/10 px-3 py-2 text-xs font-black text-rose-700 transition hover:-translate-y-0.5 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200"
                       >
                         Hapus
                       </button>
@@ -3705,7 +3724,7 @@ function GoalTracker({ goals, onDelete, onContribute }) {
           `
         : html`
             <div className="relative mt-5 rounded-2xl border border-dashed border-white/15 bg-white/5 p-5 text-sm text-slate-600 backdrop-blur-xl dark:bg-slate-900/25 dark:text-slate-300/80">
-              Belum ada tujuan tabungan. Tambahkan target seperti dana darurat agar progress tracker mulai terisi.
+              Belum ada target keuangan. Tambahkan goal pertama agar CUANSYNC bisa menghitung progress dan sisa yang perlu dikejar.
             </div>
           `}
     </div>
@@ -5148,71 +5167,158 @@ function DailyBudgetGuard({ budget, todaySpentThb, todaySpentIdr, monthLabel }) 
   `;
 }
 
-function InvestmentSnapshot({ totalSaved, totalTarget, nextGoal }) {
-  const progress =
-    totalTarget > 0 ? Math.min(totalSaved / totalTarget, 1) : 0;
+function InvestmentSnapshot({ metrics, onAddGoal }) {
+  const totalSaved = Number(metrics.totalGoalSaved || 0);
+  const totalTarget = Number(metrics.totalGoalTarget || 0);
+  const nextGoal = metrics.nextGoal;
+  const progress = totalTarget > 0 ? Math.min(totalSaved / totalTarget, 1) : 0;
+  const activeGoalCount = metrics.goalInsights.filter(
+    (goal) => goal.status !== "done",
+  ).length;
+  const totalTrackedAssets =
+    Number(metrics.balanceIdr || 0) +
+    totalSaved +
+    Number(metrics.balanceThbValuationIdr || 0);
+  const nextGoalDailyNeed =
+    nextGoal?.daysLeft > 0 && nextGoal.remainingIdr > 0
+      ? nextGoal.remainingIdr / nextGoal.daysLeft
+      : 0;
+  const statItems = [
+    {
+      label: "Aset tercatat",
+      value: formatCurrency(totalTrackedAssets, "idr"),
+      helper: "Saldo tersedia + goals + valuasi THB",
+    },
+    {
+      label: "Dana goals",
+      value: formatCurrency(totalSaved, "idr"),
+      helper: `${formatPercent(progress)} dari target`,
+    },
+    {
+      label: "Saldo tersedia",
+      value: formatCurrency(metrics.balanceIdr, "idr"),
+      helper: "Bisa dipakai atau dialokasikan",
+    },
+    {
+      label: "Target aktif",
+      value: String(activeGoalCount),
+      helper: activeGoalCount ? "Sedang dikejar" : "Belum ada target aktif",
+    },
+  ];
 
   return html`
     <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.14),transparent_46%)] opacity-80"></div>
       <div className="relative">
-        <h3 className="font-display text-xl font-bold">Investasi</h3>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-          Ringkasan target yang sedang kamu bangun.
-        </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-brand-700 dark:text-brand-200">
+              Aset & Goals
+            </p>
+            <h3 className="mt-2 font-display text-2xl font-black text-slate-950 dark:text-white">
+              Pusat pertumbuhan uangmu
+            </h3>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300/80">
+              Pantau uang yang tersedia, dana yang sudah dikunci untuk target, dan tujuan berikutnya dalam satu layar.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick=${onAddGoal}
+            className="history-action-primary hidden min-h-11 shrink-0 rounded-2xl px-4 py-2.5 text-sm font-black transition hover:-translate-y-0.5 sm:inline-flex sm:items-center"
+          >
+            Tambah target
+          </button>
+        </div>
       </div>
 
-      <div className="relative mt-5 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40">
-        <div className="flex items-center justify-between gap-3">
+      <div className="relative mt-5 grid gap-3 sm:grid-cols-2">
+        ${statItems.map(
+          (item) => html`
+            <div
+              key=${item.label}
+              className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40"
+            >
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                ${item.label}
+              </p>
+              <p className="mt-2 text-xl font-black text-slate-950 dark:text-white">
+                ${item.value}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+                ${item.helper}
+              </p>
+            </div>
+          `,
+        )}
+      </div>
+
+      <div className="relative mt-4 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40">
+        <div className="flex items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-              Total tersimpan
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+              Progress semua target
             </p>
             <p className="mt-2 text-2xl font-black text-slate-950 dark:text-white">
-              ${formatCurrency(totalSaved, "idr")}
+              ${formatPercent(progress)}
             </p>
           </div>
-          <div className="text-right">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-              Target
-            </p>
-            <p className="mt-2 text-lg font-bold text-slate-950 dark:text-white">
-              ${formatCurrency(totalTarget, "idr")}
-            </p>
-          </div>
+          <p className="text-right text-sm font-semibold text-slate-600 dark:text-slate-300">
+            ${formatCurrency(totalSaved, "idr")} / ${formatCurrency(totalTarget, "idr")}
+          </p>
         </div>
-        <div className="mt-4 h-2 rounded-full bg-slate-200/70 dark:bg-slate-800">
+        <div className="mt-4 h-2.5 rounded-full bg-slate-200/70 dark:bg-slate-800">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-sky-500"
+            className="report-bar-fill h-full rounded-full bg-gradient-to-r from-emerald-400 to-sky-500"
             style=${{
               width: `${Math.max(progress * 100, totalSaved > 0 ? 8 : 0)}%`,
             }}
           ></div>
         </div>
-        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300/80">
-          ${formatPercent(progress)} tercapai
-        </p>
       </div>
 
       <div className="relative mt-4 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+        <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
           Target berikutnya
         </p>
         ${nextGoal
           ? html`
-              <p className="mt-2 text-lg font-bold text-slate-950 dark:text-white">
-                ${nextGoal.name}
-              </p>
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300/80">
-                Sisa ${formatCurrency(nextGoal.remainingIdr, "idr")}
+              <div className="mt-3 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-lg font-black text-slate-950 dark:text-white">
+                    ${nextGoal.name}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
+                    Sisa ${formatCurrency(nextGoal.remainingIdr, "idr")}
+                    ${nextGoal.daysLeft != null
+                      ? ` | ${nextGoal.daysLeft < 0 ? "deadline lewat" : `${nextGoal.daysLeft} hari lagi`}`
+                      : ""}
+                  </p>
+                </div>
+                <div className=${`shrink-0 rounded-full border px-3 py-1.5 text-xs font-black ${nextGoal.tone}`}>
+                  ${nextGoal.statusLabel}
+                </div>
+              </div>
+              <p className="mt-3 rounded-2xl border border-brand-300/20 bg-brand-400/10 px-4 py-3 text-sm font-semibold text-brand-800 dark:border-brand-400/20 dark:bg-brand-500/10 dark:text-brand-100">
+                ${nextGoalDailyNeed > 0
+                  ? `Butuh sekitar ${formatCurrency(nextGoalDailyNeed, "idr")} per hari agar tepat waktu.`
+                  : "Target ini siap dipantau dari tracker di bawah."}
               </p>
             `
           : html`
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-300/80">
-                Belum ada target investasi atau tabungan.
+                Belum ada target keuangan. Mulai dari dana darurat, target saldo THB, atau pembelian besar.
               </p>
             `}
       </div>
+
+      <button
+        type="button"
+        onClick=${onAddGoal}
+        className="history-action-primary relative mt-4 inline-flex min-h-12 w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 sm:hidden"
+      >
+        Tambah target
+      </button>
     </div>
   `;
 }
@@ -5733,7 +5839,7 @@ function BudgetForm({ onSubmit, loading, currentMonthKey }) {
   `;
 }
 
-function GoalForm({ onSubmit, loading }) {
+function GoalForm({ onSubmit, loading, onCancel = null, onSuccess = null }) {
   const [form, setForm] = useState({
     name: "",
     target_amount_idr: "",
@@ -5759,6 +5865,7 @@ function GoalForm({ onSubmit, loading }) {
         saved_amount_idr: "",
         deadline: getDateInputValue(),
       });
+      if (onSuccess) onSuccess();
     }
   }
 
@@ -5833,14 +5940,81 @@ function GoalForm({ onSubmit, loading }) {
           />
         </label>
 
-        <button
-          type="submit"
-          disabled=${loading}
-          className="w-full rounded-2xl border border-white/10 bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-brand-700"
-        >
-          Simpan target
-        </button>
+        <div className=${onCancel ? "grid gap-3 sm:grid-cols-[0.8fr_1fr]" : ""}>
+          ${onCancel
+            ? html`
+                <button
+                  type="button"
+                  onClick=${onCancel}
+                  className="history-action-secondary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+                >
+                  Batal
+                </button>
+              `
+            : null}
+          <button
+            type="submit"
+            disabled=${loading}
+            className="history-action-primary min-h-12 w-full rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Simpan target
+          </button>
+        </div>
       </form>
+    </div>
+  `;
+}
+
+function WealthGoalsPage({
+  metrics,
+  loading,
+  onCreateGoal,
+  onDeleteGoal,
+  onContribute,
+}) {
+  const [showGoalForm, setShowGoalForm] = useState(
+    metrics.goalInsights.length === 0,
+  );
+
+  useEffect(() => {
+    if (!metrics.goalInsights.length) {
+      setShowGoalForm(true);
+    }
+  }, [metrics.goalInsights.length]);
+
+  async function handleCreateGoal(payload) {
+    const ok = await onCreateGoal(payload);
+    if (ok && metrics.goalInsights.length > 0) {
+      setShowGoalForm(false);
+    }
+    return ok;
+  }
+
+  return html`
+    <div className="grid gap-4">
+      <${InvestmentSnapshot}
+        metrics=${metrics}
+        onAddGoal=${() => setShowGoalForm(true)}
+      />
+
+      ${showGoalForm
+        ? html`
+            <${GoalForm}
+              onSubmit=${handleCreateGoal}
+              loading=${loading}
+              onCancel=${metrics.goalInsights.length
+                ? () => setShowGoalForm(false)
+                : null}
+              onSuccess=${() => setShowGoalForm(false)}
+            />
+          `
+        : null}
+
+      <${GoalTracker}
+        goals=${metrics.goalInsights}
+        onDelete=${onDeleteGoal}
+        onContribute=${onContribute}
+      />
     </div>
   `;
 }
@@ -6799,7 +6973,7 @@ function calculateTHBBalance(transactions) {
     { key: "add", label: "Tambah" },
     { key: "history", label: "Riwayat" },
     { key: "report", label: "Laporan" },
-    { key: "investment", label: "Investasi" },
+    { key: "investment", label: "Aset & Goals" },
     { key: "settings", label: "Profil" },
   ];
   const historyTransactions = [...orderTransactions(transactions)].reverse();
@@ -7024,12 +7198,25 @@ function calculateTHBBalance(transactions) {
                           />
                         </section>
                       `
+                    : activeTab === "investment"
+                    ? html`
+                        <section className="mt-6">
+                          <${WealthGoalsPage}
+                            metrics=${metrics}
+                            loading=${loading}
+                            onCreateGoal=${handleCreateGoal}
+                            onDeleteGoal=${handleDeleteGoal}
+                            onContribute=${handleAddGoalProgress}
+                          />
+                        </section>
+                      `
                   : html`
-                      <section className="mt-6 grid gap-6">
-                        <${GoalForm} onSubmit=${handleCreateGoal} loading=${loading} />
-                        <${GoalTracker}
-                          goals=${metrics.goalInsights}
-                          onDelete=${handleDeleteGoal}
+                      <section className="mt-6">
+                        <${WealthGoalsPage}
+                          metrics=${metrics}
+                          loading=${loading}
+                          onCreateGoal=${handleCreateGoal}
+                          onDeleteGoal=${handleDeleteGoal}
                           onContribute=${handleAddGoalProgress}
                         />
                       </section>
