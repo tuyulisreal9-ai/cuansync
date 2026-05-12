@@ -581,9 +581,31 @@ function looksLikeLegacyExchange(row) {
   );
 }
 
-function normalizeTransaction(row) {
+function createLegacyTransactionId(row, index = 0) {
+  const seed = [
+    row.created_at,
+    row.occurred_at,
+    row.type,
+    row.description,
+    row.category,
+    row.amount_idr,
+    row.amount_thb,
+    row.locked_rate,
+    index,
+  ]
+    .map((part) => String(part ?? ""))
+    .join("|");
+  let hash = 0;
+  for (let indexSeed = 0; indexSeed < seed.length; indexSeed += 1) {
+    hash = (hash * 31 + seed.charCodeAt(indexSeed)) >>> 0;
+  }
+  return `legacy-${hash.toString(36)}-${index}`;
+}
+
+function normalizeTransaction(row, index = 0) {
   const normalized = {
     ...row,
+    id: row.id || createLegacyTransactionId(row, index),
     amount_idr: row.amount_idr == null ? null : Number(row.amount_idr),
     amount_thb: row.amount_thb == null ? null : Number(row.amount_thb),
     locked_rate: row.locked_rate == null ? null : Number(row.locked_rate),
@@ -610,7 +632,7 @@ function normalizeTransaction(row) {
 }
 
 function normalizeTransactions(rows) {
-  return rows.map(normalizeTransaction);
+  return rows.map((row, index) => normalizeTransaction(row, index));
 }
 
 function normalizeBudget(row) {
@@ -1301,15 +1323,23 @@ function formatEditNumericValue(value) {
 function getTransactionEditForm(transaction) {
   const flow = getTransactionFlow(transaction);
   const amountThb = Number(transaction.amount_thb || 0);
+  const amountIdr = Number(transaction.amount_idr || 0);
+  const inferredRate =
+    Number(transaction.locked_rate || 0) > 0
+      ? Number(transaction.locked_rate)
+      : Math.abs(amountThb) > 0 && amountIdr > 0
+        ? amountIdr / Math.abs(amountThb)
+        : null;
 
   return {
+    type: flow,
     occurred_at: toInputDateTime(new Date(transaction.occurred_at || Date.now())),
     description: transaction.description || "",
     category: transaction.category || DEFAULT_CATEGORY,
     expense_currency: flow === "expense" && amountThb > 0 ? "thb" : "idr",
     amount_idr: formatEditNumericValue(transaction.amount_idr),
     amount_thb: formatEditNumericValue(transaction.amount_thb),
-    locked_rate: formatEditNumericValue(transaction.locked_rate),
+    locked_rate: formatEditNumericValue(inferredRate),
   };
 }
 
@@ -2239,6 +2269,490 @@ function OverviewPage({ metrics, transactions, onNavigate }) {
       <${OverviewRecentTransactions}
         transactions=${latestTransactions}
         onNavigate=${onNavigate}
+      />
+    </div>
+  `;
+}
+
+function buildControlCenter(metrics) {
+  const monthMeta = getMonthMeta(metrics.currentMonthKey);
+  const remainingDays = Math.max(monthMeta.daysInMonth - monthMeta.elapsedDays, 0);
+  const activeBudget = metrics.budgetInsights[0] || null;
+  const thbDailyAverage =
+    monthMeta.elapsedDays > 0 ? metrics.monthlyThb / monthMeta.elapsedDays : 0;
+  const thbRunwayDays =
+    thbDailyAverage > 0 ? Math.floor(metrics.balanceThb / thbDailyAverage) : null;
+  const projectedExpenseIdr = metrics.averageDailyExpenseIdr * monthMeta.daysInMonth;
+  const projectedNetIdr = metrics.monthlyExternalIncomeIdr - projectedExpenseIdr;
+  const projectedThbNeed = thbDailyAverage * remainingDays;
+  const projectedThbGap = Math.max(projectedThbNeed - metrics.balanceThb, 0);
+  const topCategory = metrics.topExpenseCategory;
+
+  let score = 100;
+  if (metrics.budgetStatus === "none") score -= 8;
+  if (metrics.budgetStatus === "warning") score -= 16;
+  if (metrics.budgetStatus === "over") score -= 30;
+  if (metrics.monthlyNetChangeIdr < 0) score -= 14;
+  if (projectedNetIdr < 0) score -= 12;
+  if (metrics.latestRate <= 0 && metrics.balanceThb > 0) score -= 8;
+  if (metrics.balanceIdr < metrics.averageDailyExpenseIdr * 7) score -= 10;
+  if (thbRunwayDays != null && thbRunwayDays < 3) score -= 18;
+  else if (thbRunwayDays != null && thbRunwayDays < 7) score -= 10;
+  if (topCategory?.share > 0.45) score -= 6;
+
+  const healthScore = Math.max(Math.min(Math.round(score), 100), 0);
+  const healthLabel =
+    healthScore >= 82
+      ? "Stabil"
+      : healthScore >= 66
+        ? "Perlu dijaga"
+        : healthScore >= 45
+          ? "Waspada"
+          : "Kritis";
+  const healthTone =
+    healthScore >= 82
+      ? "text-brand-700 dark:text-brand-300"
+      : healthScore >= 66
+        ? "text-amber-700 dark:text-amber-300"
+        : "text-rose-700 dark:text-rose-300";
+
+  const alerts = [];
+  if (metrics.budgetStatus === "none") {
+    alerts.push({
+      title: "Budget belum aktif",
+      body: "Buat limit bulanan agar CUANSYNC bisa menjaga batas aman harian.",
+      tone: "amber",
+    });
+  } else if (metrics.budgetStatus === "over") {
+    alerts.push({
+      title: "Budget melewati batas",
+      body: `Pengeluaran THB sudah ${formatPercent(metrics.budgetUsageTotal)} dari budget bulan ini.`,
+      tone: "rose",
+    });
+  } else if (metrics.budgetStatus === "warning") {
+    alerts.push({
+      title: "Budget mendekati limit",
+      body: `Sisa budget sekitar ${formatCurrency(Math.max(metrics.budgetRemainingThb, 0), "thb")}.`,
+      tone: "amber",
+    });
+  }
+
+  if (thbRunwayDays != null && thbRunwayDays <= 7) {
+    alerts.push({
+      title: "Saldo THB perlu dipantau",
+      body: `Dengan ritme sekarang, THB cukup sekitar ${Math.max(thbRunwayDays, 0)} hari.`,
+      tone: thbRunwayDays <= 3 ? "rose" : "amber",
+    });
+  }
+
+  if (projectedNetIdr < 0) {
+    alerts.push({
+      title: "Forecast bulan ini negatif",
+      body: `Jika ritme sama, cashflow bulan ini bisa ${formatCurrency(projectedNetIdr, "idr")}.`,
+      tone: "rose",
+    });
+  }
+
+  if (topCategory?.share > 0.45) {
+    alerts.push({
+      title: "Kategori dominan",
+      body: `${topCategory.label} mengambil ${formatPercent(topCategory.share)} dari pengeluaran bulan ini.`,
+      tone: "amber",
+    });
+  }
+
+  if (!alerts.length) {
+    alerts.push({
+      title: "Tidak ada risiko besar",
+      body: "Cashflow, budget, dan saldo masih terlihat terkendali untuk saat ini.",
+      tone: "emerald",
+    });
+  }
+
+  const nextActions = [];
+  if (metrics.budgetStatus === "none") {
+    nextActions.push({
+      title: "Buat budget bulan ini",
+      body: "Aktifkan batas aman harian untuk belanja THB.",
+      target: "control-budget",
+    });
+  }
+  if (projectedThbGap > 0) {
+    nextActions.push({
+      title: "Rencanakan top up THB",
+      body: `Estimasi kurang ${formatCurrency(projectedThbGap, "thb")} sampai akhir bulan.`,
+      target: "add",
+    });
+  }
+  if (activeBudget?.todayRemainingSafeThb != null && activeBudget.todayRemainingSafeThb < 0) {
+    nextActions.push({
+      title: "Tahan belanja THB hari ini",
+      body: `Hari ini lewat ${formatCurrency(Math.abs(activeBudget.todayRemainingSafeThb), "thb")} dari batas aman.`,
+      target: "history",
+    });
+  }
+  if (topCategory) {
+    nextActions.push({
+      title: `Review ${topCategory.label}`,
+      body: "Cek transaksi kategori terbesar dan cari yang bisa dikurangi.",
+      target: "history",
+    });
+  }
+  if (!nextActions.length) {
+    nextActions.push({
+      title: "Catat transaksi berikutnya",
+      body: "Jaga dashboard tetap akurat dengan input real-time.",
+      target: "add",
+    });
+  }
+
+  return {
+    activeBudget,
+    alerts: alerts.slice(0, 4),
+    healthLabel,
+    healthScore,
+    healthTone,
+    nextActions: nextActions.slice(0, 4),
+    projectedExpenseIdr,
+    projectedNetIdr,
+    projectedThbGap,
+    remainingDays,
+    thbDailyAverage,
+    thbRunwayDays,
+  };
+}
+
+function ControlMetric({ label, value, helper }) {
+  return html`
+    <div className="rounded-[22px] border border-slate-200/70 bg-white/58 p-4 dark:border-white/10 dark:bg-slate-900/44">
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+        ${label}
+      </p>
+      <p className="mt-2 break-words text-lg font-black text-slate-950 dark:text-white">
+        ${value}
+      </p>
+      <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+        ${helper}
+      </p>
+    </div>
+  `;
+}
+
+function ControlCenterHero({ metrics, control }) {
+  const scoreWidth = `${control.healthScore}%`;
+
+  return html`
+    <section className=${`${PREMIUM_PANEL} control-center-card p-5 md:p-6`}>
+      <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-brand-400/14 blur-3xl"></div>
+      <div className="relative grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
+            Financial Control Center
+          </p>
+          <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.04em] text-slate-950 dark:text-white md:text-4xl">
+            ${control.healthLabel}
+          </h2>
+          <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+            Monitor risiko hari ini, runway saldo, dan keputusan yang perlu diambil.
+          </p>
+        </div>
+        <div className="rounded-[28px] border border-slate-200/70 bg-white/62 p-4 dark:border-white/10 dark:bg-slate-950/40 md:w-52">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+            Health score
+          </p>
+          <p className=${`mt-2 text-4xl font-black tracking-[-0.05em] ${control.healthTone}`}>
+            ${control.healthScore}
+          </p>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-brand-600 to-emerald-300"
+              style=${{ width: scoreWidth }}
+            ></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="relative mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <${ControlMetric}
+          label="Net worth"
+          value=${formatCurrency(metrics.netWorthIdr, "idr")}
+          helper="IDR + valuasi THB"
+        />
+        <${ControlMetric}
+          label="Runway THB"
+          value=${control.thbRunwayDays == null ? "Stabil" : `${Math.max(control.thbRunwayDays, 0)} hari`}
+          helper=${control.thbDailyAverage > 0 ? `${formatCurrency(control.thbDailyAverage, "thb")}/hari` : "Belum ada ritme THB"}
+        />
+        <${ControlMetric}
+          label="Forecast net"
+          value=${formatCurrency(control.projectedNetIdr, "idr")}
+          helper="Estimasi akhir bulan"
+        />
+        <${ControlMetric}
+          label="Sisa budget"
+          value=${metrics.budgetLimitTotal > 0 ? formatCurrency(Math.max(metrics.budgetRemainingThb, 0), "thb") : "-"}
+          helper=${metrics.budgetStatusLabel}
+        />
+      </div>
+    </section>
+  `;
+}
+
+function ControlAlerts({ alerts }) {
+  const toneClass = {
+    emerald:
+      "border-brand-300/25 bg-brand-500/10 text-brand-800 dark:border-brand-300/20 dark:text-brand-200",
+    amber:
+      "border-amber-300/30 bg-amber-400/10 text-amber-800 dark:border-amber-300/20 dark:text-amber-200",
+    rose:
+      "border-rose-300/30 bg-rose-400/10 text-rose-800 dark:border-rose-300/20 dark:text-rose-200",
+  };
+
+  return html`
+    <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
+      <div className="relative">
+        <h3 className="font-display text-xl font-black text-slate-950 dark:text-white">
+          Alert & Risiko
+        </h3>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+          Hal yang paling perlu diperhatikan sekarang.
+        </p>
+      </div>
+      <div className="relative mt-4 grid gap-3">
+        ${alerts.map(
+          (alert) => html`
+            <div key=${alert.title} className=${`rounded-[22px] border p-4 ${toneClass[alert.tone]}`}>
+              <p className="font-black">${alert.title}</p>
+              <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                ${alert.body}
+              </p>
+            </div>
+          `,
+        )}
+      </div>
+    </section>
+  `;
+}
+
+function ControlNextActions({ actions, onNavigate }) {
+  function handleAction(action) {
+    if (action.target === "control-budget") {
+      document
+        .getElementById("control-budget-section")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    onNavigate(action.target);
+  }
+
+  return html`
+    <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
+      <div className="relative">
+        <h3 className="font-display text-xl font-black text-slate-950 dark:text-white">
+          Next Best Action
+        </h3>
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+          Langkah kecil yang paling berguna hari ini.
+        </p>
+      </div>
+      <div className="relative mt-4 grid gap-3">
+        ${actions.map(
+          (action) => html`
+            <button
+              key=${action.title}
+              type="button"
+              onClick=${() => handleAction(action)}
+              className="grid min-h-[76px] grid-cols-[1fr_auto] items-center gap-3 rounded-[22px] border border-slate-200/70 bg-white/58 p-4 text-left transition hover:-translate-y-0.5 hover:bg-white/82 dark:border-white/10 dark:bg-slate-900/44 dark:hover:bg-slate-900/70"
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-black text-slate-950 dark:text-white">
+                  ${action.title}
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-slate-600 dark:text-slate-300">
+                  ${action.body}
+                </span>
+              </span>
+              <span className="rounded-full border border-brand-300/25 bg-brand-500/10 px-3 py-1 text-xs font-black text-brand-700 dark:border-brand-300/20 dark:text-brand-200">
+                Buka
+              </span>
+            </button>
+          `,
+        )}
+      </div>
+    </section>
+  `;
+}
+
+function ControlForecast({ metrics, control }) {
+  const budgetWidth =
+    metrics.budgetLimitTotal > 0
+      ? `${Math.min(Math.max(metrics.budgetUsageTotal * 100, 0), 100)}%`
+      : "0%";
+  const runwayLabel =
+    control.thbRunwayDays == null
+      ? "Belum ada ritme"
+      : `${Math.max(control.thbRunwayDays, 0)} hari`;
+
+  return html`
+    <section className="grid gap-4 lg:grid-cols-2">
+      <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
+        <div className="relative">
+          <h3 className="font-display text-xl font-black text-slate-950 dark:text-white">
+            Forecast Bulan Ini
+          </h3>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            Proyeksi jika ritme pengeluaran tidak berubah.
+          </p>
+        </div>
+        <div className="relative mt-5 grid gap-3">
+          <${ControlMetric}
+            label="Estimasi pengeluaran"
+            value=${formatCurrency(control.projectedExpenseIdr, "idr")}
+            helper="Sampai akhir bulan"
+          />
+          <${ControlMetric}
+            label="Estimasi cashflow"
+            value=${formatCurrency(control.projectedNetIdr, "idr")}
+            helper=${control.projectedNetIdr >= 0 ? "Masih surplus" : "Berpotensi defisit"}
+          />
+        </div>
+      </div>
+
+      <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
+        <div className="relative">
+          <h3 className="font-display text-xl font-black text-slate-950 dark:text-white">
+            Cash Runway
+          </h3>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            Daya tahan saldo THB dan batas budget.
+          </p>
+        </div>
+        <div className="relative mt-5 grid gap-4">
+          <div>
+            <div className="mb-2 flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
+              <span>Budget THB</span>
+              <span>${metrics.budgetLimitTotal > 0 ? formatPercent(metrics.budgetUsageTotal) : "-"}</span>
+            </div>
+            <div className="h-3 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
+              <div className="h-full rounded-full bg-gradient-to-r from-brand-600 to-emerald-300" style=${{ width: budgetWidth }}></div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <${ControlMetric}
+              label="Runway"
+              value=${runwayLabel}
+              helper="Berdasarkan rata-rata THB"
+            />
+            <${ControlMetric}
+              label="Gap THB"
+              value=${formatCurrency(control.projectedThbGap, "thb")}
+              helper="Estimasi kebutuhan tambahan"
+            />
+          </div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function ControlCenterEmptyState({ onNavigate }) {
+  return html`
+    <section className=${`${PREMIUM_PANEL} p-6 text-center md:p-8`}>
+      <div className="relative mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-brand-300/25 bg-brand-500/12 text-2xl font-black text-brand-700 dark:text-brand-200">
+        +
+      </div>
+      <h3 className="relative mt-4 font-display text-2xl font-bold text-slate-950 dark:text-white">
+        Control Center siap dipakai
+      </h3>
+      <p className="relative mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-slate-300">
+        Tambahkan transaksi pertama agar CUANSYNC bisa membaca risiko dan rekomendasi harian.
+      </p>
+      <button
+        type="button"
+        onClick=${() => onNavigate("add")}
+        className="history-action-primary relative mt-5 min-h-12 rounded-2xl px-5 py-3 text-sm font-semibold"
+      >
+        Tambah transaksi pertama
+      </button>
+    </section>
+  `;
+}
+
+function ControlBudgetHub({
+  metrics,
+  loading,
+  onBudgetDelete,
+  onBudgetSubmit,
+}) {
+  return html`
+    <section id="control-budget-section" className="grid scroll-mt-6 gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+      <div className="grid gap-4">
+        <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
+          <div className="relative">
+            <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+              Budget control
+            </p>
+            <h3 className="mt-2 font-display text-xl font-black text-slate-950 dark:text-white">
+              Atur batas aman bulanan
+            </h3>
+            <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
+              Budget sekarang jadi bagian dari Kontrol, supaya risiko dan action hari ini langsung tersambung.
+            </p>
+          </div>
+        </section>
+        <${BudgetForm}
+          onSubmit=${onBudgetSubmit}
+          loading=${loading}
+          currentMonthKey=${metrics.currentMonthKey}
+        />
+      </div>
+
+      <${BudgetTracker}
+        budgets=${metrics.budgetInsights}
+        monthLabel=${metrics.currentMonthLabel}
+        onDelete=${onBudgetDelete}
+      />
+    </section>
+  `;
+}
+
+function ControlCenterPage({
+  metrics,
+  transactions,
+  onBudgetDelete,
+  onBudgetSubmit,
+  loading = false,
+  onNavigate,
+}) {
+  const control = buildControlCenter(metrics);
+
+  if (!transactions.length) {
+    return html`
+      <div className="grid gap-4">
+        <${ControlCenterEmptyState} onNavigate=${onNavigate} />
+        <${ControlBudgetHub}
+          metrics=${metrics}
+          loading=${loading}
+          onBudgetDelete=${onBudgetDelete}
+          onBudgetSubmit=${onBudgetSubmit}
+        />
+      </div>
+    `;
+  }
+
+  return html`
+    <div className="grid gap-4">
+      <${ControlCenterHero} metrics=${metrics} control=${control} />
+      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+        <${ControlAlerts} alerts=${control.alerts} />
+        <${ControlNextActions} actions=${control.nextActions} onNavigate=${onNavigate} />
+      </div>
+      <${ControlForecast} metrics=${metrics} control=${control} />
+      <${ControlBudgetHub}
+        metrics=${metrics}
+        loading=${loading}
+        onBudgetDelete=${onBudgetDelete}
+        onBudgetSubmit=${onBudgetSubmit}
       />
     </div>
   `;
@@ -3649,18 +4163,32 @@ function TransactionEditForm({
   onCancel,
   loading = false,
 }) {
-  const flow = getTransactionFlow(transaction);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const flow = form.type || getTransactionFlow(transaction);
   const isIncome = flow === "income";
   const isExpense = flow === "expense";
   const isExchange = flow === "exchange";
   const isExpenseThb = isExpense && form.expense_currency === "thb";
   const amountIdr = Number(normalizeNumericInput(form.amount_idr));
   const amountThb = Number(normalizeNumericInput(form.amount_thb));
+  const lockedRate = Number(normalizeNumericInput(form.locked_rate));
+  const descriptionValid = String(form.description || "").trim().length > 0;
   const submitDisabled =
     loading ||
+    !descriptionValid ||
     (isIncome && amountIdr <= 0) ||
-    (isExpense && (isExpenseThb ? amountThb <= 0 : amountIdr <= 0)) ||
-    (isExchange && amountThb <= 0);
+    (isExpense && (isExpenseThb ? amountThb <= 0 || lockedRate <= 0 : amountIdr <= 0)) ||
+    (isExchange && (amountIdr <= 0 || amountThb <= 0 || lockedRate <= 0));
+  const typeOptions = [
+    { value: "income", label: "Uang Masuk" },
+    { value: "expense", label: "Uang Keluar" },
+    { value: "exchange", label: "Exchange" },
+  ];
+  const formSubtitle = isExchange
+    ? "Exchange"
+    : isIncome
+      ? "Uang masuk • IDR"
+      : `Uang keluar • ${isExpenseThb ? "THB" : "IDR"}`;
 
   function updateField(field, value) {
     onChange({ ...form, [field]: value });
@@ -3672,26 +4200,28 @@ function TransactionEditForm({
   }
 
   return html`
-    <form className="mt-5 grid gap-4" onSubmit=${handleSubmit}>
-      <label className="block">
-        <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Tanggal & waktu
-        </span>
-        <input
-          type="datetime-local"
-          required
-          value=${form.occurred_at}
-          onChange=${(event) => updateField("occurred_at", event.target.value)}
-          className=${GLASS_INPUT}
-        />
-      </label>
+    <form className="mt-5 grid gap-3" onSubmit=${handleSubmit}>
+      <div className="rounded-[24px] border border-slate-200/70 bg-white/60 p-4 dark:border-white/10 dark:bg-slate-900/42">
+        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+          Jenis transaksi
+        </p>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <p className="text-sm font-black text-slate-950 dark:text-white">
+            ${formSubtitle}
+          </p>
+          <span className="rounded-full border border-brand-300/25 bg-brand-500/10 px-3 py-1 text-[11px] font-black text-brand-700 dark:border-brand-300/20 dark:text-brand-200">
+            Aktif
+          </span>
+        </div>
+      </div>
 
-      <label className="block">
-        <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
-          Deskripsi / catatan
+      <label className="block space-y-2">
+        <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+          Catatan
         </span>
         <input
           type="text"
+          required
           value=${form.description}
           onChange=${(event) => updateField("description", event.target.value)}
           placeholder="Catatan transaksi"
@@ -3699,10 +4229,69 @@ function TransactionEditForm({
         />
       </label>
 
+      ${(isIncome || (isExpense && !isExpenseThb) || isExchange)
+        ? html`
+            <label className="block space-y-2">
+              <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                ${isExchange ? "IDR keluar" : isIncome ? "Nominal IDR" : "Nominal IDR"}
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                value=${form.amount_idr}
+                onChange=${(event) =>
+                  updateField("amount_idr", formatNumericInput(event.target.value))}
+                placeholder="0"
+                required
+                className=${GLASS_INPUT}
+              />
+            </label>
+          `
+        : null}
+
+      ${(isExpenseThb || isExchange)
+        ? html`
+            <label className="block space-y-2">
+              <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                ${isExchange ? "THB masuk" : "Nominal THB"}
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                required
+                value=${form.amount_thb}
+                onChange=${(event) =>
+                  updateField("amount_thb", formatNumericInput(event.target.value))}
+                placeholder="0"
+                className=${GLASS_INPUT}
+              />
+            </label>
+
+            <label className="block space-y-2">
+              <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                Rate IDR/THB
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                value=${form.locked_rate}
+                onChange=${(event) =>
+                  updateField("locked_rate", formatNumericInput(event.target.value))}
+                placeholder="539"
+                required
+                className=${GLASS_INPUT}
+              />
+            </label>
+          `
+        : null}
+
       ${isExpense
         ? html`
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
+            <label className="block space-y-2">
+              <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
                 Kategori
               </span>
               <select
@@ -3719,89 +4308,98 @@ function TransactionEditForm({
                 )}
               </select>
             </label>
+          `
+        : null}
 
-            <div>
-              <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Mata uang pengeluaran
-              </span>
-              <div className="cuan-segment grid grid-cols-2 gap-2 rounded-2xl p-1">
-                ${["idr", "thb"].map((currency) => {
-                  const active = form.expense_currency === currency;
-                  return html`
-                    <button
-                      key=${currency}
-                      type="button"
-                      onClick=${() => updateField("expense_currency", currency)}
-                      className=${`min-h-11 rounded-2xl px-3 py-2 text-sm font-black transition ${active ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.20)] dark:bg-emerald-500" : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"}`}
-                    >
-                      ${currency.toUpperCase()}
-                    </button>
-                  `;
-                })}
+      <label className="block space-y-2">
+        <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+          Tanggal
+        </span>
+        <input
+          type="datetime-local"
+          required
+          value=${form.occurred_at}
+          onChange=${(event) => updateField("occurred_at", event.target.value)}
+          className=${GLASS_INPUT}
+        />
+      </label>
+
+      <div className="rounded-[22px] border border-slate-200/70 bg-white/45 p-2 dark:border-white/10 dark:bg-slate-900/30">
+        <button
+          type="button"
+          onClick=${() => setShowAdvanced((current) => !current)}
+          className="flex min-h-11 w-full items-center justify-between rounded-2xl px-3 text-sm font-black text-slate-700 transition hover:bg-white/70 dark:text-slate-200 dark:hover:bg-white/10"
+        >
+          <span>Opsi lanjutan</span>
+          <span>${showAdvanced ? "Tutup" : "Ubah tipe / mata uang"}</span>
+        </button>
+
+        ${showAdvanced
+          ? html`
+              <div className="mt-2 grid gap-3 border-t border-slate-200/70 px-1 pt-3 dark:border-white/10">
+                <div>
+                  <span className="mb-2 block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                    Tipe
+                  </span>
+                  <div className="cuan-segment grid grid-cols-3 gap-1 rounded-2xl p-1">
+                    ${typeOptions.map((option) => {
+                      const active = flow === option.value;
+                      return html`
+                        <button
+                          key=${option.value}
+                          type="button"
+                          onClick=${() =>
+                            onChange({
+                              ...form,
+                              type: option.value,
+                              category:
+                                option.value === "expense"
+                                  ? form.category || DEFAULT_CATEGORY
+                                  : form.category,
+                              expense_currency:
+                                option.value === "expense"
+                                  ? form.expense_currency || "idr"
+                                  : form.expense_currency,
+                            })}
+                          className=${`min-h-11 rounded-2xl px-2 py-2 text-xs font-black transition ${active ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.20)] dark:bg-emerald-500" : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"}`}
+                        >
+                          ${option.label}
+                        </button>
+                      `;
+                    })}
+                  </div>
+                </div>
+
+                ${isExpense
+                  ? html`
+                      <div>
+                        <span className="mb-2 block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                          Mata uang
+                        </span>
+                        <div className="cuan-segment grid grid-cols-2 gap-2 rounded-2xl p-1">
+                          ${["idr", "thb"].map((currency) => {
+                            const active = form.expense_currency === currency;
+                            return html`
+                              <button
+                                key=${currency}
+                                type="button"
+                                onClick=${() => updateField("expense_currency", currency)}
+                                className=${`min-h-11 rounded-2xl px-3 py-2 text-sm font-black transition ${active ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.20)] dark:bg-emerald-500" : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"}`}
+                              >
+                                ${currency.toUpperCase()}
+                              </button>
+                            `;
+                          })}
+                        </div>
+                      </div>
+                    `
+                  : null}
               </div>
-            </div>
-          `
-        : null}
+            `
+          : null}
+      </div>
 
-      ${(isIncome || (isExpense && !isExpenseThb) || isExchange)
-        ? html`
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
-                ${isExchange ? "Nominal IDR" : isIncome ? "Nominal uang masuk IDR" : "Nominal uang keluar IDR"}
-              </span>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                value=${form.amount_idr}
-                onChange=${(event) =>
-                  updateField("amount_idr", formatNumericInput(event.target.value))}
-                placeholder=${isExchange ? "Opsional" : "0"}
-                required=${!isExchange}
-                className=${GLASS_INPUT}
-              />
-            </label>
-          `
-        : null}
-
-      ${(isExpenseThb || isExchange)
-        ? html`
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
-                ${isExchange ? "Nominal THB" : "Nominal uang keluar THB"}
-              </span>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                required
-                value=${form.amount_thb}
-                onChange=${(event) =>
-                  updateField("amount_thb", formatNumericInput(event.target.value))}
-                placeholder="0"
-                className=${GLASS_INPUT}
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700 dark:text-slate-200">
-                Rate IDR / 1 THB
-              </span>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoComplete="off"
-                value=${form.locked_rate}
-                onChange=${(event) =>
-                  updateField("locked_rate", formatNumericInput(event.target.value))}
-                placeholder="Opsional"
-                className=${GLASS_INPUT}
-              />
-            </label>
-          `
-        : null}
-
-      <div className="grid grid-cols-2 gap-3 pt-2">
+      <div className="history-detail-actions sticky bottom-0 z-10 -mx-5 mt-2 grid grid-cols-2 gap-3 border-t border-slate-200/70 bg-white/85 p-5 shadow-[0_-18px_50px_rgba(15,23,42,0.08)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/86 dark:shadow-black/28">
         <button
           type="button"
           onClick=${onCancel}
@@ -3814,10 +4412,23 @@ function TransactionEditForm({
           disabled=${submitDisabled}
           className="min-h-12 rounded-2xl bg-brand-600 px-4 py-3 text-sm font-black text-white shadow-[0_18px_44px_rgba(16,185,129,0.22)] transition hover:-translate-y-0.5 hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 dark:bg-emerald-500 dark:disabled:bg-slate-800 dark:disabled:text-slate-500"
         >
-          ${loading ? "Menyimpan..." : "Simpan edit"}
+          ${loading ? "Menyimpan..." : "Simpan"}
         </button>
       </div>
     </form>
+  `;
+}
+
+function ReceiptMetaCard({ label, value }) {
+  return html`
+    <div className="history-receipt-meta rounded-[20px] px-3 py-2.5">
+      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-500">
+        ${label}
+      </p>
+      <p className="mt-1 truncate text-sm font-black text-slate-900 dark:text-slate-100">
+        ${value}
+      </p>
+    </div>
   `;
 }
 
@@ -3831,10 +4442,12 @@ function TransactionDetailSheet({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
     if (!transaction) return undefined;
     setIsEditing(false);
+    setConfirmingDelete(false);
     setEditForm(getTransactionEditForm(transaction));
     function handleKeyDown(event) {
       if (event.key === "Escape") onClose();
@@ -3854,21 +4467,24 @@ function TransactionDetailSheet({
   const isExchange = flow === "exchange";
   const signedPrefix = flow === "income" ? "+" : "-";
   const description = getTransactionDisplayTitle(transaction);
+  const compactAmount = getTransactionCompactAmount(transaction, fallbackRate);
   const amountText = isExchange
-    ? getTransactionPreview(transaction)
+    ? compactAmount.primary
     : `${signedPrefix}${formatCurrency(mainAmount, currency)}`;
   const currencyLabel = isExchange ? "Transfer / Exchange" : currency.toUpperCase();
   const showValuation = valuationIdr != null;
-  const detailRows = [
-    ["Tanggal & waktu", formatDateTime(transaction.occurred_at)],
-    ["Tipe", getTransactionTypeLabel(transaction)],
+  const rateText = transaction.locked_rate ? formatRate(transaction.locked_rate) : "-";
+  const receiptMeta = [
+    ["Tanggal", formatShortDateTime(transaction.occurred_at)],
     ["Kategori", categoryLabel],
-    ["Deskripsi", description],
-    ["Jumlah", amountText],
     ["Mata uang", currencyLabel],
-    ["Valuasi IDR", showValuation ? formatCurrency(valuationIdr, "idr") : "Belum tersedia"],
-    ["Rate", transaction.locked_rate ? formatRate(transaction.locked_rate) : "Tidak ada"],
+    ["Rate", rateText],
   ];
+  const receiptHelper = isExchange
+    ? compactAmount.secondary
+    : showValuation && currency === "thb"
+      ? `Valuasi ${formatCurrency(valuationIdr, "idr")}`
+      : getTransactionTypeLabel(transaction);
 
   async function handleSaveEdit(nextForm) {
     const succeeded = await onUpdate(transaction, nextForm);
@@ -3878,29 +4494,29 @@ function TransactionDetailSheet({
     }
   }
 
+  async function handleConfirmDelete() {
+    const succeeded = await onDelete(transaction);
+    if (succeeded) onClose();
+  }
+
   return html`
-    <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center">
+    <div className="fixed inset-0 z-[120] flex items-end justify-center md:items-center">
       <button
         type="button"
         aria-label="Tutup detail transaksi"
         className="absolute inset-0 bg-slate-950/45 backdrop-blur-sm"
         onClick=${onClose}
       ></button>
-      <section className="history-detail-sheet transaction-sheet relative max-h-[86svh] w-full overflow-y-auto rounded-t-[30px] border border-slate-200/70 bg-white/92 p-5 shadow-[0_-24px_80px_rgba(15,23,42,0.22)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/94 md:max-w-lg md:rounded-[30px] md:shadow-[0_28px_90px_rgba(0,0,0,0.42)]">
+      <section className="history-detail-sheet transaction-sheet relative max-h-[calc(100svh-1rem)] w-full overflow-y-auto rounded-t-[30px] p-5 md:max-h-[86svh] md:max-w-lg md:rounded-[30px]">
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-slate-300 dark:bg-slate-700 md:hidden"></div>
         <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className=${`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-xs font-black ring-1 ${tone.icon}`}>
-              ${getTransactionIconLabel(transaction)}
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-lg font-black text-slate-950 dark:text-white">
-                ${description}
-              </p>
-              <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                ${formatShortTime(transaction.occurred_at)} | ${getTransactionTypeLabel(transaction)}
-              </p>
-            </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+              ${isEditing ? "Edit transaksi" : "Detail transaksi"}
+            </p>
+            <p className="mt-1 truncate text-sm font-bold text-slate-600 dark:text-slate-300">
+              ${formatShortTime(transaction.occurred_at)} | ${getTransactionTypeLabel(transaction)}
+            </p>
           </div>
           <button
             type="button"
@@ -3927,54 +4543,89 @@ function TransactionDetailSheet({
               />
             `
           : html`
-              <div className="mt-5 rounded-[24px] border border-slate-200/70 bg-white/58 p-4 dark:border-white/10 dark:bg-slate-900/50">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                  Nominal
-                </p>
-                <p className=${`mt-2 break-words text-2xl font-black ${tone.amount}`}>
-                  ${amountText}
-                </p>
-                <p className="mt-1 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                  ${currencyLabel}
-                </p>
+              <div className="history-receipt-card mt-5 overflow-hidden rounded-[28px] p-4">
+                <div className="flex items-start gap-3">
+                  <span className=${`flex h-14 w-14 shrink-0 items-center justify-center rounded-[22px] text-2xl ring-1 ${tone.historyIcon}`}>
+                    ${getHistoryTransactionEmoji(transaction)}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xl font-black text-slate-950 dark:text-white">
+                      ${description}
+                    </p>
+                    <p className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
+                      ${getTransactionTypeLabel(transaction)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="history-amount-card mt-5 rounded-[24px] p-4">
+                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-500">
+                    Nominal
+                  </p>
+                  <p className=${`mt-2 break-words text-3xl font-black tracking-[-0.03em] ${tone.amount}`}>
+                    ${amountText}
+                  </p>
+                  <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
+                    ${receiptHelper}
+                  </p>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  ${receiptMeta.map(
+                    ([label, value]) => html`
+                      <${ReceiptMetaCard} key=${label} label=${label} value=${value} />
+                    `,
+                  )}
+                </div>
               </div>
 
-              <div className="mt-4 grid gap-2">
-                ${detailRows.map(
-                  ([label, value]) => html`
-                    <div
-                      key=${label}
-                      className="grid grid-cols-[7.5rem_1fr] gap-3 rounded-2xl border border-slate-200/60 bg-white/45 px-3 py-2.5 text-sm dark:border-white/10 dark:bg-slate-900/38"
-                    >
-                      <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                        ${label}
-                      </span>
-                      <span className="min-w-0 break-words text-right font-semibold text-slate-900 dark:text-slate-100">
-                        ${value}
-                      </span>
-                    </div>
-                  `,
-                )}
-              </div>
-
-              <div className="mt-5 grid grid-cols-2 gap-3">
-                <button
-                  type="button"
-                  onClick=${() => setIsEditing(true)}
-                  className="min-h-12 rounded-2xl border border-brand-300/30 bg-brand-500/12 px-4 py-3 text-sm font-black text-brand-700 transition hover:-translate-y-0.5 hover:bg-brand-500/18 dark:border-brand-300/20 dark:bg-brand-400/10 dark:text-brand-200"
-                >
-                  Edit data
-                </button>
-                <button
-                  type="button"
-                  onClick=${() => {
-                    onClose();
-                    onDelete(transaction);
-                  }}
-                  className="min-h-12 rounded-2xl border border-rose-300/25 bg-rose-400/10 px-4 py-3 text-sm font-black text-rose-700 transition hover:-translate-y-0.5 hover:bg-rose-400/15 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200"
-                >
-                  Hapus
-                </button>
+              <div className="history-detail-actions sticky bottom-0 z-10 -mx-5 mt-5 p-5">
+                ${confirmingDelete
+                  ? html`
+                      <div className="history-delete-confirm rounded-[24px] p-4">
+                        <p className="font-black text-slate-950 dark:text-white">
+                          Yakin ingin menghapus transaksi ini?
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                          Data akan dihapus dari riwayat dan semua saldo serta summary akan dihitung ulang.
+                        </p>
+                        <div className="mt-4 grid grid-cols-2 gap-3">
+                          <button
+                            type="button"
+                            onClick=${() => setConfirmingDelete(false)}
+                            className="history-action-secondary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+                          >
+                            Batal
+                          </button>
+                          <button
+                            type="button"
+                            disabled=${loading}
+                            onClick=${handleConfirmDelete}
+                            className="history-action-delete min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            ${loading ? "Menghapus..." : "Hapus"}
+                          </button>
+                        </div>
+                      </div>
+                    `
+                  : html`
+                      <div className="grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          onClick=${() => setIsEditing(true)}
+                          className="history-action-primary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+                        >
+                          Edit transaksi
+                        </button>
+                        <button
+                          type="button"
+                          onClick=${() => setConfirmingDelete(true)}
+                          className="history-action-danger min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+                        >
+                          Hapus transaksi
+                        </button>
+                      </div>
+                    `}
               </div>
             `}
       </section>
@@ -4306,7 +4957,7 @@ function DailyExpenseForm({
               Pengingat hari ini
             </p>
             <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
-              ${budget ? `Batas ${todayLimit}` : "Atur budget lewat menu Budget"}
+              ${budget ? `Batas ${todayLimit}` : "Atur budget lewat Kontrol"}
             </p>
           </div>
         </div>
@@ -5073,7 +5724,7 @@ function BudgetForm({ onSubmit, loading, currentMonthKey }) {
         <button
           type="submit"
           disabled=${loading}
-          className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 dark:bg-white dark:text-slate-950"
+          className="history-action-primary w-full min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
         >
           Simpan budget
         </button>
@@ -5237,18 +5888,19 @@ function ToastMessage({ toast, onDismiss }) {
 function MobileBottomNav({ activeTab, onChange }) {
   const items = [
     { key: "today", label: "Hari Ini" },
-    { key: "budget", label: "Budget" },
+    { key: "overview", label: "Kontrol" },
     { key: "add", label: "Tambah", featured: true },
     { key: "history", label: "Riwayat" },
+    { key: "report", label: "Laporan" },
   ];
 
   return html`
     <nav
-      className="fixed inset-x-3 z-40 md:hidden"
+      className="mobile-bottom-nav fixed inset-x-3 z-40 transition duration-300 md:hidden"
       style=${{ bottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
     >
       <div
-        className=${`grid grid-cols-4 items-end gap-1 rounded-[26px] p-1.5 transition duration-300 ease-out ${navSurface}`}
+        className=${`grid grid-cols-5 items-end gap-1 rounded-[26px] p-1.5 transition duration-300 ease-out ${navSurface}`}
       >
         ${items.map((item) => {
           const active = activeTab === item.key;
@@ -5265,7 +5917,7 @@ function MobileBottomNav({ activeTab, onChange }) {
               type="button"
               aria-current=${active ? "page" : undefined}
               onClick=${() => onChange(item.key)}
-              className=${`flex min-h-[3.25rem] min-w-0 flex-col items-center justify-center rounded-[20px] px-1 text-[11px] font-bold transition duration-300 ease-out ${featuredClass}`}
+              className=${`flex min-h-[3.25rem] min-w-0 flex-col items-center justify-center rounded-[20px] px-1 text-[10px] font-bold transition duration-300 ease-out min-[390px]:text-[11px] ${featuredClass}`}
             >
               ${item.featured
                 ? html`
@@ -5681,14 +6333,17 @@ function calculateTHBBalance(transactions) {
         throw new Error("Tanggal transaksi tidak valid.");
       }
 
-      const flow = getTransactionFlow(transaction);
+      const nextType = ["income", "expense", "exchange"].includes(payload.type)
+        ? payload.type
+        : getTransactionFlow(transaction);
+      const description = String(payload.description || "").trim();
       const amountIdr = Number(normalizeNumericInput(payload.amount_idr));
       const amountThb = Number(normalizeNumericInput(payload.amount_thb));
       const lockedRate = Number(normalizeNumericInput(payload.locked_rate));
       const record = {
-        type: transaction.type,
+        type: nextType,
         occurred_at: occurredAt.toISOString(),
-        description: String(payload.description || "").trim(),
+        description,
         category: null,
         category_group: null,
         amount_idr: null,
@@ -5696,37 +6351,36 @@ function calculateTHBBalance(transactions) {
         locked_rate: null,
       };
 
-      if (flow === "income") {
+      if (!description) {
+        throw new Error("Deskripsi transaksi wajib diisi.");
+      }
+
+      if (nextType === "income") {
         if (!amountIdr || amountIdr <= 0) {
           throw new Error("Jumlah pemasukan IDR harus lebih besar dari 0.");
         }
         record.amount_idr = amountIdr;
       }
 
-      if (flow === "exchange") {
+      if (nextType === "exchange") {
+        if (!amountIdr || amountIdr <= 0) {
+          throw new Error("Jumlah IDR exchange harus lebih besar dari 0.");
+        }
         if (!amountThb || amountThb <= 0) {
           throw new Error("Nominal THB exchange harus lebih besar dari 0.");
         }
+        if (!lockedRate || lockedRate <= 0) {
+          throw new Error("Rate exchange wajib diisi.");
+        }
         const previousThb = Number(transaction.amount_thb || 0);
         const isSellExchange = previousThb < 0;
-        const resolvedIdr =
-          amountIdr > 0
-            ? amountIdr
-            : lockedRate > 0 && !isSellExchange
-              ? amountThb * lockedRate
-              : 0;
 
-        record.amount_idr = resolvedIdr;
+        record.amount_idr = amountIdr;
         record.amount_thb = isSellExchange ? -amountThb : amountThb;
-        record.locked_rate =
-          lockedRate > 0
-            ? lockedRate
-            : resolvedIdr > 0
-              ? resolvedIdr / amountThb
-              : null;
+        record.locked_rate = lockedRate;
       }
 
-      if (flow === "expense") {
+      if (nextType === "expense") {
         const expenseCurrency =
           payload.expense_currency === "idr" ? "idr" : "thb";
         record.category = payload.category || DEFAULT_CATEGORY;
@@ -5744,25 +6398,21 @@ function calculateTHBBalance(transactions) {
           if (!amountThb || amountThb <= 0) {
             throw new Error("Jumlah pengeluaran THB harus lebih besar dari 0.");
           }
-          const activeExchange = getLockedExchange(transactions, record.occurred_at);
-          const fallbackRate = Number(
-            activeExchange?.locked_rate ||
-              getLatestRateUntil(transactions, new Date(record.occurred_at)) ||
-              0,
-          );
-          const resolvedRate =
-            lockedRate > 0 ? lockedRate : fallbackRate > 0 ? fallbackRate : null;
+          if (!lockedRate || lockedRate <= 0) {
+            throw new Error("Rate pengeluaran THB wajib diisi.");
+          }
 
           record.amount_thb = amountThb;
-          record.locked_rate = resolvedRate;
-          record.amount_idr = resolvedRate ? amountThb * resolvedRate : null;
+          record.locked_rate = lockedRate;
+          record.amount_idr = amountThb * lockedRate;
         }
       }
 
       if (mode === "demo") {
+        const transactionId = transaction.id || createLegacyTransactionId(transaction);
         await persistDemoTransactions(
           transactions.map((item) =>
-            item.id === transaction.id ? { ...item, ...record } : item,
+            item.id === transactionId ? { ...item, ...record } : item,
           ),
         );
       } else {
@@ -5785,7 +6435,7 @@ function calculateTHBBalance(transactions) {
 
       setMessage("Transaksi berhasil diperbarui.");
       setMessageTone("success");
-      setToast({ message: "Transaksi berhasil diperbarui." });
+      setToast({ message: "Transaksi diperbarui" });
       return true;
     } catch (error) {
       setMessage(error.message || "Gagal memperbarui transaksi.");
@@ -5797,37 +6447,36 @@ function calculateTHBBalance(transactions) {
   }
 
   async function handleDeleteTransaction(transaction) {
-    const confirmation = window.confirm(
-      `Hapus transaksi "${transaction.description || TYPE_META[transaction.type].label}"?`,
-    );
-    if (!confirmation) return;
-
     try {
       setLoading(true);
       setMessage("");
+      setToast(null);
+      const transactionId = transaction.id || createLegacyTransactionId(transaction);
 
       if (mode === "demo") {
         await persistDemoTransactions(
-          transactions.filter((item) => item.id !== transaction.id),
+          transactions.filter((item) => item.id !== transactionId),
         );
       } else {
         const { error } = await supabase
           .from("transactions")
           .delete()
-          .eq("id", transaction.id)
+          .eq("id", transactionId)
           .eq("user_id", user.id);
         if (error) throw error;
         setTransactions((current) =>
-          current.filter((item) => item.id !== transaction.id),
+          current.filter((item) => item.id !== transactionId),
         );
       }
 
       setMessage("Transaksi dihapus.");
       setMessageTone("info");
-      setToast({ message: "Transaksi dihapus." });
+      setToast({ message: "Transaksi dihapus" });
+      return true;
     } catch (error) {
       setMessage(error.message || "Gagal menghapus transaksi.");
       setMessageTone("error");
+      return false;
     } finally {
       setLoading(false);
     }
@@ -6146,10 +6795,9 @@ function calculateTHBBalance(transactions) {
     "cuan-menu-card flex items-center gap-3 rounded-2xl p-3";
   const navigationTabs = [
     { key: "today", label: "Hari Ini" },
-    { key: "budget", label: "Budget" },
+    { key: "overview", label: "Kontrol" },
     { key: "add", label: "Tambah" },
     { key: "history", label: "Riwayat" },
-    { key: "overview", label: "Overview" },
     { key: "report", label: "Laporan" },
     { key: "investment", label: "Investasi" },
     { key: "settings", label: "Profil" },
@@ -6334,9 +6982,12 @@ function calculateTHBBalance(transactions) {
                 : activeTab === "overview"
                   ? html`
                       <section className="mt-6">
-                        <${OverviewPage}
+                        <${ControlCenterPage}
                           metrics=${metrics}
                           transactions=${transactions}
+                          loading=${loading}
+                          onBudgetDelete=${handleDeleteBudget}
+                          onBudgetSubmit=${handleSaveBudget}
                           onNavigate=${(tab) => {
                             setActiveTab(tab);
                             setMenuOpen(false);
