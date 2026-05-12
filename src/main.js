@@ -416,6 +416,43 @@ function BalancePrivacyPill({ balanceIdr, balanceThb, visible, onToggle }) {
   `;
 }
 
+function CompactBalancePrivacyPill({ balanceIdr, balanceThb, visible, onToggle }) {
+  const hiddenText = "\u2022\u2022\u2022\u2022\u2022\u2022";
+  const balanceItems = [
+    { label: "IDR", value: visible ? formatCurrency(balanceIdr, "idr") : hiddenText },
+    { label: "THB", value: visible ? formatCurrency(balanceThb, "thb") : hiddenText },
+  ];
+
+  return html`
+    <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-1.5 rounded-[22px] border border-brand-300/30 bg-gradient-to-br from-brand-600 via-emerald-600 to-teal-700 p-1.5 text-white shadow-[0_16px_38px_rgba(16,185,129,0.24)] ring-1 ring-white/10 sm:flex-none sm:min-w-[19rem] sm:rounded-full">
+      ${balanceItems.map(
+        (item) => html`
+          <div
+            key=${item.label}
+            className="min-w-0 rounded-2xl bg-white/[0.08] px-2.5 py-2 ring-1 ring-white/[0.08] sm:rounded-full sm:px-3"
+          >
+            <p className="text-[10px] font-black uppercase leading-none tracking-[0.12em] text-white/72">
+              ${item.label}
+            </p>
+            <p className="mt-1 truncate text-[11px] font-black leading-none tabular-nums text-white min-[390px]:text-xs">
+              ${item.value}
+            </p>
+          </div>
+        `,
+      )}
+      <button
+        type="button"
+        onClick=${onToggle}
+        aria-label=${visible ? "Sembunyikan saldo" : "Tampilkan saldo"}
+        title=${visible ? "Sembunyikan saldo" : "Tampilkan saldo"}
+        className="inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/22 bg-white/14 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16)] transition hover:-translate-y-0.5 hover:bg-white/22 focus:outline-none focus:ring-2 focus:ring-white/45"
+      >
+        <${EyeToggleIcon} visible=${visible} />
+      </button>
+    </div>
+  `;
+}
+
 function getLocalDayKey(value) {
   const date = new Date(value);
   const year = date.getFullYear();
@@ -7034,7 +7071,7 @@ function calculateTHBBalance(transactions) {
             </div>
 
             <div className="flex min-w-0 items-center justify-between gap-3 sm:justify-end">
-              <${BalancePrivacyPill}
+              <${CompactBalancePrivacyPill}
                 balanceIdr=${metrics.balanceIdr}
                 balanceThb=${metrics.balanceThb}
                 visible=${balanceVisible}
