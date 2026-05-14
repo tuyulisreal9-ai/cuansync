@@ -14,6 +14,7 @@ const STORAGE_KEYS = {
   demoGoals: "monefy-demo-goals",
   profilePhotos: "monefy-profile-photos",
   balanceVisible: "monefy-balance-visible",
+  currencySettings: "monefy-currency-settings",
 };
 
 const LEGACY_STORAGE_KEYS = {
@@ -24,6 +25,7 @@ const LEGACY_STORAGE_KEYS = {
   demoGoals: "kas-poipet-demo-goals",
   profilePhotos: "kas-poipet-profile-photos",
   balanceVisible: "kas-poipet-balance-visible",
+  currencySettings: "kas-poipet-currency-settings",
 };
 
 const DEMO_USER = {
@@ -128,19 +130,36 @@ const TYPE_META = {
   },
 };
 
-const currencyFormatters = {
-  idr: new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    maximumFractionDigits: 0,
-  }),
-  thb: new Intl.NumberFormat("th-TH", {
-    style: "currency",
-    currency: "THB",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }),
+const DEFAULT_BASE_CURRENCY = "IDR";
+const DEFAULT_ACTIVE_CURRENCIES = [
+  "IDR",
+  "THB",
+  "USD",
+  "AUD",
+  "KRW",
+  "JPY",
+  "SGD",
+  "MYR",
+  "EUR",
+  "GBP",
+];
+const DEFAULT_SELECTED_CURRENCIES = ["IDR"];
+
+const CURRENCY_META = {
+  IDR: { label: "IDR", locale: "id-ID", digits: 0 },
+  THB: { label: "THB", locale: "th-TH", digits: 2 },
+  USD: { label: "USD", locale: "en-US", digits: 2 },
+  AUD: { label: "AUD", locale: "en-AU", digits: 2 },
+  KRW: { label: "KRW", locale: "ko-KR", digits: 0 },
+  JPY: { label: "JPY", locale: "ja-JP", digits: 0 },
+  SGD: { label: "SGD", locale: "en-SG", digits: 2 },
+  MYR: { label: "MYR", locale: "ms-MY", digits: 2 },
+  EUR: { label: "EUR", locale: "de-DE", digits: 2 },
+  GBP: { label: "GBP", locale: "en-GB", digits: 2 },
 };
+
+const currencyFormatters = {};
+let runtimeCurrencySettings = null;
 
 const numberFormatter = new Intl.NumberFormat("id-ID", {
   minimumFractionDigits: 2,
@@ -223,13 +242,148 @@ const supabase =
       })
     : null;
 
-function formatCurrency(value, currency) {
-  return currencyFormatters[currency].format(Number(value || 0));
+function normalizeCurrencyCode(currency, fallback = DEFAULT_BASE_CURRENCY) {
+  const code = String(currency || fallback || DEFAULT_BASE_CURRENCY)
+    .trim()
+    .toUpperCase();
+  return code || DEFAULT_BASE_CURRENCY;
 }
 
-function formatRate(value) {
+function getCurrencyMeta(currency) {
+  const code = normalizeCurrencyCode(currency);
+  return CURRENCY_META[code] || { label: code, locale: "en-US", digits: 2 };
+}
+
+function formatCurrency(value, currency) {
+  const code = normalizeCurrencyCode(currency);
+  if (!currencyFormatters[code]) {
+    const meta = getCurrencyMeta(code);
+    currencyFormatters[code] = new Intl.NumberFormat(meta.locale, {
+      style: "currency",
+      currency: code,
+      minimumFractionDigits: meta.digits,
+      maximumFractionDigits: meta.digits,
+    });
+  }
+  return currencyFormatters[code].format(Number(value || 0));
+}
+
+function formatRate(
+  value,
+  fromCurrency = DEFAULT_BASE_CURRENCY,
+  toCurrency = "THB",
+) {
   if (!value) return "-";
-  return `${numberFormatter.format(Number(value))} IDR / 1 THB`;
+  return `${numberFormatter.format(Number(value))} ${normalizeCurrencyCode(
+    fromCurrency,
+  )} / 1 ${normalizeCurrencyCode(toCurrency, "THB")}`;
+}
+
+function normalizeCurrencyList(currencies, { ensureBase = true } = {}) {
+  const source = Array.isArray(currencies) ? currencies : [];
+  const selected = [];
+  const seen = new Set();
+
+  function addCurrency(currency) {
+    const code = normalizeCurrencyCode(currency);
+    if (!code || seen.has(code)) return;
+    seen.add(code);
+    selected.push(code);
+  }
+
+  if (ensureBase) addCurrency(DEFAULT_BASE_CURRENCY);
+  source.forEach(addCurrency);
+
+  const order = new Map(DEFAULT_ACTIVE_CURRENCIES.map((code, index) => [code, index]));
+  selected.sort((left, right) => {
+    const leftOrder = order.has(left) ? order.get(left) : Number.MAX_SAFE_INTEGER;
+    const rightOrder = order.has(right) ? order.get(right) : Number.MAX_SAFE_INTEGER;
+    return leftOrder - rightOrder || left.localeCompare(right);
+  });
+
+  return selected.length ? selected : [DEFAULT_BASE_CURRENCY];
+}
+
+function mergeCurrencyLists(...lists) {
+  return normalizeCurrencyList(lists.flat().filter(Boolean));
+}
+
+function normalizeCurrencySettings(settings, { configured = false } = {}) {
+  const baseCurrency = normalizeCurrencyCode(
+    settings?.baseCurrency || settings?.base_currency || DEFAULT_BASE_CURRENCY,
+  );
+  const source = Array.isArray(settings)
+    ? settings
+    : settings?.activeCurrencies || settings?.currencies || DEFAULT_SELECTED_CURRENCIES;
+  const activeCurrencies = normalizeCurrencyList(
+    source,
+  );
+  const normalizedActiveCurrencies = normalizeCurrencyList([baseCurrency, ...activeCurrencies]);
+  const requestedDailyCurrency = normalizeCurrencyCode(
+    settings?.dailyCurrency ||
+      settings?.daily_currency ||
+      settings?.defaultExpenseCurrency ||
+      settings?.default_expense_currency ||
+      normalizedActiveCurrencies[0] ||
+      baseCurrency,
+  );
+  const dailyCurrency = normalizedActiveCurrencies.includes(requestedDailyCurrency)
+    ? requestedDailyCurrency
+    : normalizedActiveCurrencies[0] || baseCurrency;
+
+  return {
+    baseCurrency,
+    activeCurrencies: normalizedActiveCurrencies,
+    dailyCurrency,
+    configured: Boolean(settings?.configured || configured),
+  };
+}
+
+function normalizeUserSettingsRow(row) {
+  if (!row) return null;
+  return normalizeCurrencySettings(
+    {
+      baseCurrency: row.base_currency,
+      activeCurrencies: row.active_currencies,
+      dailyCurrency: row.daily_currency,
+      configured: true,
+    },
+    { configured: true },
+  );
+}
+
+function readCurrencySettings() {
+  const stored = readAppStorage("currencySettings", null);
+  return stored ? normalizeCurrencySettings(stored) : null;
+}
+
+function saveCurrencySettings(settings) {
+  const normalized = normalizeCurrencySettings(settings, { configured: true });
+  writeAppStorage("currencySettings", normalized);
+  return normalized;
+}
+
+function setRuntimeCurrencySettings(settings) {
+  runtimeCurrencySettings = settings ? normalizeCurrencySettings(settings) : null;
+}
+
+function getActiveCurrencies() {
+  return (
+    runtimeCurrencySettings?.activeCurrencies ||
+    readCurrencySettings()?.activeCurrencies ||
+    DEFAULT_SELECTED_CURRENCIES
+  );
+}
+
+function getCurrencyOptions(currencies = getActiveCurrencies()) {
+  return currencies.map((currency) => {
+    const code = normalizeCurrencyCode(currency);
+    return { value: code, label: getCurrencyMeta(code).label };
+  });
+}
+
+function getBaseCurrency() {
+  return DEFAULT_BASE_CURRENCY;
 }
 
 function formatPercent(value) {
@@ -272,6 +426,77 @@ function formatNumericInput(value, { allowDecimal = true } = {}) {
   }
 
   return inputGroupingFormatter.format(Number(cleaned));
+}
+
+function formatAutoNumericValue(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "";
+  const rounded =
+    Math.abs(numeric) >= 100
+      ? Math.round(numeric * 100) / 100
+      : Math.round(numeric * 1000000) / 1000000;
+  return formatNumericInput(String(rounded));
+}
+
+function settleExchangeCalculation(
+  form,
+  changedField,
+  { rateField = "exchange_rate", preferredTarget = null } = {},
+) {
+  const next = { ...form };
+  const fromAmount = Number(normalizeNumericInput(next.from_amount));
+  const toAmount = Number(normalizeNumericInput(next.to_amount));
+  const rate = Number(normalizeNumericInput(next[rateField]));
+
+  function setAutoValue(field, value) {
+    const formatted = formatAutoNumericValue(value);
+    if (formatted) next[field] = formatted;
+  }
+
+  if (changedField === rateField) {
+    if (rate <= 0) return next;
+    if (preferredTarget === "from_amount" && toAmount > 0) {
+      setAutoValue("from_amount", toAmount * rate);
+      return next;
+    }
+    if (preferredTarget === "to_amount" && fromAmount > 0) {
+      setAutoValue("to_amount", fromAmount / rate);
+      return next;
+    }
+    if (toAmount > 0) {
+      setAutoValue("from_amount", toAmount * rate);
+      return next;
+    }
+    if (fromAmount > 0) {
+      setAutoValue("to_amount", fromAmount / rate);
+    }
+    return next;
+  }
+
+  if (changedField === "from_amount") {
+    if (fromAmount <= 0) return next;
+    if (toAmount > 0) {
+      setAutoValue(rateField, fromAmount / toAmount);
+      return next;
+    }
+    if (rate > 0) {
+      setAutoValue("to_amount", fromAmount / rate);
+    }
+    return next;
+  }
+
+  if (changedField === "to_amount") {
+    if (toAmount <= 0) return next;
+    if (fromAmount > 0) {
+      setAutoValue(rateField, fromAmount / toAmount);
+      return next;
+    }
+    if (rate > 0) {
+      setAutoValue("from_amount", toAmount * rate);
+    }
+  }
+
+  return next;
 }
 
 function formatDateTime(value) {
@@ -416,30 +641,37 @@ function BalancePrivacyPill({ balanceIdr, balanceThb, visible, onToggle }) {
   `;
 }
 
-function CompactBalancePrivacyPill({ balanceIdr, balanceThb, visible, onToggle }) {
+function CompactBalancePrivacyPill({
+  balances = {},
+  activeCurrencies = getActiveCurrencies(),
+  visible,
+  onToggle,
+}) {
   const hiddenText = "\u2022\u2022\u2022\u2022\u2022\u2022";
-  const balanceItems = [
-    { label: "IDR", value: visible ? formatCurrency(balanceIdr, "idr") : hiddenText },
-    { label: "THB", value: visible ? formatCurrency(balanceThb, "thb") : hiddenText },
-  ];
+  const balanceItems = normalizeCurrencyList(activeCurrencies).map((currency) => ({
+    label: currency,
+    value: visible ? formatCurrency(balances[currency] || 0, currency) : hiddenText,
+  }));
 
   return html`
-    <div className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] items-center gap-1.5 rounded-[22px] border border-brand-300/30 bg-gradient-to-br from-brand-600 via-emerald-600 to-teal-700 p-1.5 text-white shadow-[0_16px_38px_rgba(16,185,129,0.24)] ring-1 ring-white/10 sm:flex-none sm:min-w-[19rem] sm:rounded-full">
-      ${balanceItems.map(
-        (item) => html`
-          <div
-            key=${item.label}
-            className="min-w-0 rounded-2xl bg-white/[0.08] px-2.5 py-2 ring-1 ring-white/[0.08] sm:rounded-full sm:px-3"
-          >
-            <p className="text-[10px] font-black uppercase leading-none tracking-[0.12em] text-white/72">
-              ${item.label}
-            </p>
-            <p className="mt-1 truncate text-[11px] font-black leading-none tabular-nums text-white min-[390px]:text-xs">
-              ${item.value}
-            </p>
-          </div>
-        `,
-      )}
+    <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[22px] border border-brand-300/30 bg-gradient-to-br from-brand-600 via-emerald-600 to-teal-700 p-1.5 text-white shadow-[0_16px_38px_rgba(16,185,129,0.24)] ring-1 ring-white/10 sm:flex-none sm:min-w-[19rem] sm:rounded-full">
+      <div className="balance-strip flex min-w-0 flex-1 gap-1.5 overflow-x-auto pr-0.5">
+        ${balanceItems.map(
+          (item) => html`
+            <div
+              key=${item.label}
+              className="min-w-[5.8rem] flex-1 rounded-2xl bg-white/[0.08] px-2.5 py-2 ring-1 ring-white/[0.08] sm:rounded-full sm:px-3"
+            >
+              <p className="text-[10px] font-black uppercase leading-none tracking-[0.12em] text-white/72">
+                ${item.label}
+              </p>
+              <p className="mt-1 truncate text-[11px] font-black leading-none tabular-nums text-white min-[390px]:text-xs">
+                ${item.value}
+              </p>
+            </div>
+          `,
+        )}
+      </div>
       <button
         type="button"
         onClick=${onToggle}
@@ -593,7 +825,10 @@ function getCategoryMeta(category) {
 
 const LEGACY_EXCHANGE_KEYWORDS = [
   "beli thb",
+  "beli baht",
   "tukar thb",
+  "tukar",
+  "tukar / beli thb",
   "exchange",
   "convert",
   "currency exchange",
@@ -608,6 +843,8 @@ function looksLikeLegacyExchange(row) {
     row.description,
     row.category,
     row.category_group,
+    row.exchange_source,
+    row.source,
   ]
     .filter(Boolean)
     .join(" ")
@@ -640,30 +877,134 @@ function createLegacyTransactionId(row, index = 0) {
 }
 
 function normalizeTransaction(row, index = 0) {
+  const baseCurrency = normalizeCurrencyCode(row.base_currency || row.baseCurrency);
   const normalized = {
     ...row,
     id: row.id || createLegacyTransactionId(row, index),
+    type: ["income", "expense", "exchange"].includes(row.type)
+      ? row.type
+      : "expense",
     amount_idr: row.amount_idr == null ? null : Number(row.amount_idr),
     amount_thb: row.amount_thb == null ? null : Number(row.amount_thb),
     locked_rate: row.locked_rate == null ? null : Number(row.locked_rate),
+    amount: row.amount == null ? null : Number(row.amount),
+    base_amount: row.base_amount == null ? null : Number(row.base_amount),
+    base_currency: baseCurrency,
+    currency: row.currency ? normalizeCurrencyCode(row.currency) : null,
+    from_currency: row.from_currency
+      ? normalizeCurrencyCode(row.from_currency)
+      : row.fromCurrency
+        ? normalizeCurrencyCode(row.fromCurrency)
+        : null,
+    to_currency: row.to_currency
+      ? normalizeCurrencyCode(row.to_currency)
+      : row.toCurrency
+        ? normalizeCurrencyCode(row.toCurrency)
+        : null,
+    from_amount:
+      row.from_amount == null && row.fromAmount == null
+        ? null
+        : Number(row.from_amount ?? row.fromAmount),
+    to_amount:
+      row.to_amount == null && row.toAmount == null
+        ? null
+        : Number(row.to_amount ?? row.toAmount),
+    rate: row.rate == null ? null : Number(row.rate),
   };
 
-  if (!looksLikeLegacyExchange(normalized)) return normalized;
+  if (looksLikeLegacyExchange(normalized)) {
+    normalized.type = "exchange";
+  }
 
-  const amountIdr = Number(normalized.amount_idr || 0);
-  const amountThb = Number(normalized.amount_thb || 0);
+  if (normalized.type === "exchange") {
+    const amountIdr = Math.abs(Number(normalized.amount_idr || 0));
+    const amountThb = Number(normalized.amount_thb || 0);
+    const isLegacySell = amountThb < 0 && amountIdr > 0;
+    const inferredFromCurrency =
+      normalized.from_currency || (isLegacySell ? "THB" : "IDR");
+    const inferredToCurrency =
+      normalized.to_currency || (isLegacySell ? "IDR" : "THB");
+    const inferredFromAmount =
+      Number(normalized.from_amount || 0) > 0
+        ? Math.abs(Number(normalized.from_amount))
+        : inferredFromCurrency === "IDR"
+          ? amountIdr
+          : Math.abs(amountThb);
+    const inferredToAmount =
+      Number(normalized.to_amount || 0) > 0
+        ? Math.abs(Number(normalized.to_amount))
+        : inferredToCurrency === "IDR"
+          ? amountIdr
+          : Math.abs(amountThb);
+    const inferredRate =
+      Number(normalized.rate || normalized.locked_rate || 0) > 0
+        ? Number(normalized.rate || normalized.locked_rate)
+        : inferredFromAmount > 0 && inferredToAmount > 0
+          ? inferredFromAmount / inferredToAmount
+          : null;
+
+    const exchange = {
+      ...normalized,
+      category: null,
+      category_group: null,
+      from_currency: normalizeCurrencyCode(inferredFromCurrency),
+      to_currency: normalizeCurrencyCode(inferredToCurrency, "THB"),
+      from_amount: inferredFromAmount,
+      to_amount: inferredToAmount,
+      rate: inferredRate,
+      locked_rate: inferredRate,
+      currency: null,
+      amount: null,
+      base_amount:
+        normalizeCurrencyCode(inferredFromCurrency) === baseCurrency
+          ? inferredFromAmount
+          : normalizeCurrencyCode(inferredToCurrency) === baseCurrency
+            ? inferredToAmount
+            : null,
+    };
+
+    return {
+      ...exchange,
+      fromCurrency: exchange.from_currency,
+      toCurrency: exchange.to_currency,
+      fromAmount: exchange.from_amount,
+      toAmount: exchange.to_amount,
+      createdAt: exchange.created_at,
+      updatedAt: exchange.updated_at,
+    };
+  }
+
+  const inferredCurrency =
+    normalized.currency ||
+    (Number(normalized.amount_thb || 0) > 0 ? "THB" : baseCurrency);
+  const currency = normalizeCurrencyCode(inferredCurrency);
+  const inferredAmount =
+    Number(normalized.amount || 0) > 0
+      ? Number(normalized.amount)
+      : currency === "THB"
+        ? Number(normalized.amount_thb || 0)
+        : Number(normalized.amount_idr || 0);
   const inferredRate =
-    Number(normalized.locked_rate || 0) > 0
-      ? Number(normalized.locked_rate)
-      : amountIdr > 0 && amountThb > 0
-        ? amountIdr / amountThb
-        : null;
+    Number(normalized.rate || normalized.locked_rate || 0) > 0
+      ? Number(normalized.rate || normalized.locked_rate)
+      : null;
+  const inferredBaseAmount =
+    Number(normalized.base_amount || 0) > 0
+      ? Number(normalized.base_amount)
+      : Number(normalized.amount_idr || 0) > 0
+        ? Number(normalized.amount_idr)
+        : currency === baseCurrency
+          ? inferredAmount
+          : inferredAmount > 0 && inferredRate > 0
+            ? inferredAmount * inferredRate
+            : null;
 
   return {
     ...normalized,
-    type: "exchange",
-    category: null,
-    category_group: null,
+    currency,
+    amount: inferredAmount,
+    base_amount: inferredBaseAmount,
+    rate: inferredRate,
     locked_rate: inferredRate,
   };
 }
@@ -673,10 +1014,15 @@ function normalizeTransactions(rows) {
 }
 
 function normalizeBudget(row) {
+  const currency = normalizeCurrencyCode(row.currency || (row.limit_thb != null ? "THB" : getBaseCurrency()));
+  const limitAmount = Number(row.limit_amount ?? row.limitAmount ?? row.limit_thb ?? 0);
   return {
     ...row,
     group_key: row.group_key || UNIVERSAL_BUDGET_GROUP,
-    limit_thb: Number(row.limit_thb || 0),
+    currency,
+    limit_amount: limitAmount,
+    limitAmount,
+    limit_thb: Number(row.limit_thb ?? (currency === "THB" ? limitAmount : 0) ?? 0),
   };
 }
 
@@ -725,10 +1071,129 @@ function getLockedExchange(transactions, occurredAt) {
     .filter(
       (item) =>
         item.type === "exchange" &&
-        Number(item.locked_rate || 0) > 0 &&
+        (item.to_currency === "THB" || item.from_currency === "THB" || Number(item.amount_thb || 0) !== 0) &&
+        Number(item.rate || item.locked_rate || 0) > 0 &&
         new Date(item.occurred_at).getTime() <= target,
     )
     .at(-1);
+}
+
+function getExchangeRateToBase(transaction, currency, baseCurrency = getBaseCurrency()) {
+  if (!transaction || transaction.type !== "exchange") return null;
+  const code = normalizeCurrencyCode(currency);
+  const base = normalizeCurrencyCode(baseCurrency);
+  const fromCurrency = normalizeCurrencyCode(transaction.from_currency);
+  const toCurrency = normalizeCurrencyCode(transaction.to_currency);
+  const fromAmount = Number(transaction.from_amount || 0);
+  const toAmount = Number(transaction.to_amount || 0);
+
+  if (fromAmount <= 0 || toAmount <= 0) return null;
+  if (fromCurrency === base && toCurrency === code) return fromAmount / toAmount;
+  if (fromCurrency === code && toCurrency === base) return toAmount / fromAmount;
+  return null;
+}
+
+function getLatestRateForCurrencyUntil(
+  transactions,
+  currency,
+  endDate,
+  baseCurrency = getBaseCurrency(),
+) {
+  const code = normalizeCurrencyCode(currency);
+  const base = normalizeCurrencyCode(baseCurrency);
+  if (code === base) return 1;
+  const endTime = new Date(endDate).getTime();
+  const exchange = orderTransactions(transactions)
+    .filter(
+      (item) =>
+        item.type === "exchange" &&
+        new Date(item.occurred_at).getTime() <= endTime &&
+        getExchangeRateToBase(item, code, base) != null,
+    )
+    .at(-1);
+  return getExchangeRateToBase(exchange, code, base) || 0;
+}
+
+function getLatestExchangeForCurrencyUntil(
+  transactions,
+  currency,
+  endDate,
+  baseCurrency = getBaseCurrency(),
+) {
+  const code = normalizeCurrencyCode(currency);
+  const base = normalizeCurrencyCode(baseCurrency);
+  if (code === base) return null;
+  const endTime = new Date(endDate).getTime();
+
+  return (
+    orderTransactions(transactions)
+      .filter(
+        (item) =>
+          item.type === "exchange" &&
+          new Date(item.occurred_at).getTime() <= endTime &&
+          getExchangeRateToBase(item, code, base) != null,
+      )
+      .at(-1) || null
+  );
+}
+
+function resolveTransactionBaseValue(transaction, fallbackRate = 0) {
+  const baseCurrency = normalizeCurrencyCode(transaction.base_currency);
+  const currency = normalizeCurrencyCode(transaction.currency, baseCurrency);
+  const amount = Math.abs(Number(transaction.amount || 0));
+  const baseAmount = Math.abs(Number(transaction.base_amount || 0));
+  const legacyAmountIdr = Math.abs(Number(transaction.amount_idr || 0));
+  const rate = Number(transaction.rate || transaction.locked_rate || fallbackRate || 0);
+
+  if (baseAmount > 0) return baseAmount;
+  if (legacyAmountIdr > 0) return legacyAmountIdr;
+  if (currency === baseCurrency) return amount;
+  return amount > 0 && rate > 0 ? amount * rate : 0;
+}
+
+function getTransactionAmountValue(transaction) {
+  const amount = Math.abs(Number(transaction.amount || 0));
+  if (amount > 0) return amount;
+  const currency = getTransactionCurrency(transaction);
+  if (currency === "THB") return Math.abs(Number(transaction.amount_thb || 0));
+  return Math.abs(Number(transaction.amount_idr || 0));
+}
+
+function getExchangeBaseVolume(transaction, fallbackRate = 0) {
+  if (transaction.type !== "exchange") return 0;
+  const baseCurrency = normalizeCurrencyCode(transaction.base_currency);
+  const fromCurrency = normalizeCurrencyCode(transaction.from_currency);
+  const toCurrency = normalizeCurrencyCode(transaction.to_currency);
+  const fromAmount = Math.abs(Number(transaction.from_amount || 0));
+  const toAmount = Math.abs(Number(transaction.to_amount || 0));
+  const rate = Number(transaction.rate || transaction.locked_rate || fallbackRate || 0);
+
+  if (fromCurrency === baseCurrency) return fromAmount;
+  if (toCurrency === baseCurrency) return toAmount;
+  return fromAmount > 0 && rate > 0 ? fromAmount * rate : 0;
+}
+
+function computeCurrencyBalances(transactions) {
+  const balances = Object.fromEntries(getActiveCurrencies().map((code) => [code, 0]));
+
+  function add(currency, amount) {
+    const code = normalizeCurrencyCode(currency);
+    balances[code] = Number(balances[code] || 0) + Number(amount || 0);
+  }
+
+  orderTransactions(transactions).forEach((item) => {
+    if (item.type === "exchange") {
+      add(item.from_currency, -Math.abs(Number(item.from_amount || 0)));
+      add(item.to_currency, Math.abs(Number(item.to_amount || 0)));
+      return;
+    }
+
+    const currency = getTransactionCurrency(item);
+    const amount = getTransactionAmountValue(item);
+    add(currency, item.type === "expense" ? -amount : amount);
+  });
+
+  return balances;
 }
 
 function buildExpenseChart(transactions, monthKey) {
@@ -757,14 +1222,14 @@ function buildExpenseChart(transactions, monthKey) {
     .filter(
       (item) =>
         item.type === "expense" &&
-        Number(item.amount_thb || 0) > 0 &&
+        getTransactionCurrency(item) === "THB" &&
         getMonthKey(item.occurred_at) === monthKey,
     )
     .forEach((item) => {
       const dayKey = getLocalDayKey(item.occurred_at);
       const bucket = map.get(dayKey);
       if (bucket) {
-        bucket.value += Number(item.amount_thb || 0);
+        bucket.value += getTransactionAmountValue(item);
       }
     });
 
@@ -803,18 +1268,14 @@ function buildOverviewDailyExpenses(transactions, monthKey) {
       const bucket = map.get(getLocalDayKey(item.occurred_at));
       if (!bucket) return;
 
-      bucket.valueIdr += Number(item.amount_idr || 0);
-      bucket.valueThb += Number(item.amount_thb || 0);
+      bucket.valueIdr += resolveTransactionBaseValue(item);
+      bucket.valueThb += getTransactionCurrency(item) === "THB" ? getTransactionAmountValue(item) : 0;
     });
 
   return days;
 }
 
 function computeBudgetInsights(monthlyExpenses, budgets, monthKey) {
-  const spentThbTotal = monthlyExpenses.reduce(
-    (sum, item) => sum + Number(item.amount_thb || 0),
-    0,
-  );
   const now = new Date();
   const [year, month] = String(monthKey).split("-").map(Number);
   const daysInMonth = new Date(year, month, 0).getDate();
@@ -822,20 +1283,6 @@ function computeBudgetInsights(monthlyExpenses, budgets, monthKey) {
   const currentDay = isCurrentMonth ? now.getDate() : daysInMonth;
   const todayDate = new Date(year, month - 1, currentDay);
   const todayKey = getLocalDayKey(todayDate);
-
-  let spentBeforeTodayThb = 0;
-  let spentTodayThb = 0;
-  monthlyExpenses.forEach((item) => {
-    const amount = Number(item.amount_thb || 0);
-    const dayKey = getLocalDayKey(item.occurred_at);
-    if (dayKey < todayKey) {
-      spentBeforeTodayThb += amount;
-      return;
-    }
-    if (dayKey === todayKey) {
-      spentTodayThb += amount;
-    }
-  });
 
   const remainingDaysIncludingToday = Math.max(daysInMonth - currentDay + 1, 1);
   const remainingDaysAfterToday = Math.max(remainingDaysIncludingToday - 1, 0);
@@ -852,22 +1299,44 @@ function computeBudgetInsights(monthlyExpenses, budgets, monthKey) {
         item.month_key === monthKey &&
         (item.group_key || UNIVERSAL_BUDGET_GROUP) === UNIVERSAL_BUDGET_GROUP,
     )
+    .map(normalizeBudget)
     .map((budget) => {
-      const spentThb = spentThbTotal;
-      const limitThb = Number(budget.limit_thb || 0);
-      const remainingThb = limitThb - spentThb;
-      const usage = limitThb > 0 ? spentThb / limitThb : 0;
-      const baselineDailyLimitThb = daysInMonth > 0 ? limitThb / daysInMonth : 0;
-      const dynamicDailyLimitThb =
+      const currency = normalizeCurrencyCode(budget.currency);
+      const currencyExpenses = monthlyExpenses.filter(
+        (item) => getTransactionCurrency(item) === currency,
+      );
+      const spentAmount = currencyExpenses.reduce(
+        (sum, item) => sum + getTransactionAmountValue(item),
+        0,
+      );
+      let spentBeforeToday = 0;
+      let spentToday = 0;
+      currencyExpenses.forEach((item) => {
+        const amount = getTransactionAmountValue(item);
+        const dayKey = getLocalDayKey(item.occurred_at);
+        if (dayKey < todayKey) {
+          spentBeforeToday += amount;
+          return;
+        }
+        if (dayKey === todayKey) {
+          spentToday += amount;
+        }
+      });
+
+      const limitAmount = Number(budget.limit_amount || budget.limitAmount || 0);
+      const remainingAmount = limitAmount - spentAmount;
+      const usage = limitAmount > 0 ? spentAmount / limitAmount : 0;
+      const baselineDailyLimit = daysInMonth > 0 ? limitAmount / daysInMonth : 0;
+      const dynamicDailyLimit =
         remainingDaysIncludingToday > 0
-          ? Math.max((limitThb - spentBeforeTodayThb) / remainingDaysIncludingToday, 0)
+          ? Math.max((limitAmount - spentBeforeToday) / remainingDaysIncludingToday, 0)
           : 0;
-      const todayRemainingSafeThb = dynamicDailyLimitThb - spentTodayThb;
-      const projectedNextDailyLimitThb =
+      const todayRemainingSafe = dynamicDailyLimit - spentToday;
+      const projectedNextDailyLimit =
         remainingDaysAfterToday > 0
-          ? Math.max((limitThb - spentBeforeTodayThb - spentTodayThb) / remainingDaysAfterToday, 0)
+          ? Math.max((limitAmount - spentBeforeToday - spentToday) / remainingDaysAfterToday, 0)
           : 0;
-      const dailyAdjustmentThb = dynamicDailyLimitThb - baselineDailyLimitThb;
+      const dailyAdjustment = dynamicDailyLimit - baselineDailyLimit;
 
       let status = "healthy";
       let statusLabel = "Aman";
@@ -881,7 +1350,7 @@ function computeBudgetInsights(monthlyExpenses, budgets, monthKey) {
         tone =
           "border-rose-300/20 bg-rose-400/10 text-rose-900 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200";
         barClass = "from-rose-400 to-rose-500";
-      } else if (todayRemainingSafeThb < 0) {
+      } else if (todayRemainingSafe < 0) {
         status = "warning";
         statusLabel = "Over Batas Harian";
         tone =
@@ -898,26 +1367,35 @@ function computeBudgetInsights(monthlyExpenses, budgets, monthKey) {
       return {
         ...budget,
         group_key: UNIVERSAL_BUDGET_GROUP,
-        spentThb,
-        remainingThb,
+        currency,
+        limitAmount,
+        spentAmount,
+        remainingAmount,
         usage,
         daysInMonth,
         currentDay,
         remainingDaysIncludingToday,
         remainingDaysAfterToday,
-        spentBeforeTodayThb,
-        spentTodayThb,
-        baselineDailyLimitThb,
-        dynamicDailyLimitThb,
-        todayRemainingSafeThb,
-        projectedNextDailyLimitThb,
-        dailyAdjustmentThb,
+        spentBeforeToday,
+        spentToday,
+        baselineDailyLimit,
+        dynamicDailyLimit,
+        todayRemainingSafe,
+        projectedNextDailyLimit,
+        dailyAdjustment,
+        spentThb: currency === "THB" ? spentAmount : 0,
+        remainingThb: currency === "THB" ? remainingAmount : 0,
+        spentTodayThb: currency === "THB" ? spentToday : 0,
+        dynamicDailyLimitThb: currency === "THB" ? dynamicDailyLimit : 0,
+        todayRemainingSafeThb: currency === "THB" ? todayRemainingSafe : 0,
+        projectedNextDailyLimitThb: currency === "THB" ? projectedNextDailyLimit : 0,
+        dailyAdjustmentThb: currency === "THB" ? dailyAdjustment : 0,
         status,
         statusLabel,
         tone,
         barClass,
         meta: {
-          label: "Uang Keluar",
+          label: `Budget ${currency}`,
           chip: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
         },
       };
@@ -1007,55 +1485,45 @@ function computeMetrics(transactions, budgets, goals) {
   const thbExpenses = ordered.filter(
     (item) =>
       item.type === "expense" &&
-      Number(item.amount_thb || 0) > 0 &&
+      getTransactionCurrency(item) === "THB" &&
       getMonthKey(item.occurred_at) === currentMonthKey,
   );
 
+  const currencyBalances = computeCurrencyBalances(ordered);
+  const activeCurrencies = getActiveCurrencies();
+  const resolveIdrValue = (item) => {
+    const fallbackRate = getLatestRateForCurrencyUntil(
+      ordered,
+      getTransactionCurrency(item),
+      new Date(item.occurred_at || Date.now()),
+    );
+    return resolveTransactionBaseValue(item, fallbackRate);
+  };
   const incomeIdr = ordered
     .filter((item) => item.type === "income")
-    .reduce((sum, item) => sum + Number(item.amount_idr || 0), 0);
-  const exchangeIdrOut = ordered
-    .filter(
-      (item) =>
-        item.type === "exchange" &&
-        Number(item.amount_thb || 0) > 0 &&
-        Number(item.amount_idr || 0) > 0,
-    )
-    .reduce((sum, item) => sum + Number(item.amount_idr || 0), 0);
-  const exchangeIdrIn = ordered
-    .filter(
-      (item) =>
-        item.type === "exchange" &&
-        Number(item.amount_thb || 0) < 0 &&
-        Number(item.amount_idr || 0) > 0,
-    )
-    .reduce((sum, item) => sum + Number(item.amount_idr || 0), 0);
-  const receivedThb = ordered
-    .filter((item) => item.type === "exchange")
-    .reduce((sum, item) => sum + Number(item.amount_thb || 0), 0);
+    .reduce((sum, item) => sum + resolveIdrValue(item), 0);
+  const receivedThb = Number(currencyBalances.THB || 0);
   const spentThb = ordered
-    .filter((item) => item.type === "expense")
-    .reduce((sum, item) => sum + Number(item.amount_thb || 0), 0);
+    .filter((item) => item.type === "expense" && getTransactionCurrency(item) === "THB")
+    .reduce((sum, item) => sum + getTransactionAmountValue(item), 0);
   const monthlyDirectSpentIdr = ordered
     .filter(
       (item) =>
         item.type === "expense" &&
-        Number(item.amount_thb || 0) <= 0 &&
-        Number(item.amount_idr || 0) > 0 &&
+        getTransactionCurrency(item) === DEFAULT_BASE_CURRENCY &&
         getMonthKey(item.occurred_at) === currentMonthKey,
     )
-    .reduce((sum, item) => sum + Number(item.amount_idr || 0), 0);
+    .reduce((sum, item) => sum + resolveIdrValue(item), 0);
   const directSpentIdr = ordered
     .filter(
       (item) =>
         item.type === "expense" &&
-        Number(item.amount_thb || 0) <= 0 &&
-        Number(item.amount_idr || 0) > 0,
+        getTransactionCurrency(item) === DEFAULT_BASE_CURRENCY,
     )
-    .reduce((sum, item) => sum + Number(item.amount_idr || 0), 0);
+    .reduce((sum, item) => sum + resolveIdrValue(item), 0);
   const spentIdr = ordered
     .filter((item) => item.type === "expense")
-    .reduce((sum, item) => sum + Number(item.amount_idr || 0), 0);
+    .reduce((sum, item) => sum + resolveIdrValue(item), 0);
 
   const categoryAccumulator = {};
 
@@ -1069,15 +1537,33 @@ function computeMetrics(transactions, budgets, goals) {
       };
     }
     const bucket = categoryAccumulator[categoryName];
-    bucket.valueThb += Number(item.amount_thb || 0);
-    bucket.valueIdr += Number(item.amount_idr || 0);
+    bucket.valueThb += getTransactionCurrency(item) === "THB" ? getTransactionAmountValue(item) : 0;
+    bucket.valueIdr += resolveIdrValue(item);
     bucket.count += 1;
   });
 
   const monthlyThb = thbExpenses.reduce(
-    (sum, item) => sum + Number(item.amount_thb || 0),
+    (sum, item) => sum + getTransactionAmountValue(item),
     0,
   );
+  const monthlyExpenseByCurrency = Object.fromEntries(
+    activeCurrencies.map((currency) => [currency, 0]),
+  );
+  const monthlyExpenseBaseByCurrency = Object.fromEntries(
+    activeCurrencies.map((currency) => [currency, 0]),
+  );
+  currentMonthExpenses.forEach((item) => {
+    const currency = getTransactionCurrency(item);
+    const amount = getTransactionAmountValue(item);
+    monthlyExpenseByCurrency[currency] =
+      Number(monthlyExpenseByCurrency[currency] || 0) + amount;
+    monthlyExpenseBaseByCurrency[currency] =
+      Number(monthlyExpenseBaseByCurrency[currency] || 0) + resolveIdrValue(item);
+  });
+  const unvaluedForeignExpenseCount = currentMonthExpenses.filter((item) => {
+    const currency = getTransactionCurrency(item);
+    return currency !== DEFAULT_BASE_CURRENCY && resolveIdrValue(item) <= 0;
+  }).length;
   const monthlyCategoryIdr = Object.values(categoryAccumulator).reduce(
     (sum, data) => sum + Number(data.valueIdr || 0),
     0,
@@ -1100,15 +1586,36 @@ function computeMetrics(transactions, budgets, goals) {
     }))
     .sort((a, b) => b.valueIdr - a.valueIdr || b.valueThb - a.valueThb);
 
-  const budgetInsights = computeBudgetInsights(thbExpenses, budgets, currentMonthKey);
+  const budgetInsights = computeBudgetInsights(currentMonthExpenses, budgets, currentMonthKey);
   const overspentCount = budgetInsights.filter((item) => item.status === "over").length;
   const warningCount = budgetInsights.filter((item) => item.status === "warning").length;
-  const budgetLimitTotal = budgetInsights.reduce(
-    (sum, item) => sum + Number(item.limit_thb || 0),
+  const budgetInsightsBase = budgetInsights.map((item) => {
+    const rate = getLatestRateForCurrencyUntil(
+      ordered,
+      item.currency,
+      new Date(8640000000000000),
+    );
+    return {
+      limitBase:
+        item.currency === DEFAULT_BASE_CURRENCY
+          ? item.limitAmount
+          : rate > 0
+            ? item.limitAmount * rate
+            : 0,
+      spentBase:
+        item.currency === DEFAULT_BASE_CURRENCY
+          ? item.spentAmount
+          : rate > 0
+            ? item.spentAmount * rate
+            : 0,
+    };
+  });
+  const budgetLimitTotal = budgetInsightsBase.reduce(
+    (sum, item) => sum + Number(item.limitBase || 0),
     0,
   );
-  const budgetSpentTotal = budgetInsights.reduce(
-    (sum, item) => sum + Number(item.spentThb || 0),
+  const budgetSpentTotal = budgetInsightsBase.reduce(
+    (sum, item) => sum + Number(item.spentBase || 0),
     0,
   );
   const budgetUsageTotal =
@@ -1127,26 +1634,53 @@ function computeMetrics(transactions, budgets, goals) {
     totalGoalTarget > 0 ? totalGoalSaved / totalGoalTarget : 0;
   const nextGoal =
     goalInsights.find((item) => item.status !== "done") || goalInsights[0] || null;
-  const balanceIdrBase = incomeIdr + exchangeIdrIn - exchangeIdrOut - directSpentIdr;
+  const balanceIdrBase = Number(currencyBalances.IDR || 0);
   const allocatedToGoalsIdr = totalGoalSaved;
   const availableBalanceIdr = balanceIdrBase - allocatedToGoalsIdr;
 
   const activeExchange =
     [...ordered].reverse().find((item) => item.type === "exchange") || null;
-  const latestRate = Number(activeExchange?.locked_rate || 0);
-  const balanceThb = receivedThb - spentThb;
+  const latestRate = getLatestRateForCurrencyUntil(
+    ordered,
+    "THB",
+    new Date(8640000000000000),
+  );
+  const balanceThb = Number(currencyBalances.THB || 0);
   const balanceThbValuationIdr =
     latestRate > 0 ? balanceThb * latestRate : null;
-  const netWorthIdr =
-    availableBalanceIdr + Number(balanceThbValuationIdr || 0);
-  const resolveIdrValue = (item) => {
-    const amountIdr = Number(item.amount_idr || 0);
-    if (amountIdr > 0) return amountIdr;
-
-    const amountThb = Number(item.amount_thb || 0);
-    const itemRate = Number(item.locked_rate || latestRate || 0);
-    return amountThb > 0 && itemRate > 0 ? amountThb * itemRate : 0;
-  };
+  const netWorthBeforeGoalsIdr = Object.entries(currencyBalances).reduce(
+    (sum, [currency, balance]) => {
+      if (currency === DEFAULT_BASE_CURRENCY) return sum + Number(balance || 0);
+      const rate = getLatestRateForCurrencyUntil(
+        ordered,
+        currency,
+        new Date(8640000000000000),
+      );
+      return sum + (rate > 0 ? Number(balance || 0) * rate : 0);
+    },
+    0,
+  );
+  const netWorthIdr = netWorthBeforeGoalsIdr - allocatedToGoalsIdr;
+  const foreignBalanceItems = activeCurrencies
+    .filter((currency) => currency !== DEFAULT_BASE_CURRENCY)
+    .map((currency) => {
+      const balance = Number(currencyBalances[currency] || 0);
+      const rate = getLatestRateForCurrencyUntil(
+        ordered,
+        currency,
+        new Date(8640000000000000),
+      );
+      return {
+        currency,
+        balance,
+        rate,
+        valuationIdr: rate > 0 ? balance * rate : null,
+      };
+    });
+  const foreignBalanceValuationIdr = foreignBalanceItems.reduce(
+    (sum, item) => sum + Number(item.valuationIdr || 0),
+    0,
+  );
   const monthlyIncomeIdr = currentMonthTransactions
     .filter((item) => item.type === "income")
     .reduce((sum, item) => sum + resolveIdrValue(item), 0);
@@ -1191,6 +1725,9 @@ function computeMetrics(transactions, budgets, goals) {
     allocatedToGoalsIdr,
     balanceThb,
     balanceThbValuationIdr,
+    foreignBalanceItems,
+    foreignBalanceValuationIdr,
+    currencyBalances,
     netWorthIdr,
     latestRate,
     directSpentIdr,
@@ -1202,6 +1739,10 @@ function computeMetrics(transactions, budgets, goals) {
     spentIdr,
     spentThb,
     monthlyThb,
+    monthlyExpenseByCurrency,
+    monthlyExpenseBaseByCurrency,
+    unvaluedForeignExpenseCount,
+    activeCurrencies,
     activeExchange,
     recent: [...ordered].reverse().slice(0, 10),
     chart: buildExpenseChart(ordered, currentMonthKey),
@@ -1252,11 +1793,12 @@ const HISTORY_TYPE_OPTIONS = [
   { value: "exchange", label: "Transfer / Exchange" },
 ];
 
-const HISTORY_CURRENCY_OPTIONS = [
-  { value: "all", label: "Semua mata uang" },
-  { value: "idr", label: "IDR" },
-  { value: "thb", label: "THB" },
-];
+function getHistoryCurrencyOptions(activeCurrencies = getActiveCurrencies()) {
+  return [
+    { value: "all", label: "Semua mata uang" },
+    ...getCurrencyOptions(activeCurrencies),
+  ];
+}
 
 const TRANSACTION_FILTER_TABS = [
   { value: "all", label: "Semua" },
@@ -1267,26 +1809,15 @@ const TRANSACTION_FILTER_TABS = [
 
 function getTransactionPreview(transaction) {
   if (transaction.type === "income") {
-    return formatCurrency(transaction.amount_idr, "idr");
+    return formatCurrency(getTransactionAmountValue(transaction), getTransactionCurrency(transaction));
   }
   if (transaction.type === "exchange") {
-    const amountIdr = Number(transaction.amount_idr || 0);
-    const amountThb = Number(transaction.amount_thb || 0);
-    if (amountThb < 0 && amountIdr > 0) {
-      return `THB -${formatCurrency(Math.abs(amountThb), "thb")} -> IDR +${formatCurrency(amountIdr, "idr")}`;
-    }
-    if (amountIdr > 0 && amountThb > 0) {
-      return `IDR -${formatCurrency(amountIdr, "idr")} -> THB ${formatCurrency(amountThb, "thb")}`;
-    }
-    if (amountThb > 0) {
-      return `THB +${formatCurrency(amountThb, "thb")}`;
-    }
-    return "Transfer / Exchange";
+    return `${formatCurrency(
+      transaction.from_amount,
+      transaction.from_currency,
+    )} -> ${formatCurrency(transaction.to_amount, transaction.to_currency)}`;
   }
-  if (Number(transaction.amount_thb || 0) <= 0) {
-    return formatCurrency(transaction.amount_idr, "idr");
-  }
-  return `${formatCurrency(transaction.amount_thb, "thb")} (${formatCurrency(transaction.amount_idr, "idr")})`;
+  return formatCurrency(getTransactionAmountValue(transaction), getTransactionCurrency(transaction));
 }
 
 function getTransactionFlow(transaction) {
@@ -1301,42 +1832,24 @@ function getTransactionTypeLabel(transaction) {
 }
 
 function getTransactionCurrency(transaction) {
-  if (transaction.type === "income") return "idr";
-  if (Number(transaction.amount_thb || 0) > 0) return "thb";
-  return "idr";
+  if (transaction.type === "exchange") {
+    return normalizeCurrencyCode(transaction.from_currency);
+  }
+  return normalizeCurrencyCode(transaction.currency);
 }
 
 function getTransactionMainAmount(transaction) {
-  const currency = getTransactionCurrency(transaction);
-  return currency === "thb"
-    ? Number(transaction.amount_thb || 0)
-    : Number(transaction.amount_idr || 0);
+  return getTransactionAmountValue(transaction);
 }
 
 function getTransactionIdrValuation(transaction) {
-  const amountIdr = Number(transaction.amount_idr || 0);
-  if (amountIdr > 0) return amountIdr;
-
-  const amountThb = Number(transaction.amount_thb || 0);
-  const lockedRate = Number(transaction.locked_rate || 0);
-  if (amountThb > 0 && lockedRate > 0) {
-    return amountThb * lockedRate;
-  }
-
-  return null;
+  const valuation = resolveTransactionBaseValue(transaction);
+  return valuation > 0 ? valuation : null;
 }
 
 function getTransactionIdrValuationWithRate(transaction, fallbackRate = 0) {
-  const directValuation = getTransactionIdrValuation(transaction);
-  if (directValuation != null) return directValuation;
-
-  const amountThb = Number(transaction.amount_thb || 0);
-  const rate = Number(transaction.locked_rate || fallbackRate || 0);
-  if (amountThb > 0 && rate > 0) {
-    return amountThb * rate;
-  }
-
-  return null;
+  const valuation = resolveTransactionBaseValue(transaction, fallbackRate);
+  return valuation > 0 ? valuation : null;
 }
 
 function getTransactionComparableAmount(transaction) {
@@ -1344,18 +1857,14 @@ function getTransactionComparableAmount(transaction) {
 }
 
 function getExchangeTitle(transaction) {
-  const amountIdr = Number(transaction.amount_idr || 0);
-  const amountThb = Number(transaction.amount_thb || 0);
-  if (amountThb < 0 && amountIdr > 0) return "Jual THB";
-  if (amountThb > 0 && amountIdr > 0) return "Beli THB";
+  if (transaction.from_currency && transaction.to_currency) {
+    return `${transaction.from_currency} ke ${transaction.to_currency}`;
+  }
   return "Tukar Mata Uang";
 }
 
 function getExchangeVolumeIdr(transaction, fallbackRate = 0) {
-  if (transaction.type !== "exchange") return 0;
-  const amountIdr = Math.abs(Number(transaction.amount_idr || 0));
-  if (amountIdr > 0) return amountIdr;
-  return Math.abs(getTransactionIdrValuationWithRate(transaction, fallbackRate) || 0);
+  return getExchangeBaseVolume(transaction, fallbackRate);
 }
 
 function getTransactionCategoryKey(transaction) {
@@ -1367,7 +1876,7 @@ function getTransactionCategoryKey(transaction) {
 function getTransactionCategoryLabel(transaction) {
   if (transaction.category) return getCategoryMeta(transaction.category).label;
   if (transaction.type === "exchange") return "Transfer / Exchange";
-  if (transaction.type === "income") return "Pemasukan IDR";
+  if (transaction.type === "income") return `Pemasukan ${getTransactionCurrency(transaction)}`;
   return "Lainnya";
 }
 
@@ -1378,24 +1887,24 @@ function formatEditNumericValue(value) {
 
 function getTransactionEditForm(transaction) {
   const flow = getTransactionFlow(transaction);
-  const amountThb = Number(transaction.amount_thb || 0);
-  const amountIdr = Number(transaction.amount_idr || 0);
-  const inferredRate =
-    Number(transaction.locked_rate || 0) > 0
-      ? Number(transaction.locked_rate)
-      : Math.abs(amountThb) > 0 && amountIdr > 0
-        ? amountIdr / Math.abs(amountThb)
-        : null;
+  const currency = getTransactionCurrency(transaction);
+  const rate = Number(transaction.rate || transaction.locked_rate || 0);
 
   return {
     type: flow,
     occurred_at: toInputDateTime(new Date(transaction.occurred_at || Date.now())),
     description: transaction.description || "",
     category: transaction.category || DEFAULT_CATEGORY,
-    expense_currency: flow === "expense" && amountThb > 0 ? "thb" : "idr",
+    currency,
+    expense_currency: currency,
+    from_currency: normalizeCurrencyCode(transaction.from_currency),
+    to_currency: normalizeCurrencyCode(transaction.to_currency, "THB"),
+    from_amount: formatEditNumericValue(transaction.from_amount),
+    to_amount: formatEditNumericValue(transaction.to_amount),
     amount_idr: formatEditNumericValue(transaction.amount_idr),
     amount_thb: formatEditNumericValue(transaction.amount_thb),
-    locked_rate: formatEditNumericValue(inferredRate),
+    amount: formatEditNumericValue(getTransactionAmountValue(transaction)),
+    locked_rate: formatEditNumericValue(rate),
   };
 }
 
@@ -1411,7 +1920,7 @@ function getHistoryCategoryOptions(transactions) {
 
   return [
     { value: "all", label: "Semua kategori" },
-    { value: "income", label: "Pemasukan IDR" },
+    { value: "income", label: "Pemasukan" },
     { value: "exchange", label: "Transfer / Exchange" },
     ...CATEGORY_OPTIONS.map((category) => ({
       value: category.value,
@@ -1506,18 +2015,26 @@ function filterAndSortTransactions(transactions, filters) {
       const flow = getTransactionFlow(transaction);
       const categoryKey = getTransactionCategoryKey(transaction);
       const comparableAmount = getTransactionComparableAmount(transaction);
-      const amountIdr = Math.abs(Number(transaction.amount_idr || 0));
-      const amountThb = Math.abs(Number(transaction.amount_thb || 0));
+      const selectedCurrency = normalizeCurrencyCode(filters.currency, "all");
+      const transactionCurrency = getTransactionCurrency(transaction);
+      const exchangeFromCurrency = normalizeCurrencyCode(transaction.from_currency);
+      const exchangeToCurrency = normalizeCurrencyCode(transaction.to_currency);
       const currencyMatches =
         filters.currency === "all" ||
-        (filters.currency === "idr" && amountIdr > 0) ||
-        (filters.currency === "thb" && amountThb > 0);
+        transactionCurrency === selectedCurrency ||
+        (flow === "exchange" &&
+          (exchangeFromCurrency === selectedCurrency ||
+            exchangeToCurrency === selectedCurrency));
       const filterAmount =
-        filters.currency === "idr"
-          ? amountIdr
-          : filters.currency === "thb"
-            ? amountThb
-            : comparableAmount;
+        filters.currency !== "all"
+          ? flow === "exchange" && exchangeFromCurrency === selectedCurrency
+            ? Math.abs(Number(transaction.from_amount || 0))
+            : flow === "exchange" && exchangeToCurrency === selectedCurrency
+              ? Math.abs(Number(transaction.to_amount || 0))
+              : transactionCurrency === selectedCurrency
+                ? getTransactionAmountValue(transaction)
+                : comparableAmount
+          : comparableAmount;
       const description = String(transaction.description || "").toLowerCase();
 
       if (filters.startDate && dayKey < filters.startDate) return false;
@@ -1555,7 +2072,15 @@ function computeTransactionSummary(transactions, allTransactions = transactions)
 
   return transactions.reduce(
     (summary, transaction) => {
-      const valuation = getTransactionIdrValuationWithRate(transaction, latestRate) ?? 0;
+      const valuation =
+        resolveTransactionBaseValue(
+          transaction,
+          getLatestRateForCurrencyUntil(
+            allTransactions,
+            getTransactionCurrency(transaction),
+            new Date(transaction.occurred_at || Date.now()),
+          ) || (getTransactionCurrency(transaction) === "THB" ? latestRate : 0),
+        ) || 0;
       if (transaction.type === "income") {
         summary.totalIncomeIdr += valuation;
       } else if (transaction.type === "expense") {
@@ -1592,57 +2117,107 @@ function getAvailableReportMonths(transactions, selectedMonthKey) {
 }
 
 function getLatestRateUntil(transactions, endDate) {
-  return Number(
-    orderTransactions(transactions)
-      .filter(
-        (item) =>
-          item.type === "exchange" &&
-          Number(item.locked_rate || 0) > 0 &&
-          new Date(item.occurred_at).getTime() <= endDate.getTime(),
+  return getLatestRateForCurrencyUntil(transactions, "THB", endDate);
+}
+
+function resolveReportValueIdr(transaction, rateSource = 0) {
+  const fallbackRate = Array.isArray(rateSource)
+    ? getLatestRateForCurrencyUntil(
+        rateSource,
+        getTransactionCurrency(transaction),
+        new Date(transaction.occurred_at || Date.now()),
       )
-      .at(-1)?.locked_rate || 0,
-  );
+    : Number(rateSource || 0);
+  return resolveTransactionBaseValue(transaction, fallbackRate);
 }
 
-function resolveReportValueIdr(transaction, fallbackRate = 0) {
-  const amountIdr = Number(transaction.amount_idr || 0);
-  if (amountIdr > 0) return amountIdr;
-
-  const amountThb = Number(transaction.amount_thb || 0);
-  const rate = Number(transaction.locked_rate || fallbackRate || 0);
-  return amountThb > 0 && rate > 0 ? amountThb * rate : 0;
+function addCurrencyTotal(target, currency, amount) {
+  const code = normalizeCurrencyCode(currency);
+  target[code] = Number(target[code] || 0) + Number(amount || 0);
 }
 
-function summarizeReportMonth(transactions, monthKey, fallbackRate = 0) {
+function getReportExchangeVolumeIdr(transaction, transactions, fallbackRate = 0) {
+  if (transaction.type !== "exchange") return 0;
+  const rate =
+    Number(fallbackRate || 0) ||
+    getLatestRateForCurrencyUntil(
+      transactions,
+      normalizeCurrencyCode(transaction.from_currency),
+      new Date(transaction.occurred_at || Date.now()),
+    );
+  return getExchangeVolumeIdr(transaction, rate);
+}
+
+function summarizeReportMonth(transactions, monthKey) {
   const monthTransactions = orderTransactions(transactions).filter(
     (item) => getMonthKey(item.occurred_at) === monthKey,
   );
+  const baseCurrency = getBaseCurrency();
 
   return monthTransactions.reduce(
     (summary, transaction) => {
-      const valueIdr = resolveReportValueIdr(transaction, fallbackRate);
+      const valueIdr = resolveReportValueIdr(transaction, transactions);
+      const currency = getTransactionCurrency(transaction);
+      const amount = getTransactionAmountValue(transaction);
 
       if (transaction.type === "income") {
         summary.externalIncomeIdr += valueIdr;
+        addCurrencyTotal(summary.incomeByCurrency, currency, amount);
+        if (currency !== baseCurrency && valueIdr <= 0) {
+          summary.unvaluedIncomeCount += 1;
+        }
       }
 
       if (transaction.type === "exchange") {
-        const thbAmount = Number(transaction.amount_thb || 0);
-        summary.thbReceived += thbAmount;
-        summary.exchangeVolumeIdr += getExchangeVolumeIdr(transaction);
+        const fromCurrency = normalizeCurrencyCode(transaction.from_currency);
+        const toCurrency = normalizeCurrencyCode(transaction.to_currency);
+        const fromAmount = Math.abs(Number(transaction.from_amount || 0));
+        const toAmount = Math.abs(Number(transaction.to_amount || 0));
+        const volumeIdr = getReportExchangeVolumeIdr(transaction, transactions);
+        const pairKey = `${fromCurrency}->${toCurrency}`;
+
+        addCurrencyTotal(summary.exchangeOutByCurrency, fromCurrency, fromAmount);
+        addCurrencyTotal(summary.exchangeInByCurrency, toCurrency, toAmount);
+        summary.exchangePairs[pairKey] = summary.exchangePairs[pairKey] || {
+          key: pairKey,
+          fromCurrency,
+          toCurrency,
+          fromAmount: 0,
+          toAmount: 0,
+          volumeIdr: 0,
+          count: 0,
+        };
+        summary.exchangePairs[pairKey].fromAmount += fromAmount;
+        summary.exchangePairs[pairKey].toAmount += toAmount;
+        summary.exchangePairs[pairKey].volumeIdr += volumeIdr;
+        summary.exchangePairs[pairKey].count += 1;
+        summary.exchangeVolumeIdr += volumeIdr;
         summary.exchangeCount += 1;
-        if (Number(transaction.amount_idr || 0) > 0 && thbAmount > 0) {
-          summary.thbTopupCostIdr += Number(transaction.amount_idr || 0);
+        if (toCurrency !== baseCurrency) {
+          addCurrencyTotal(summary.foreignReceivedByCurrency, toCurrency, toAmount);
+          summary.foreignExchangeCostIdr += volumeIdr;
+        }
+        if (toCurrency === "THB") {
+          summary.thbReceived += toAmount;
+          summary.thbTopupCostIdr += volumeIdr;
+        } else if (fromCurrency === "THB") {
+          summary.thbReceived -= fromAmount;
         }
       }
 
       if (transaction.type === "expense") {
         summary.expenseIdr += valueIdr;
-        summary.expenseThb += Number(transaction.amount_thb || 0);
-        if (Number(transaction.amount_thb || 0) > 0) {
-          summary.thbExpenseValueIdr += valueIdr;
+        addCurrencyTotal(summary.expenseByCurrency, currency, amount);
+        if (currency === "THB") {
+          summary.expenseThb += amount;
+        }
+        if (currency !== baseCurrency && valueIdr <= 0) {
+          summary.unvaluedExpenseCount += 1;
+        }
+        if (currency !== baseCurrency) {
+          summary.foreignExpenseValueIdr += valueIdr;
         } else {
-          summary.directExpenseIdr += Number(transaction.amount_idr || 0);
+          summary.directExpenseIdr += valueIdr;
         }
       }
 
@@ -1656,18 +2231,27 @@ function summarizeReportMonth(transactions, monthKey, fallbackRate = 0) {
       externalIncomeIdr: 0,
       expenseIdr: 0,
       directExpenseIdr: 0,
-      thbExpenseValueIdr: 0,
+      foreignExpenseValueIdr: 0,
       expenseThb: 0,
       thbReceived: 0,
       thbTopupCostIdr: 0,
+      incomeByCurrency: {},
+      expenseByCurrency: {},
+      exchangeInByCurrency: {},
+      exchangeOutByCurrency: {},
+      exchangePairs: {},
+      foreignReceivedByCurrency: {},
+      foreignExchangeCostIdr: 0,
       exchangeVolumeIdr: 0,
       exchangeCount: 0,
+      unvaluedIncomeCount: 0,
+      unvaluedExpenseCount: 0,
       netCashflowIdr: 0,
     },
   );
 }
 
-function buildReportDailySeries(transactions, monthKey, fallbackRate = 0) {
+function buildReportDailySeries(transactions, monthKey) {
   const meta = getMonthMeta(monthKey);
   const days = [];
 
@@ -1691,7 +2275,7 @@ function buildReportDailySeries(transactions, monthKey, fallbackRate = 0) {
       const bucket = map.get(getLocalDayKey(transaction.occurred_at));
       if (!bucket) return;
 
-      const valueIdr = resolveReportValueIdr(transaction, fallbackRate);
+      const valueIdr = resolveReportValueIdr(transaction, transactions);
       const isIncome = transaction.type === "income";
 
       if (isIncome) bucket.incomeIdr += valueIdr;
@@ -1708,11 +2292,10 @@ function buildMonthlyReport(transactions, budgets, selectedMonthKey) {
   const meta = getMonthMeta(monthKey);
   const previousMonthKey = shiftMonthKey(monthKey, -1);
   const fallbackRate = getLatestRateUntil(transactions, meta.end);
-  const summary = summarizeReportMonth(transactions, monthKey, fallbackRate);
+  const summary = summarizeReportMonth(transactions, monthKey);
   const previousSummary = summarizeReportMonth(
     transactions,
     previousMonthKey,
-    getLatestRateUntil(transactions, getMonthMeta(previousMonthKey).end),
   );
   const monthTransactions = orderTransactions(transactions).filter(
     (item) => getMonthKey(item.occurred_at) === monthKey,
@@ -1720,22 +2303,28 @@ function buildMonthlyReport(transactions, budgets, selectedMonthKey) {
   const expenseTransactions = monthTransactions.filter(
     (item) => item.type === "expense",
   );
-  const dailySeries = buildReportDailySeries(transactions, monthKey, fallbackRate);
+  const dailySeries = buildReportDailySeries(transactions, monthKey);
   const categoryAccumulator = {};
 
   expenseTransactions.forEach((transaction) => {
     const category = transaction.category || "Lainnya";
-    const valueIdr = resolveReportValueIdr(transaction, fallbackRate);
+    const valueIdr = resolveReportValueIdr(transaction, transactions);
+    const currency = getTransactionCurrency(transaction);
     if (!categoryAccumulator[category]) {
       categoryAccumulator[category] = {
         valueIdr: 0,
         valueThb: 0,
+        valueByCurrency: {},
         count: 0,
       };
     }
 
     categoryAccumulator[category].valueIdr += valueIdr;
-    categoryAccumulator[category].valueThb += Number(transaction.amount_thb || 0);
+    addCurrencyTotal(categoryAccumulator[category].valueByCurrency, currency, getTransactionAmountValue(transaction));
+    categoryAccumulator[category].valueThb +=
+      currency === "THB"
+        ? getTransactionAmountValue(transaction)
+        : 0;
     categoryAccumulator[category].count += 1;
   });
 
@@ -1746,27 +2335,55 @@ function buildMonthlyReport(transactions, budgets, selectedMonthKey) {
       meta: getCategoryMeta(category),
       valueIdr: data.valueIdr,
       valueThb: data.valueThb,
+      valueByCurrency: data.valueByCurrency,
       count: data.count,
       share: summary.expenseIdr > 0 ? data.valueIdr / summary.expenseIdr : 0,
     }))
     .sort((a, b) => b.valueIdr - a.valueIdr);
 
-  const budgetLimitThb = budgets
-    .filter(
-      (budget) =>
-        budget.month_key === monthKey &&
-        (budget.group_key || UNIVERSAL_BUDGET_GROUP) === UNIVERSAL_BUDGET_GROUP,
-    )
-    .reduce((sum, budget) => sum + Number(budget.limit_thb || 0), 0);
-  const budgetSpentThb = summary.expenseThb;
-  const budgetUsage = budgetLimitThb > 0 ? budgetSpentThb / budgetLimitThb : 0;
-  const budgetRemainingThb = budgetLimitThb - budgetSpentThb;
+  const budgetInsights = computeBudgetInsights(expenseTransactions, budgets, monthKey);
+  const budgetBaseValues = budgetInsights.map((budget) => {
+    const rate = getLatestRateForCurrencyUntil(transactions, budget.currency, meta.end);
+    return {
+      limitBase:
+        budget.currency === getBaseCurrency()
+          ? budget.limitAmount
+          : rate > 0
+            ? budget.limitAmount * rate
+            : 0,
+      spentBase:
+        budget.currency === getBaseCurrency()
+          ? budget.spentAmount
+          : rate > 0
+            ? budget.spentAmount * rate
+            : 0,
+    };
+  });
+  const budgetLimitBaseIdr = budgetBaseValues.reduce(
+    (sum, item) => sum + Number(item.limitBase || 0),
+    0,
+  );
+  const budgetSpentBaseIdr = budgetBaseValues.reduce(
+    (sum, item) => sum + Number(item.spentBase || 0),
+    0,
+  );
+  const budgetRemainingBaseIdr = budgetLimitBaseIdr - budgetSpentBaseIdr;
+  const budgetUsage =
+    budgetLimitBaseIdr > 0
+      ? budgetSpentBaseIdr / budgetLimitBaseIdr
+      : budgetInsights.length
+        ? Math.max(...budgetInsights.map((budget) => budget.usage))
+        : 0;
+  const thbBudget = budgetInsights.find((budget) => budget.currency === "THB");
+  const budgetLimitThb = Number(thbBudget?.limitAmount || 0);
+  const budgetSpentThb = Number(thbBudget?.spentAmount || 0);
+  const budgetRemainingThb = Number(thbBudget?.remainingAmount || 0);
   const budgetStatus =
-    budgetLimitThb <= 0
+    !budgetInsights.length
       ? "none"
-      : budgetUsage > 1
+      : budgetInsights.some((budget) => budget.status === "over")
         ? "over"
-        : budgetUsage >= 0.85
+        : budgetInsights.some((budget) => budget.status === "warning")
           ? "warning"
           : "safe";
   const budgetStatusLabel =
@@ -1795,6 +2412,20 @@ function buildMonthlyReport(transactions, budgets, selectedMonthKey) {
   )[0];
   const topCategory = categoryBreakdown[0] || null;
   const recentTransactions = [...monthTransactions].reverse().slice(0, 5);
+  const reportCurrencies = normalizeCurrencyList([
+    ...Object.keys(summary.incomeByCurrency),
+    ...Object.keys(summary.expenseByCurrency),
+    ...Object.keys(summary.exchangeInByCurrency),
+    ...Object.keys(summary.exchangeOutByCurrency),
+    ...budgets.map((budget) => normalizeBudget(budget).currency),
+  ]);
+  const currencyBreakdown = reportCurrencies.map((currency) => ({
+    currency,
+    income: Number(summary.incomeByCurrency[currency] || 0),
+    expense: Number(summary.expenseByCurrency[currency] || 0),
+    exchangeIn: Number(summary.exchangeInByCurrency[currency] || 0),
+    exchangeOut: Number(summary.exchangeOutByCurrency[currency] || 0),
+  }));
 
   return {
     monthKey,
@@ -1809,6 +2440,12 @@ function buildMonthlyReport(transactions, budgets, selectedMonthKey) {
     topCategory,
     strongestDay,
     recentTransactions,
+    currencyBreakdown,
+    exchangePairs: Object.values(summary.exchangePairs),
+    budgetInsights,
+    budgetLimitBaseIdr,
+    budgetSpentBaseIdr,
+    budgetRemainingBaseIdr,
     budgetLimitThb,
     budgetSpentThb,
     budgetUsage,
@@ -1938,13 +2575,13 @@ function OverviewHero({ metrics }) {
             ${formatCurrency(metrics.netWorthIdr, "idr")}
           </h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-700 dark:text-slate-300">
-            Gabungan saldo IDR tersedia dan valuasi saldo THB ke IDR.
-            ${metrics.balanceThbValuationIdr != null
-              ? ` Valuasi THB saat ini ${formatCurrency(
-                  metrics.balanceThbValuationIdr,
+            Gabungan saldo ${getBaseCurrency()} tersedia dan valuasi saldo mata uang aktif ke IDR.
+            ${metrics.foreignBalanceItems?.length
+              ? ` Valuasi mata uang asing saat ini ${formatCurrency(
+                  metrics.foreignBalanceValuationIdr,
                   "idr",
                 )}.`
-              : " Valuasi THB menunggu rate aktif."}
+              : " Mode satu mata uang aktif."}
           </p>
         </div>
 
@@ -1965,37 +2602,47 @@ function OverviewHero({ metrics }) {
 }
 
 function OverviewStatGrid({ metrics }) {
+  const balanceStats = normalizeCurrencyList(metrics.activeCurrencies || getActiveCurrencies()).map(
+    (currency) => {
+      const balance =
+        currency === DEFAULT_BASE_CURRENCY
+          ? metrics.balanceIdr
+          : Number(metrics.currencyBalances?.[currency] || 0);
+      const foreignItem = metrics.foreignBalanceItems?.find(
+        (item) => item.currency === currency,
+      );
+      return {
+        title: `Saldo ${currency}`,
+        value: formatCurrency(balance, currency),
+        helper:
+          currency === DEFAULT_BASE_CURRENCY
+            ? "Tersedia"
+            : foreignItem?.rate
+              ? formatRate(foreignItem.rate, DEFAULT_BASE_CURRENCY, currency)
+              : "Belum ada rate",
+      };
+    },
+  );
+  const spendingStats = normalizeCurrencyList(metrics.activeCurrencies || getActiveCurrencies())
+    .filter((currency) => Number(metrics.monthlyExpenseByCurrency?.[currency] || 0) > 0)
+    .map((currency) => ({
+      title: `Belanja ${currency}`,
+      value: formatCurrency(metrics.monthlyExpenseByCurrency[currency], currency),
+      helper: "Bulan ini",
+    }));
   const stats = [
+    ...balanceStats,
     {
-      title: "Saldo IDR",
-      value: formatCurrency(metrics.balanceIdr, "idr"),
-      helper: "Tersedia",
-    },
-    {
-      title: "Saldo THB",
-      value: formatCurrency(metrics.balanceThb, "thb"),
-      helper: metrics.latestRate ? formatRate(metrics.latestRate) : "Belum ada rate",
-    },
-    {
-      title: "Uang masuk",
+      title: "Pemasukan",
       value: formatCurrency(metrics.monthlyIncomeIdr, "idr"),
       helper: "Bulan ini",
     },
     {
-      title: "Uang keluar",
+      title: "Pengeluaran",
       value: formatCurrency(metrics.monthlyExpenseIdr, "idr"),
       helper: "Valuasi IDR",
     },
-    {
-      title: "Belanja IDR",
-      value: formatCurrency(metrics.monthlyDirectSpentIdr, "idr"),
-      helper: "Bulan ini",
-    },
-    {
-      title: "Belanja THB",
-      value: formatCurrency(metrics.monthlyThb, "thb"),
-      helper: "Bulan ini",
-    },
+    ...spendingStats,
   ];
 
   return html`
@@ -2043,7 +2690,7 @@ function OverviewBudgetProgress({ metrics }) {
             Budget Bulanan
           </h3>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Ringkasan limit uang keluar THB bulan berjalan.
+            Ringkasan semua budget aktif dalam valuasi IDR.
           </p>
         </div>
         <span className=${`rounded-full border px-3 py-1 text-xs font-semibold ${chipClass}`}>
@@ -2053,9 +2700,9 @@ function OverviewBudgetProgress({ metrics }) {
 
       <div className="relative mt-5 grid grid-cols-3 gap-3">
         ${[
-          ["Budget", formatCurrency(metrics.budgetLimitTotal, "thb")],
-          ["Terpakai", formatCurrency(metrics.budgetSpentTotal, "thb")],
-          ["Sisa", formatCurrency(Math.max(metrics.budgetRemainingThb, 0), "thb")],
+          ["Budget", formatCurrency(metrics.budgetLimitTotal, "idr")],
+          ["Terpakai", formatCurrency(metrics.budgetSpentTotal, "idr")],
+          ["Sisa", formatCurrency(Math.max(metrics.budgetRemainingThb, 0), "idr")],
         ].map(
           ([label, value]) => html`
             <div key=${label}>
@@ -2330,74 +2977,95 @@ function OverviewPage({ metrics, transactions, onNavigate }) {
   `;
 }
 
-function buildControlCenter(metrics) {
+function getControlCurrency(metrics, selectedCurrency) {
+  const activeCurrencies = normalizeCurrencyList(metrics.activeCurrencies || getActiveCurrencies());
+  const requested = normalizeCurrencyCode(selectedCurrency || activeCurrencies[0]);
+  return activeCurrencies.includes(requested) ? requested : activeCurrencies[0];
+}
+
+function buildControlCenter(metrics, selectedCurrency = getBaseCurrency()) {
   const monthMeta = getMonthMeta(metrics.currentMonthKey);
   const remainingDays = Math.max(monthMeta.daysInMonth - monthMeta.elapsedDays, 0);
-  const activeBudget = metrics.budgetInsights[0] || null;
-  const thbDailyAverage =
-    monthMeta.elapsedDays > 0 ? metrics.monthlyThb / monthMeta.elapsedDays : 0;
-  const thbRunwayDays =
-    thbDailyAverage > 0 ? Math.floor(metrics.balanceThb / thbDailyAverage) : null;
+  const currency = getControlCurrency(metrics, selectedCurrency);
+  const activeBudget =
+    metrics.budgetInsights.find((item) => item.currency === currency) || null;
+  const currencyBalance =
+    currency === DEFAULT_BASE_CURRENCY
+      ? metrics.balanceIdr
+      : Number(metrics.currencyBalances?.[currency] || 0);
+  const currencySpent = Number(metrics.monthlyExpenseByCurrency?.[currency] || 0);
+  const currencyDailyAverage =
+    monthMeta.elapsedDays > 0 ? currencySpent / monthMeta.elapsedDays : 0;
+  const currencyRunwayDays =
+    currencyDailyAverage > 0 ? Math.floor(currencyBalance / currencyDailyAverage) : null;
   const projectedExpenseIdr = metrics.averageDailyExpenseIdr * monthMeta.daysInMonth;
   const projectedNetIdr = metrics.monthlyExternalIncomeIdr - projectedExpenseIdr;
-  const projectedThbNeed = thbDailyAverage * remainingDays;
-  const projectedThbGap = Math.max(projectedThbNeed - metrics.balanceThb, 0);
+  const projectedCurrencyNeed = currencyDailyAverage * remainingDays;
+  const projectedCurrencyGap = Math.max(projectedCurrencyNeed - currencyBalance, 0);
   const topCategory = metrics.topExpenseCategory;
 
   let score = 100;
-  if (metrics.budgetStatus === "none") score -= 8;
-  if (metrics.budgetStatus === "warning") score -= 16;
-  if (metrics.budgetStatus === "over") score -= 30;
+  if (!activeBudget) score -= 8;
+  if (activeBudget?.status === "warning") score -= 16;
+  if (activeBudget?.status === "over") score -= 30;
   if (metrics.monthlyNetChangeIdr < 0) score -= 14;
   if (projectedNetIdr < 0) score -= 12;
-  if (metrics.latestRate <= 0 && metrics.balanceThb > 0) score -= 8;
-  if (metrics.balanceIdr < metrics.averageDailyExpenseIdr * 7) score -= 10;
-  if (thbRunwayDays != null && thbRunwayDays < 3) score -= 18;
-  else if (thbRunwayDays != null && thbRunwayDays < 7) score -= 10;
+  if (metrics.unvaluedForeignExpenseCount > 0) score -= 10;
+  if (currency === DEFAULT_BASE_CURRENCY && currencyBalance < metrics.averageDailyExpenseIdr * 7) score -= 10;
+  if (currencyRunwayDays != null && currencyRunwayDays < 3) score -= 18;
+  else if (currencyRunwayDays != null && currencyRunwayDays < 7) score -= 10;
   if (topCategory?.share > 0.45) score -= 6;
 
-  const healthScore = Math.max(Math.min(Math.round(score), 100), 0);
-  const healthLabel =
-    healthScore >= 82
-      ? "Stabil"
-      : healthScore >= 66
+  const controlScore = Math.max(Math.min(Math.round(score), 100), 0);
+  const controlLabel =
+    controlScore >= 82
+      ? "Terkendali"
+      : controlScore >= 66
         ? "Perlu dijaga"
-        : healthScore >= 45
+        : controlScore >= 45
           ? "Waspada"
-          : "Kritis";
-  const healthTone =
-    healthScore >= 82
+          : "Butuh tindakan";
+  const controlTone =
+    controlScore >= 82
       ? "text-brand-700 dark:text-brand-300"
-      : healthScore >= 66
+      : controlScore >= 66
         ? "text-amber-700 dark:text-amber-300"
         : "text-rose-700 dark:text-rose-300";
 
   const alerts = [];
-  if (metrics.budgetStatus === "none") {
+  if (!activeBudget) {
     alerts.push({
-      title: "Budget belum aktif",
-      body: "Buat limit bulanan agar CUANSYNC bisa menjaga batas aman harian.",
+      title: `Budget ${currency} belum aktif`,
+      body: `Buat limit bulanan ${currency} agar batas aman harian bisa dihitung.`,
       tone: "amber",
     });
-  } else if (metrics.budgetStatus === "over") {
+  } else if (activeBudget.status === "over") {
     alerts.push({
-      title: "Budget melewati batas",
-      body: `Pengeluaran THB sudah ${formatPercent(metrics.budgetUsageTotal)} dari budget bulan ini.`,
+      title: `Budget ${currency} melewati batas`,
+      body: `Pengeluaran ${currency} sudah ${formatPercent(activeBudget.usage)} dari budget bulan ini.`,
       tone: "rose",
     });
-  } else if (metrics.budgetStatus === "warning") {
+  } else if (activeBudget.status === "warning") {
     alerts.push({
-      title: "Budget mendekati limit",
-      body: `Sisa budget sekitar ${formatCurrency(Math.max(metrics.budgetRemainingThb, 0), "thb")}.`,
+      title: `Budget ${currency} mendekati limit`,
+      body: `Sisa budget sekitar ${formatCurrency(Math.max(activeBudget.remainingAmount, 0), currency)}.`,
       tone: "amber",
     });
   }
 
-  if (thbRunwayDays != null && thbRunwayDays <= 7) {
+  if (currencyRunwayDays != null && currencyRunwayDays <= 7) {
     alerts.push({
-      title: "Saldo THB perlu dipantau",
-      body: `Dengan ritme sekarang, THB cukup sekitar ${Math.max(thbRunwayDays, 0)} hari.`,
-      tone: thbRunwayDays <= 3 ? "rose" : "amber",
+      title: `Saldo ${currency} perlu dipantau`,
+      body: `Dengan ritme sekarang, saldo ${currency} cukup sekitar ${Math.max(currencyRunwayDays, 0)} hari.`,
+      tone: currencyRunwayDays <= 3 ? "rose" : "amber",
+    });
+  }
+
+  if (metrics.unvaluedForeignExpenseCount > 0) {
+    alerts.push({
+      title: "Ada transaksi tanpa valuasi",
+      body: `${metrics.unvaluedForeignExpenseCount} pengeluaran mata uang asing belum punya rate IDR.`,
+      tone: "amber",
     });
   }
 
@@ -2426,24 +3094,24 @@ function buildControlCenter(metrics) {
   }
 
   const nextActions = [];
-  if (metrics.budgetStatus === "none") {
+  if (!activeBudget) {
     nextActions.push({
-      title: "Buat budget bulan ini",
-      body: "Aktifkan batas aman harian untuk belanja THB.",
+      title: `Buat budget ${currency}`,
+      body: `Aktifkan batas aman harian untuk pengeluaran ${currency}.`,
       target: "control-budget",
     });
   }
-  if (projectedThbGap > 0) {
+  if (projectedCurrencyGap > 0 && currency !== DEFAULT_BASE_CURRENCY) {
     nextActions.push({
-      title: "Rencanakan top up THB",
-      body: `Estimasi kurang ${formatCurrency(projectedThbGap, "thb")} sampai akhir bulan.`,
+      title: `Rencanakan tukar ke ${currency}`,
+      body: `Estimasi kurang ${formatCurrency(projectedCurrencyGap, currency)} sampai akhir bulan.`,
       target: "add",
     });
   }
-  if (activeBudget?.todayRemainingSafeThb != null && activeBudget.todayRemainingSafeThb < 0) {
+  if (activeBudget?.todayRemainingSafe != null && activeBudget.todayRemainingSafe < 0) {
     nextActions.push({
-      title: "Tahan belanja THB hari ini",
-      body: `Hari ini lewat ${formatCurrency(Math.abs(activeBudget.todayRemainingSafeThb), "thb")} dari batas aman.`,
+      title: `Tahan belanja ${currency} hari ini`,
+      body: `Hari ini lewat ${formatCurrency(Math.abs(activeBudget.todayRemainingSafe), currency)} dari batas aman.`,
       target: "history",
     });
   }
@@ -2465,16 +3133,19 @@ function buildControlCenter(metrics) {
   return {
     activeBudget,
     alerts: alerts.slice(0, 4),
-    healthLabel,
-    healthScore,
-    healthTone,
+    controlLabel,
+    controlScore,
+    controlTone,
+    currency,
+    currencyBalance,
+    currencyDailyAverage,
+    currencyRunwayDays,
+    currencySpent,
     nextActions: nextActions.slice(0, 4),
+    projectedCurrencyGap,
     projectedExpenseIdr,
     projectedNetIdr,
-    projectedThbGap,
     remainingDays,
-    thbDailyAverage,
-    thbRunwayDays,
   };
 }
 
@@ -2494,8 +3165,36 @@ function ControlMetric({ label, value, helper }) {
   `;
 }
 
+function ControlCurrencyTabs({ currencies, value, onChange }) {
+  if (currencies.length <= 1) return null;
+
+  return html`
+    <section className=${`${PREMIUM_PANEL_SOFT} p-3`}>
+      <div className="cuan-segment flex flex-wrap gap-1 rounded-[22px] p-1">
+        ${currencies.map((currency) => {
+          const active = value === currency;
+          return html`
+            <button
+              key=${currency}
+              type="button"
+              onClick=${() => onChange(currency)}
+              className=${`min-h-11 min-w-[4rem] flex-1 rounded-2xl px-2 text-xs font-black transition duration-300 ${
+                active
+                  ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.22)] dark:bg-emerald-500"
+                  : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"
+              }`}
+            >
+              ${currency}
+            </button>
+          `;
+        })}
+      </div>
+    </section>
+  `;
+}
+
 function ControlCenterHero({ metrics, control }) {
-  const scoreWidth = `${control.healthScore}%`;
+  const scoreWidth = `${control.controlScore}%`;
 
   return html`
     <section className=${`${PREMIUM_PANEL} control-center-card p-5 md:p-6`}>
@@ -2506,18 +3205,18 @@ function ControlCenterHero({ metrics, control }) {
             Financial Control Center
           </p>
           <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.04em] text-slate-950 dark:text-white md:text-4xl">
-            ${control.healthLabel}
+            ${control.controlLabel}
           </h2>
           <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-            Monitor risiko hari ini, runway saldo, dan keputusan yang perlu diambil.
+            Monitor risiko hari ini, budget ${control.currency}, dan keputusan yang perlu diambil.
           </p>
         </div>
         <div className="rounded-[28px] border border-slate-200/70 bg-white/62 p-4 dark:border-white/10 dark:bg-slate-950/40 md:w-52">
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-            Health score
+            Skor Kontrol
           </p>
-          <p className=${`mt-2 text-4xl font-black tracking-[-0.05em] ${control.healthTone}`}>
-            ${control.healthScore}
+          <p className=${`mt-2 text-4xl font-black tracking-[-0.05em] ${control.controlTone}`}>
+            ${control.controlScore}
           </p>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
             <div
@@ -2532,12 +3231,12 @@ function ControlCenterHero({ metrics, control }) {
         <${ControlMetric}
           label="Net worth"
           value=${formatCurrency(metrics.netWorthIdr, "idr")}
-          helper="IDR + valuasi THB"
+          helper="Semua saldo aktif"
         />
         <${ControlMetric}
-          label="Runway THB"
-          value=${control.thbRunwayDays == null ? "Stabil" : `${Math.max(control.thbRunwayDays, 0)} hari`}
-          helper=${control.thbDailyAverage > 0 ? `${formatCurrency(control.thbDailyAverage, "thb")}/hari` : "Belum ada ritme THB"}
+          label=${`Runway ${control.currency}`}
+          value=${control.currencyRunwayDays == null ? "Stabil" : `${Math.max(control.currencyRunwayDays, 0)} hari`}
+          helper=${control.currencyDailyAverage > 0 ? `${formatCurrency(control.currencyDailyAverage, control.currency)}/hari` : `Belum ada ritme ${control.currency}`}
         />
         <${ControlMetric}
           label="Forecast net"
@@ -2546,8 +3245,8 @@ function ControlCenterHero({ metrics, control }) {
         />
         <${ControlMetric}
           label="Sisa budget"
-          value=${metrics.budgetLimitTotal > 0 ? formatCurrency(Math.max(metrics.budgetRemainingThb, 0), "thb") : "-"}
-          helper=${metrics.budgetStatusLabel}
+          value=${control.activeBudget ? formatCurrency(Math.max(control.activeBudget.remainingAmount, 0), control.currency) : "-"}
+          helper=${control.activeBudget ? control.activeBudget.statusLabel : `Belum ada budget ${control.currency}`}
         />
       </div>
     </section>
@@ -2605,7 +3304,7 @@ function ControlNextActions({ actions, onNavigate }) {
     <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
       <div className="relative">
         <h3 className="font-display text-xl font-black text-slate-950 dark:text-white">
-          Next Best Action
+          Aksi Berikutnya
         </h3>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
           Langkah kecil yang paling berguna hari ini.
@@ -2641,13 +3340,13 @@ function ControlNextActions({ actions, onNavigate }) {
 
 function ControlForecast({ metrics, control }) {
   const budgetWidth =
-    metrics.budgetLimitTotal > 0
-      ? `${Math.min(Math.max(metrics.budgetUsageTotal * 100, 0), 100)}%`
+    control.activeBudget
+      ? `${Math.min(Math.max(control.activeBudget.usage * 100, 0), 100)}%`
       : "0%";
   const runwayLabel =
-    control.thbRunwayDays == null
+    control.currencyRunwayDays == null
       ? "Belum ada ritme"
-      : `${Math.max(control.thbRunwayDays, 0)} hari`;
+      : `${Math.max(control.currencyRunwayDays, 0)} hari`;
 
   return html`
     <section className="grid gap-4 lg:grid-cols-2">
@@ -2677,17 +3376,17 @@ function ControlForecast({ metrics, control }) {
       <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
         <div className="relative">
           <h3 className="font-display text-xl font-black text-slate-950 dark:text-white">
-            Cash Runway
+            Runway ${control.currency}
           </h3>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Daya tahan saldo THB dan batas budget.
+            Daya tahan saldo ${control.currency} dan batas budget aktif.
           </p>
         </div>
         <div className="relative mt-5 grid gap-4">
           <div>
             <div className="mb-2 flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
-              <span>Budget THB</span>
-              <span>${metrics.budgetLimitTotal > 0 ? formatPercent(metrics.budgetUsageTotal) : "-"}</span>
+              <span>Budget ${control.currency}</span>
+              <span>${control.activeBudget ? formatPercent(control.activeBudget.usage) : "-"}</span>
             </div>
             <div className="h-3 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
               <div className="h-full rounded-full bg-gradient-to-r from-brand-600 to-emerald-300" style=${{ width: budgetWidth }}></div>
@@ -2697,11 +3396,11 @@ function ControlForecast({ metrics, control }) {
             <${ControlMetric}
               label="Runway"
               value=${runwayLabel}
-              helper="Berdasarkan rata-rata THB"
+              helper=${`Berdasarkan rata-rata ${control.currency}`}
             />
             <${ControlMetric}
-              label="Gap THB"
-              value=${formatCurrency(control.projectedThbGap, "thb")}
+              label=${`Gap ${control.currency}`}
+              value=${formatCurrency(control.projectedCurrencyGap, control.currency)}
               helper="Estimasi kebutuhan tambahan"
             />
           </div>
@@ -2736,23 +3435,30 @@ function ControlCenterEmptyState({ onNavigate }) {
 
 function ControlBudgetHub({
   metrics,
+  activeCurrencies,
+  selectedCurrency,
+  onCurrencyChange,
   loading,
   onBudgetDelete,
   onBudgetSubmit,
 }) {
+  const selectedBudgets = metrics.budgetInsights.filter(
+    (item) => item.currency === selectedCurrency,
+  );
+
   return html`
     <section id="control-budget-section" className="grid scroll-mt-6 gap-4 lg:grid-cols-[0.9fr_1.1fr]">
       <div className="grid gap-4">
         <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
           <div className="relative">
             <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
-              Budget control
+              Kontrol budget
             </p>
             <h3 className="mt-2 font-display text-xl font-black text-slate-950 dark:text-white">
-              Atur batas aman bulanan
+              Atur batas aman ${selectedCurrency}
             </h3>
             <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
-              Budget sekarang jadi bagian dari Kontrol, supaya risiko dan action hari ini langsung tersambung.
+              Budget mengikuti mata uang aktif. IDR-only tetap sederhana, multi-currency bisa dipantau per wallet.
             </p>
           </div>
         </section>
@@ -2760,11 +3466,14 @@ function ControlBudgetHub({
           onSubmit=${onBudgetSubmit}
           loading=${loading}
           currentMonthKey=${metrics.currentMonthKey}
+          currency=${selectedCurrency}
+          activeCurrencies=${activeCurrencies}
+          onCurrencyChange=${onCurrencyChange}
         />
       </div>
 
       <${BudgetTracker}
-        budgets=${metrics.budgetInsights}
+        budgets=${selectedBudgets}
         monthLabel=${metrics.currentMonthLabel}
         onDelete=${onBudgetDelete}
       />
@@ -2775,19 +3484,37 @@ function ControlBudgetHub({
 function ControlCenterPage({
   metrics,
   transactions,
+  activeCurrencies = metrics.activeCurrencies || getActiveCurrencies(),
   onBudgetDelete,
   onBudgetSubmit,
   loading = false,
   onNavigate,
 }) {
-  const control = buildControlCenter(metrics);
+  const normalizedCurrencies = normalizeCurrencyList(activeCurrencies);
+  const [selectedCurrency, setSelectedCurrency] = useState(normalizedCurrencies[0]);
+
+  useEffect(() => {
+    if (!normalizedCurrencies.includes(selectedCurrency)) {
+      setSelectedCurrency(normalizedCurrencies[0]);
+    }
+  }, [normalizedCurrencies.join("|"), selectedCurrency]);
+
+  const control = buildControlCenter(metrics, selectedCurrency);
 
   if (!transactions.length) {
     return html`
       <div className="grid gap-4">
         <${ControlCenterEmptyState} onNavigate=${onNavigate} />
+        <${ControlCurrencyTabs}
+          currencies=${normalizedCurrencies}
+          value=${control.currency}
+          onChange=${setSelectedCurrency}
+        />
         <${ControlBudgetHub}
           metrics=${metrics}
+          activeCurrencies=${normalizedCurrencies}
+          selectedCurrency=${control.currency}
+          onCurrencyChange=${setSelectedCurrency}
           loading=${loading}
           onBudgetDelete=${onBudgetDelete}
           onBudgetSubmit=${onBudgetSubmit}
@@ -2798,6 +3525,11 @@ function ControlCenterPage({
 
   return html`
     <div className="grid gap-4">
+      <${ControlCurrencyTabs}
+        currencies=${normalizedCurrencies}
+        value=${control.currency}
+        onChange=${setSelectedCurrency}
+      />
       <${ControlCenterHero} metrics=${metrics} control=${control} />
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
         <${ControlAlerts} alerts=${control.alerts} />
@@ -2806,6 +3538,9 @@ function ControlCenterPage({
       <${ControlForecast} metrics=${metrics} control=${control} />
       <${ControlBudgetHub}
         metrics=${metrics}
+        activeCurrencies=${normalizedCurrencies}
+        selectedCurrency=${control.currency}
+        onCurrencyChange=${setSelectedCurrency}
         loading=${loading}
         onBudgetDelete=${onBudgetDelete}
         onBudgetSubmit=${onBudgetSubmit}
@@ -2883,7 +3618,7 @@ function MonthlyReportHero({ report }) {
           </h2>
           <p className="mt-3 max-w-xl text-sm leading-6 text-slate-700 dark:text-slate-300">
             ${statusLabel} dari pemasukan eksternal dikurangi semua pengeluaran.
-            Top up THB dicatat terpisah sebagai perpindahan aset.
+            Tukar mata uang dicatat terpisah sebagai perpindahan aset, bukan pemasukan atau pengeluaran.
           </p>
         </div>
 
@@ -2941,9 +3676,14 @@ function MonthlyReportKpis({ report }) {
       helper: "Cashflow / pemasukan",
     },
     {
-      title: "Top up THB",
-      value: formatCurrency(report.summary.thbTopupCostIdr, "idr"),
-      helper: `${formatCurrency(report.summary.thbReceived, "thb")} diterima`,
+      title: "Exchange",
+      value: formatCurrency(report.summary.exchangeVolumeIdr, "idr"),
+      helper: `${report.summary.exchangeCount} tukar mata uang`,
+    },
+    {
+      title: "Valuasi tertunda",
+      value: report.summary.unvaluedExpenseCount,
+      helper: "Expense asing tanpa rate",
     },
     {
       title: "Rata-rata",
@@ -2958,7 +3698,7 @@ function MonthlyReportKpis({ report }) {
   ];
 
   return html`
-    <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+    <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-7">
       ${stats.map(
         (item, index) => html`
           <div
@@ -2983,13 +3723,6 @@ function MonthlyReportKpis({ report }) {
 }
 
 function MonthlyBudgetPulse({ report }) {
-  const width = `${Math.min(Math.max(report.budgetUsage * 100, report.budgetUsage > 0 ? 8 : 0), 100)}%`;
-  const barClass =
-    report.budgetStatus === "over"
-      ? "from-rose-500 to-rose-400"
-      : report.budgetStatus === "warning"
-        ? "from-amber-400 to-orange-500"
-        : "from-brand-500 to-emerald-300";
   const chipClass =
     report.budgetStatus === "over"
       ? "bg-rose-500/12 text-rose-700 dark:text-rose-200"
@@ -3004,10 +3737,10 @@ function MonthlyBudgetPulse({ report }) {
       <div className="relative flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-display text-xl font-bold text-slate-950 dark:text-white">
-            Budget Pulse
+            Proteksi Budget
           </h3>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Status budget THB untuk ${report.meta.label}.
+            Status semua budget aktif di ${report.meta.label}, mengikuti mata uang yang kamu pakai.
           </p>
         </div>
         <span className=${`rounded-full px-3 py-1 text-xs font-black ${chipClass}`}>
@@ -3015,36 +3748,158 @@ function MonthlyBudgetPulse({ report }) {
         </span>
       </div>
 
-      <div className="relative mt-5 grid grid-cols-3 gap-3">
-        ${[
-          ["Budget", formatCurrency(report.budgetLimitThb, "thb")],
-          ["Terpakai", formatCurrency(report.budgetSpentThb, "thb")],
-          ["Sisa", formatCurrency(Math.max(report.budgetRemainingThb, 0), "thb")],
-        ].map(
-          ([label, value]) => html`
-            <div key=${label}>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                ${label}
-              </p>
-              <p className="mt-2 break-words text-sm font-black text-slate-950 dark:text-white">
-                ${value}
-              </p>
+      ${report.budgetInsights.length
+        ? html`
+            <div className="relative mt-5 grid gap-3">
+              ${report.budgetInsights.map((budget) => {
+                const width = `${Math.min(
+                  Math.max(budget.usage * 100, budget.spentAmount > 0 ? 8 : 0),
+                  100,
+                )}%`;
+                return html`
+                  <div
+                    key=${budget.id || `${budget.month_key}-${budget.currency}`}
+                    className="rounded-2xl border border-slate-200/70 bg-white/50 p-3 dark:border-white/10 dark:bg-slate-800/45"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                          ${budget.currency}
+                        </p>
+                        <p className="mt-1 text-sm font-black text-slate-950 dark:text-white">
+                          ${formatCurrency(budget.spentAmount, budget.currency)} / ${formatCurrency(
+                            budget.limitAmount,
+                            budget.currency,
+                          )}
+                        </p>
+                      </div>
+                      <span className=${`rounded-full border px-2.5 py-1 text-[11px] font-black ${budget.tone}`}>
+                        ${budget.statusLabel}
+                      </span>
+                    </div>
+                    <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
+                      <div
+                        className=${`report-bar-fill h-full rounded-full bg-gradient-to-r ${budget.barClass}`}
+                        style=${{ width }}
+                      ></div>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">
+                      Sisa ${formatCurrency(Math.max(budget.remainingAmount, 0), budget.currency)}
+                      · Batas hari ini ${formatCurrency(budget.dynamicDailyLimit, budget.currency)}
+                    </p>
+                  </div>
+                `;
+              })}
             </div>
-          `,
-        )}
+            <div className="relative mt-4 grid grid-cols-3 gap-3 rounded-2xl border border-slate-200/70 bg-white/45 p-3 dark:border-white/10 dark:bg-slate-900/35">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                  Limit IDR
+                </p>
+                <p className="mt-1 text-sm font-black text-slate-950 dark:text-white">
+                  ${formatCurrency(report.budgetLimitBaseIdr, "idr")}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                  Terpakai
+                </p>
+                <p className="mt-1 text-sm font-black text-slate-950 dark:text-white">
+                  ${formatCurrency(report.budgetSpentBaseIdr, "idr")}
+                </p>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                  Sisa
+                </p>
+                <p className="mt-1 text-sm font-black text-slate-950 dark:text-white">
+                  ${formatCurrency(Math.max(report.budgetRemainingBaseIdr, 0), "idr")}
+                </p>
+              </div>
+            </div>
+          `
+        : html`
+            <div className="relative mt-5 rounded-2xl border border-dashed border-slate-300/70 bg-white/45 p-5 text-sm text-slate-600 dark:border-white/10 dark:bg-slate-800/35 dark:text-slate-300">
+              Belum ada budget aktif untuk bulan ini. Buat budget di tab Kontrol agar laporan bisa membaca batas aman.
+            </div>
+          `}
+    </section>
+  `;
+}
+
+function MonthlyCurrencySummary({ report }) {
+  const visibleCurrencies = report.currencyBreakdown.filter(
+    (item) =>
+      item.income > 0 ||
+      item.expense > 0 ||
+      item.exchangeIn > 0 ||
+      item.exchangeOut > 0,
+  );
+
+  return html`
+    <section className=${`${PREMIUM_PANEL} report-reveal p-5 md:p-6`}>
+      <div className="relative flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
+            Ringkasan Mata Uang
+          </h3>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            Income, expense, dan exchange dipisah supaya cashflow tidak tercampur.
+          </p>
+        </div>
       </div>
 
-      <div className="relative mt-5 h-3 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
-        <div
-          className=${`report-bar-fill h-full rounded-full bg-gradient-to-r ${barClass}`}
-          style=${{ width }}
-        ></div>
-      </div>
-      <p className="relative mt-2 text-xs text-slate-600 dark:text-slate-300">
-        ${report.budgetLimitThb > 0
-          ? `${formatPercent(report.budgetUsage)} dari budget sudah terpakai.`
-          : "Belum ada budget aktif untuk bulan ini."}
-      </p>
+      ${visibleCurrencies.length
+        ? html`
+            <div className="relative mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              ${visibleCurrencies.map((item) => html`
+                <div
+                  key=${item.currency}
+                  className="rounded-2xl border border-slate-200/70 bg-white/50 p-3 dark:border-white/10 dark:bg-slate-800/45"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-black text-slate-950 dark:text-white">
+                      ${item.currency}
+                    </p>
+                    <span className="rounded-full border border-brand-300/25 bg-brand-500/10 px-2.5 py-1 text-[11px] font-black text-brand-700 dark:border-brand-300/20 dark:text-brand-200">
+                      Wallet
+                    </span>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <p className="text-slate-500 dark:text-slate-400">Masuk</p>
+                      <p className="mt-1 font-black text-brand-700 dark:text-brand-300">
+                        ${formatCurrency(item.income, item.currency)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500 dark:text-slate-400">Keluar</p>
+                      <p className="mt-1 font-black text-rose-700 dark:text-rose-300">
+                        ${formatCurrency(item.expense, item.currency)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500 dark:text-slate-400">Exchange in</p>
+                      <p className="mt-1 font-black text-sky-700 dark:text-sky-300">
+                        ${formatCurrency(item.exchangeIn, item.currency)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500 dark:text-slate-400">Exchange out</p>
+                      <p className="mt-1 font-black text-slate-700 dark:text-slate-200">
+                        ${formatCurrency(item.exchangeOut, item.currency)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              `)}
+            </div>
+          `
+        : html`
+            <div className="relative mt-5 rounded-2xl border border-dashed border-slate-300/70 bg-white/45 p-5 text-sm text-slate-600 dark:border-white/10 dark:bg-slate-800/35 dark:text-slate-300">
+              Belum ada aktivitas mata uang di bulan ini.
+            </div>
+          `}
     </section>
   `;
 }
@@ -3168,6 +4023,12 @@ function MonthlyCategoryBreakdown({ report }) {
                       <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                         ${item.count} transaksi
                       </p>
+                      <p className="mt-1 truncate text-xs text-slate-500 dark:text-slate-400">
+                        ${Object.entries(item.valueByCurrency || {})
+                          .filter(([, amount]) => Number(amount || 0) > 0)
+                          .map(([currency, amount]) => formatCurrency(amount, currency))
+                          .join(" + ")}
+                      </p>
                     </div>
                     <div className="text-right">
                       <p className="text-sm font-black text-slate-950 dark:text-white">
@@ -3203,8 +4064,11 @@ function MonthlyCategoryBreakdown({ report }) {
 function MonthlyReportInsights({ report }) {
   const topCategory = report.topCategory;
   const budgetHelper =
-    report.budgetLimitThb > 0
-      ? `${formatPercent(report.budgetUsage)} terpakai dari ${formatCurrency(report.budgetLimitThb, "thb")}`
+    report.budgetInsights.length
+      ? `${formatPercent(report.budgetUsage)} terpakai dari total budget bernilai ${formatCurrency(
+          report.budgetLimitBaseIdr,
+          "idr",
+        )}`
       : "Tambahkan budget agar laporan bisa memberi sinyal risiko.";
   const rhythmHelper = report.meta.isCurrentMonth
     ? `Proyeksi akhir bulan ${formatCurrency(report.projectedExpenseIdr, "idr")}.`
@@ -3359,7 +4223,7 @@ function MonthlyReportPage({
             Laporan Keuangan Bulanan
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-            Ringkasan cashflow, budget, kategori, dan ritme pengeluaran dalam satu layar.
+            Ringkasan cashflow, budget multi-currency, exchange, kategori, dan ritme pengeluaran dalam satu layar.
           </p>
         </div>
         <${ReportMonthPicker}
@@ -3373,6 +4237,7 @@ function MonthlyReportPage({
         ? html`
             <${MonthlyReportHero} report=${report} />
             <${MonthlyReportKpis} report=${report} />
+            <${MonthlyCurrencySummary} report=${report} />
             <div className="grid gap-4 xl:grid-cols-[0.85fr_1.15fr]">
               <${MonthlyBudgetPulse} report=${report} />
               <${MonthlyCategoryBreakdown} report=${report} />
@@ -3443,9 +4308,9 @@ function CategoryBreakdown({ categories, totalMonthlyThb }) {
     <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.14),transparent_50%)] opacity-80"></div>
       <div className="relative">
-        <h3 className="font-display text-xl font-bold">Pengeluaran per Kategori</h3>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-          Semua THB di sini dianggap operasional Poipet, jadi breakdown dibuat langsung per kategori belanja.
+          <h3 className="font-display text-xl font-bold">Pengeluaran per Kategori</h3>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
+          Breakdown dibuat dari pengeluaran mata uang aktif yang kamu catat.
         </p>
       </div>
 
@@ -3494,7 +4359,7 @@ function CategoryBreakdown({ categories, totalMonthlyThb }) {
           `
         : html`
             <div className="relative mt-5 rounded-2xl border border-dashed border-white/15 bg-white/5 p-5 text-sm text-slate-600 backdrop-blur-xl dark:bg-slate-900/25 dark:text-slate-300/80">
-              Belum ada pengeluaran bulan ini. Begitu kamu input expense, kategori operasional THB akan langsung tampil di sini.
+              Belum ada pengeluaran bulan ini. Begitu kamu input expense, kategori akan langsung tampil di sini.
             </div>
           `}
     </div>
@@ -3508,7 +4373,7 @@ function BudgetTracker({ budgets, monthLabel, onDelete }) {
       <div className="relative">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="font-display text-xl font-bold">Overspending Guard</h3>
+            <h3 className="font-display text-xl font-bold">Proteksi Budget</h3>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
               Batas aman harian dihitung otomatis dari sisa budget dibagi sisa hari.
             </p>
@@ -3534,32 +4399,32 @@ function BudgetTracker({ budgets, monthLabel, onDelete }) {
                           ${budget.meta.label}
                         </div>
                         <p className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          Limit ${formatCurrency(budget.limit_thb, "thb")}
+                          Limit ${formatCurrency(budget.limitAmount, budget.currency)}
                         </p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          Terpakai ${formatCurrency(budget.spentThb, "thb")} /
-                          Sisa ${formatCurrency(Math.max(budget.remainingThb, 0), "thb")}
+                          Terpakai ${formatCurrency(budget.spentAmount, budget.currency)} /
+                          Sisa ${formatCurrency(Math.max(budget.remainingAmount, 0), budget.currency)}
                         </p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          Batas aman hari ini ${formatCurrency(budget.dynamicDailyLimitThb, "thb")}
+                          Batas aman hari ini ${formatCurrency(budget.dynamicDailyLimit, budget.currency)}
                         </p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          Pengeluaran hari ini ${formatCurrency(budget.spentTodayThb, "thb")}
+                          Pengeluaran hari ini ${formatCurrency(budget.spentToday, budget.currency)}
                         </p>
                         <p className="mt-1 text-xs font-medium text-slate-600 dark:text-slate-300">
-                          ${budget.todayRemainingSafeThb >= 0
-                            ? `Sisa aman hari ini ${formatCurrency(budget.todayRemainingSafeThb, "thb")}`
-                            : `Over hari ini ${formatCurrency(Math.abs(budget.todayRemainingSafeThb), "thb")}`}
+                          ${budget.todayRemainingSafe >= 0
+                            ? `Sisa aman hari ini ${formatCurrency(budget.todayRemainingSafe, budget.currency)}`
+                            : `Over hari ini ${formatCurrency(Math.abs(budget.todayRemainingSafe), budget.currency)}`}
                         </p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                           ${budget.remainingDaysAfterToday > 0
-                            ? `Jatah harian besok ${formatCurrency(budget.projectedNextDailyLimitThb, "thb")} untuk ${budget.remainingDaysAfterToday} hari tersisa`
+                            ? `Jatah harian besok ${formatCurrency(budget.projectedNextDailyLimit, budget.currency)} untuk ${budget.remainingDaysAfterToday} hari tersisa`
                             : "Hari terakhir bulan ini, tidak ada jatah hari berikutnya."}
                         </p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          ${budget.dailyAdjustmentThb >= 0
-                            ? `Jatah harian naik ${formatCurrency(budget.dailyAdjustmentThb, "thb")} dari rata-rata awal`
-                            : `Jatah harian turun ${formatCurrency(Math.abs(budget.dailyAdjustmentThb), "thb")} dari rata-rata awal`}
+                          ${budget.dailyAdjustment >= 0
+                            ? `Jatah harian naik ${formatCurrency(budget.dailyAdjustment, budget.currency)} dari rata-rata awal`
+                            : `Jatah harian turun ${formatCurrency(Math.abs(budget.dailyAdjustment), budget.currency)} dari rata-rata awal`}
                         </p>
                       </div>
                       <div className="text-right">
@@ -3580,7 +4445,7 @@ function BudgetTracker({ budgets, monthLabel, onDelete }) {
                         className=${`h-full rounded-full bg-gradient-to-r ${budget.barClass}`}
                         style=${{
                           width: `${Math.min(
-                            Math.max(budget.usage * 100, budget.spentThb > 0 ? 10 : 0),
+                            Math.max(budget.usage * 100, budget.spentAmount > 0 ? 10 : 0),
                             100,
                           )}%`,
                         }}
@@ -3590,8 +4455,8 @@ function BudgetTracker({ budgets, monthLabel, onDelete }) {
                       ? html`
                           <p className="mt-3 text-xs font-semibold text-rose-600 dark:text-rose-300">
                             Overspending ${formatCurrency(
-                              Math.abs(budget.remainingThb),
-                              "thb",
+                              Math.abs(budget.remainingAmount),
+                              budget.currency,
                             )} di atas limit.
                           </p>
                         `
@@ -3610,7 +4475,7 @@ function BudgetTracker({ budgets, monthLabel, onDelete }) {
                 Budget belum aktif
               </h4>
               <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-600 dark:text-slate-300/80">
-                Buat limit uang keluar bulanan agar indikator overspending dan batas aman harian mulai bekerja.
+                Buat limit uang keluar bulanan agar indikator batas aman harian mulai bekerja.
               </p>
             </div>
           `}
@@ -3775,7 +4640,7 @@ function ExchangeSummaryPanel({ activeExchange, currentMonthLabel, monthlyExpens
       <div className="relative">
         <h3 className="font-display text-xl font-bold">Ringkasan Kurs & Modal</h3>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-          Transfer THB ber-rate menjadi fondasi valuasi IDR untuk semua uang keluar harian.
+          Exchange ber-rate menjadi fondasi valuasi base currency untuk pengeluaran multi-currency.
         </p>
       </div>
 
@@ -3785,17 +4650,17 @@ function ExchangeSummaryPanel({ activeExchange, currentMonthLabel, monthlyExpens
               <div className="rounded-2xl border border-brand-300/25 bg-brand-400/10 p-4 backdrop-blur-xl dark:border-brand-300/20 dark:bg-brand-500/10">
                 <p className="text-sm font-semibold text-brand-800 dark:text-brand-200">Rate aktif terakhir</p>
                 <p className="mt-2 text-lg font-bold text-brand-900 dark:text-white">
-                  ${formatCurrency(activeExchange.amount_idr, "idr")} ->
-                  ${formatCurrency(activeExchange.amount_thb, "thb")}
+                  ${formatCurrency(activeExchange.from_amount, activeExchange.from_currency)} ->
+                  ${formatCurrency(activeExchange.to_amount, activeExchange.to_currency)}
                 </p>
                 <p className="mt-2 text-sm text-brand-800 dark:text-brand-200">
-                  ${formatRate(activeExchange.locked_rate)}
+                  ${formatRate(activeExchange.rate || activeExchange.locked_rate, activeExchange.from_currency, activeExchange.to_currency)}
                 </p>
               </div>
             `
           : html`
               <div className="rounded-2xl border border-dashed border-white/15 bg-white/5 p-4 text-sm text-slate-600 backdrop-blur-xl dark:bg-slate-900/25 dark:text-slate-300/80">
-                Belum ada transfer THB ber-rate. Tambahkan rate pada transaksi beli/tukar THB agar valuasi pengeluaran THB terhadap IDR bisa terkunci.
+                Belum ada exchange ber-rate. Tambahkan transaksi Tukar Mata Uang agar valuasi pengeluaran foreign currency bisa terkunci.
               </div>
             `}
 
@@ -3913,6 +4778,7 @@ function TransactionFilter({
   onChange,
   onReset,
   categoryOptions,
+  currencyOptions = getHistoryCurrencyOptions(),
   showSearch = true,
 }) {
   function updateFilter(field, value) {
@@ -4000,7 +4866,7 @@ function TransactionFilter({
             onChange=${(event) => updateFilter("currency", event.target.value)}
             className=${GLASS_INPUT}
           >
-            ${HISTORY_CURRENCY_OPTIONS.map(
+            ${currencyOptions.map(
               (option) => html`
                 <option key=${option.value} value=${option.value}>
                   ${option.label}
@@ -4143,29 +5009,15 @@ function getTransactionCompactAmount(transaction, fallbackRate = 0) {
     return {
       primary: `-${formatCurrency(mainAmount, currency)}`,
       secondary:
-        currency === "thb" && valuationIdr != null
+        currency !== DEFAULT_BASE_CURRENCY && valuationIdr != null
           ? `Valuasi ${formatCurrency(valuationIdr, "idr")}`
           : currency.toUpperCase(),
     };
   }
 
-  const amountIdr = Number(transaction.amount_idr || 0);
-  const amountThb = Number(transaction.amount_thb || 0);
-  if (amountThb < 0 && amountIdr > 0) {
-    return {
-      primary: `+${formatCurrency(amountIdr, "idr")}`,
-      secondary: `THB -${formatCurrency(Math.abs(amountThb), "thb")}`,
-    };
-  }
-  if (amountIdr > 0 && amountThb > 0) {
-    return {
-      primary: `-${formatCurrency(amountIdr, "idr")}`,
-      secondary: `THB +${formatCurrency(amountThb, "thb")}`,
-    };
-  }
   return {
-    primary: getTransactionPreview(transaction),
-    secondary: "Exchange",
+    primary: `-${formatCurrency(transaction.from_amount, transaction.from_currency)}`,
+    secondary: `+${formatCurrency(transaction.to_amount, transaction.to_currency)}`,
   };
 }
 
@@ -4220,21 +5072,43 @@ function TransactionEditForm({
   loading = false,
 }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [exchangeAutoTarget, setExchangeAutoTarget] = useState("to_amount");
   const flow = form.type || getTransactionFlow(transaction);
   const isIncome = flow === "income";
   const isExpense = flow === "expense";
   const isExchange = flow === "exchange";
-  const isExpenseThb = isExpense && form.expense_currency === "thb";
-  const amountIdr = Number(normalizeNumericInput(form.amount_idr));
-  const amountThb = Number(normalizeNumericInput(form.amount_thb));
+  const baseCurrency = getBaseCurrency();
+  const transactionCurrency = normalizeCurrencyCode(
+    isExpense ? form.expense_currency : form.currency,
+  );
+  const isForeign = transactionCurrency !== baseCurrency;
+  const amountValue = Number(normalizeNumericInput(form.amount));
+  const settledEditForm = isExchange
+    ? settleExchangeCalculation(form, "locked_rate", {
+        rateField: "locked_rate",
+        preferredTarget: exchangeAutoTarget,
+      })
+    : form;
+  const fromAmount = Number(normalizeNumericInput(settledEditForm.from_amount));
+  const toAmount = Number(normalizeNumericInput(settledEditForm.to_amount));
   const lockedRate = Number(normalizeNumericInput(form.locked_rate));
+  const activeCurrencies = mergeCurrencyLists(
+    getActiveCurrencies(),
+    form.currency,
+    form.expense_currency,
+    form.from_currency,
+    form.to_currency,
+  );
   const descriptionValid = String(form.description || "").trim().length > 0;
   const submitDisabled =
     loading ||
     !descriptionValid ||
-    (isIncome && amountIdr <= 0) ||
-    (isExpense && (isExpenseThb ? amountThb <= 0 || lockedRate <= 0 : amountIdr <= 0)) ||
-    (isExchange && (amountIdr <= 0 || amountThb <= 0 || lockedRate <= 0));
+    ((isIncome || isExpense) && amountValue <= 0) ||
+    (isExchange &&
+      (fromAmount <= 0 ||
+        toAmount <= 0 ||
+        lockedRate <= 0 ||
+        form.from_currency === form.to_currency));
   const typeOptions = [
     { value: "income", label: "Uang Masuk" },
     { value: "expense", label: "Uang Keluar" },
@@ -4243,16 +5117,35 @@ function TransactionEditForm({
   const formSubtitle = isExchange
     ? "Exchange"
     : isIncome
-      ? "Uang masuk • IDR"
-      : `Uang keluar • ${isExpenseThb ? "THB" : "IDR"}`;
+      ? `Uang masuk | ${transactionCurrency}`
+      : `Uang keluar | ${transactionCurrency}`;
 
   function updateField(field, value) {
-    onChange({ ...form, [field]: value });
+    if (field === "from_amount") setExchangeAutoTarget("to_amount");
+    if (field === "to_amount") setExchangeAutoTarget("from_amount");
+    const next = { ...form, [field]: value };
+    onChange(next);
+  }
+
+  function settleExchangeField(field) {
+    onChange(
+      settleExchangeCalculation(form, field, {
+        rateField: "locked_rate",
+        preferredTarget: exchangeAutoTarget,
+      }),
+    );
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
-    await onSave(form);
+    const finalForm = isExchange
+      ? settleExchangeCalculation(form, "locked_rate", {
+          rateField: "locked_rate",
+          preferredTarget: exchangeAutoTarget,
+        })
+      : form;
+    if (isExchange) onChange(finalForm);
+    await onSave(finalForm);
   }
 
   return html`
@@ -4285,41 +5178,74 @@ function TransactionEditForm({
         />
       </label>
 
-      ${(isIncome || (isExpense && !isExpenseThb) || isExchange)
+      ${isExchange
         ? html`
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block space-y-2">
+                <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                  Dari mata uang
+                </span>
+                <select
+                  value=${form.from_currency}
+                  onChange=${(event) => updateField("from_currency", event.target.value)}
+                  className=${GLASS_INPUT}
+                >
+                  ${activeCurrencies.map(
+                    (currency) => html`
+                      <option key=${currency} value=${currency}>${currency}</option>
+                    `,
+                  )}
+                </select>
+              </label>
+              <label className="block space-y-2">
+                <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                  Ke mata uang
+                </span>
+                <select
+                  value=${form.to_currency}
+                  onChange=${(event) => updateField("to_currency", event.target.value)}
+                  className=${GLASS_INPUT}
+                >
+                  ${activeCurrencies.map(
+                    (currency) => html`
+                      <option key=${currency} value=${currency}>${currency}</option>
+                    `,
+                  )}
+                </select>
+              </label>
+            </div>
+
             <label className="block space-y-2">
               <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                ${isExchange ? "IDR keluar" : isIncome ? "Nominal IDR" : "Nominal IDR"}
+                Jumlah ditukar
               </span>
               <input
                 type="text"
                 inputMode="decimal"
                 autoComplete="off"
-                value=${form.amount_idr}
+                value=${form.from_amount}
                 onChange=${(event) =>
-                  updateField("amount_idr", formatNumericInput(event.target.value))}
+                  updateField("from_amount", formatNumericInput(event.target.value))}
+                onBlur=${() => settleExchangeField("from_amount")}
                 placeholder="0"
                 required
                 className=${GLASS_INPUT}
               />
             </label>
-          `
-        : null}
 
-      ${(isExpenseThb || isExchange)
-        ? html`
             <label className="block space-y-2">
               <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                ${isExchange ? "THB masuk" : "Nominal THB"}
+                Jumlah diterima
               </span>
               <input
                 type="text"
                 inputMode="decimal"
                 autoComplete="off"
                 required
-                value=${form.amount_thb}
+                value=${form.to_amount}
                 onChange=${(event) =>
-                  updateField("amount_thb", formatNumericInput(event.target.value))}
+                  updateField("to_amount", formatNumericInput(event.target.value))}
+                onBlur=${() => settleExchangeField("to_amount")}
                 placeholder="0"
                 className=${GLASS_INPUT}
               />
@@ -4327,7 +5253,7 @@ function TransactionEditForm({
 
             <label className="block space-y-2">
               <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                Rate IDR/THB
+                Rate ${form.from_currency} / 1 ${form.to_currency}
               </span>
               <input
                 type="text"
@@ -4336,11 +5262,51 @@ function TransactionEditForm({
                 value=${form.locked_rate}
                 onChange=${(event) =>
                   updateField("locked_rate", formatNumericInput(event.target.value))}
-                placeholder="539"
+                onBlur=${() => settleExchangeField("locked_rate")}
+                placeholder="0"
                 required
                 className=${GLASS_INPUT}
               />
             </label>
+
+            <div className="rounded-2xl border border-sky-300/25 bg-sky-400/10 px-4 py-3 text-sm font-black text-sky-800 dark:border-sky-300/20 dark:bg-sky-500/10 dark:text-sky-100">
+              ${formatCurrency(fromAmount, form.from_currency)} -> ${formatCurrency(toAmount, form.to_currency)}
+            </div>
+          `
+        : null}
+
+      ${(isIncome || isExpense) && !isExchange
+        ? html`
+            <label className="block space-y-2">
+              <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                Nominal ${transactionCurrency}
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                value=${form.amount}
+                onChange=${(event) =>
+                  updateField("amount", formatNumericInput(event.target.value))}
+                placeholder="0"
+                required
+                className=${GLASS_INPUT}
+              />
+            </label>
+
+            ${isExpense && isForeign
+              ? html`
+                  <div className="rounded-2xl border border-sky-300/25 bg-sky-400/10 px-4 py-3 text-xs leading-5 text-sky-900 dark:border-sky-300/20 dark:bg-sky-500/10 dark:text-sky-200">
+                    ${lockedRate > 0
+                      ? `Valuasi memakai rate tersimpan ${formatRate(
+                          lockedRate,
+                          baseCurrency,
+                          transactionCurrency,
+                        )}.`
+                      : `Valuasi ${baseCurrency} akan mengikuti exchange terakhir yang relevan.`}
+                  </div>
+                `
+              : null}
           `
         : null}
 
@@ -4414,8 +5380,12 @@ function TransactionEditForm({
                                   : form.category,
                               expense_currency:
                                 option.value === "expense"
-                                  ? form.expense_currency || "idr"
+                                  ? form.expense_currency || baseCurrency
                                   : form.expense_currency,
+                              locked_rate:
+                                option.value === "expense" && flow !== "expense"
+                                  ? ""
+                                  : form.locked_rate,
                             })}
                           className=${`min-h-11 rounded-2xl px-2 py-2 text-xs font-black transition ${active ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.20)] dark:bg-emerald-500" : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"}`}
                         >
@@ -4432,17 +5402,25 @@ function TransactionEditForm({
                         <span className="mb-2 block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
                           Mata uang
                         </span>
-                        <div className="cuan-segment grid grid-cols-2 gap-2 rounded-2xl p-1">
-                          ${["idr", "thb"].map((currency) => {
-                            const active = form.expense_currency === currency;
+                        <div className="cuan-segment grid grid-cols-2 gap-2 rounded-2xl p-1 sm:grid-cols-5">
+                          ${activeCurrencies.map((currency) => {
+                            const active = normalizeCurrencyCode(form.expense_currency) === currency;
                             return html`
                               <button
                                 key=${currency}
                                 type="button"
-                                onClick=${() => updateField("expense_currency", currency)}
+                                onClick=${() =>
+                                  onChange({
+                                    ...form,
+                                    expense_currency: currency,
+                                    locked_rate:
+                                      currency === transactionCurrency
+                                        ? form.locked_rate
+                                        : "",
+                                  })}
                                 className=${`min-h-11 rounded-2xl px-3 py-2 text-sm font-black transition ${active ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.20)] dark:bg-emerald-500" : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"}`}
                               >
-                                ${currency.toUpperCase()}
+                                ${currency}
                               </button>
                             `;
                           })}
@@ -4525,20 +5503,35 @@ function TransactionDetailSheet({
   const description = getTransactionDisplayTitle(transaction);
   const compactAmount = getTransactionCompactAmount(transaction, fallbackRate);
   const amountText = isExchange
-    ? compactAmount.primary
+    ? `${compactAmount.primary} -> ${compactAmount.secondary}`
     : `${signedPrefix}${formatCurrency(mainAmount, currency)}`;
   const currencyLabel = isExchange ? "Transfer / Exchange" : currency.toUpperCase();
   const showValuation = valuationIdr != null;
-  const rateText = transaction.locked_rate ? formatRate(transaction.locked_rate) : "-";
-  const receiptMeta = [
-    ["Tanggal", formatShortDateTime(transaction.occurred_at)],
-    ["Kategori", categoryLabel],
-    ["Mata uang", currencyLabel],
-    ["Rate", rateText],
-  ];
+  const rateText = transaction.rate || transaction.locked_rate
+    ? formatRate(
+        transaction.rate || transaction.locked_rate,
+        isExchange ? transaction.from_currency : DEFAULT_BASE_CURRENCY,
+        isExchange ? transaction.to_currency : currency,
+      )
+    : "-";
+  const receiptMeta = isExchange
+    ? [
+        ["Dari", transaction.from_currency],
+        ["Ke", transaction.to_currency],
+        ["Ditukar", formatCurrency(transaction.from_amount, transaction.from_currency)],
+        ["Diterima", formatCurrency(transaction.to_amount, transaction.to_currency)],
+        ["Rate", rateText],
+        ["Tanggal", formatShortDateTime(transaction.occurred_at)],
+      ]
+    : [
+        ["Tanggal", formatShortDateTime(transaction.occurred_at)],
+        ["Kategori", categoryLabel],
+        ["Mata uang", currencyLabel],
+        ["Rate", rateText],
+      ];
   const receiptHelper = isExchange
-    ? compactAmount.secondary
-    : showValuation && currency === "thb"
+    ? "Perpindahan aset, bukan income atau expense"
+    : showValuation && currency !== DEFAULT_BASE_CURRENCY
       ? `Valuasi ${formatCurrency(valuationIdr, "idr")}`
       : getTransactionTypeLabel(transaction);
 
@@ -4714,6 +5707,7 @@ function TransactionList({
   onDelete,
   onUpdate,
   loading = false,
+  activeCurrencies = getActiveCurrencies(),
   title = "Aktivitas Terakhir",
   description = "Semua perubahan angka langsung menggerakkan chart, kategori, dan budget.",
   emptyMessage = "Belum ada transaksi.",
@@ -4724,6 +5718,10 @@ function TransactionList({
   const categoryOptions = useMemo(
     () => getHistoryCategoryOptions(transactions),
     [transactions],
+  );
+  const currencyOptions = useMemo(
+    () => getHistoryCurrencyOptions(activeCurrencies),
+    [activeCurrencies],
   );
   const filteredTransactions = useMemo(
     () => filterAndSortTransactions(transactions, filters),
@@ -4742,6 +5740,18 @@ function TransactionList({
     [transactions],
   );
   const hasFilters = hasActiveTransactionFilters(filters);
+
+  useEffect(() => {
+    setFilters((current) => {
+      if (
+        current.currency === "all" ||
+        activeCurrencies.includes(normalizeCurrencyCode(current.currency))
+      ) {
+        return current;
+      }
+      return { ...current, currency: "all" };
+    });
+  }, [activeCurrencies.join("|")]);
 
   function updateFilter(field, value) {
     setFilters((current) => ({ ...current, [field]: value }));
@@ -4801,6 +5811,7 @@ function TransactionList({
               onChange=${setFilters}
               onReset=${resetFilters}
               categoryOptions=${categoryOptions}
+              currencyOptions=${currencyOptions}
               showSearch=${false}
             />
           `
@@ -4926,37 +5937,41 @@ function DailyExpenseForm({
   budget,
   todaySpentThb,
   todaySpentIdr,
+  todaySpentCurrency = todaySpentThb,
+  expenseCurrency = DEFAULT_BASE_CURRENCY,
 }) {
   const [form, setForm] = useState({
     description: "",
     category: DEFAULT_CATEGORY,
     amount_thb: "",
   });
+  const dailyCurrency = normalizeCurrencyCode(expenseCurrency);
+  const hasBudget = Boolean(budget);
 
   const statusTone = !budget
     ? "border-slate-300/20 bg-slate-400/10 text-slate-900 dark:border-slate-400/20 dark:bg-slate-500/10 dark:text-slate-200"
-    : budget.status === "over" || budget.todayRemainingSafeThb < 0
+    : budget.status === "over" || budget.todayRemainingSafe < 0
       ? "border-rose-300/20 bg-rose-400/10 text-rose-900 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200"
       : budget.status === "warning"
         ? "border-amber-300/20 bg-amber-400/10 text-amber-900 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200"
         : "border-emerald-300/20 bg-emerald-400/10 text-emerald-900 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-200";
   const statusLabel = !budget
     ? "Belum ada budget"
-    : budget.todayRemainingSafeThb < 0
+    : budget.todayRemainingSafe < 0
       ? "Lewat batas"
       : budget.status === "warning"
         ? "Waspada"
         : "Aman";
   const todayLimit = budget
-    ? formatCurrency(budget.dynamicDailyLimitThb, "thb")
+    ? formatCurrency(budget.dynamicDailyLimit, dailyCurrency)
     : "-";
   const safeRemaining = budget
-    ? budget.todayRemainingSafeThb >= 0
-      ? formatCurrency(budget.todayRemainingSafeThb, "thb")
-      : `- ${formatCurrency(Math.abs(budget.todayRemainingSafeThb), "thb")}`
+    ? budget.todayRemainingSafe >= 0
+      ? formatCurrency(budget.todayRemainingSafe, dailyCurrency)
+      : `- ${formatCurrency(Math.abs(budget.todayRemainingSafe), dailyCurrency)}`
     : "-";
-  const parsedAmountThb = Number(normalizeNumericInput(form.amount_thb));
-  const submitDisabled = parsedAmountThb <= 0;
+  const parsedAmount = Number(normalizeNumericInput(form.amount_thb));
+  const submitDisabled = parsedAmount <= 0;
 
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -4969,12 +5984,14 @@ function DailyExpenseForm({
       type: "expense",
       occurred_at: new Date().toISOString(),
       description: form.description.trim(),
-      category_group: UNIVERSAL_BUDGET_GROUP,
+      category_group: hasBudget ? UNIVERSAL_BUDGET_GROUP : null,
       category: form.category,
-      amount_idr: null,
-      amount_thb: normalizeNumericInput(form.amount_thb),
+      currency: dailyCurrency,
+      amount: normalizeNumericInput(form.amount_thb),
+      amount_idr: dailyCurrency === "IDR" ? normalizeNumericInput(form.amount_thb) : null,
+      amount_thb: dailyCurrency === "THB" ? normalizeNumericInput(form.amount_thb) : null,
       exchange_rate: null,
-      exchange_source: null,
+      expense_currency: dailyCurrency,
     });
 
     if (succeeded) {
@@ -4987,67 +6004,72 @@ function DailyExpenseForm({
   }
 
   return html`
-    <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
+    <div className=${`${PREMIUM_PANEL} p-4 md:p-6`}>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
       <div className="relative">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="font-display text-xl font-bold">Pengeluaran Hari Ini</h3>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-              Input cepat untuk makan, jajan, dan pengeluaran harian lain.
+            <h3 className="font-display text-lg font-bold md:text-xl">Pengeluaran Hari Ini</h3>
+            <p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300/80">
+              Catat pengeluaran cepat tanpa buka form lengkap.
             </p>
           </div>
-          <div className="inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold text-slate-600 backdrop-blur-xl dark:bg-slate-900/40 dark:text-slate-300">
-            Sekarang
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <div className="inline-flex rounded-full border border-brand-300/25 bg-brand-500/10 px-3 py-1 text-xs font-black text-brand-700 backdrop-blur-xl dark:bg-brand-400/10 dark:text-brand-200">
+              ${dailyCurrency}
+            </div>
+            <div className="inline-flex rounded-full border border-slate-200/70 bg-white/60 px-3 py-1 text-[11px] font-semibold text-slate-600 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/40 dark:text-slate-300">
+              Sekarang
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="relative mt-5 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40">
+      <div className="relative mt-4 rounded-2xl border border-slate-200/70 bg-white/58 p-3.5 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/40">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className=${`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusTone}`}>
             ${statusLabel}
           </div>
           <div className="text-right">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
               Pengingat hari ini
             </p>
             <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
-              ${budget ? `Batas ${todayLimit}` : "Atur budget lewat Kontrol"}
+              ${budget ? `Batas ${todayLimit}` : `Atur budget ${dailyCurrency} lewat Kontrol`}
             </p>
           </div>
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="min-w-0 rounded-2xl border border-slate-200/60 bg-white/50 px-3 py-3 dark:border-white/10 dark:bg-slate-950/30">
+            <p className="truncate text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
               Terpakai
             </p>
-            <p className="mt-2 text-lg font-bold text-slate-950 dark:text-white">
-              ${formatCurrency(todaySpentThb, "thb")}
+            <p className="mt-1.5 truncate text-sm font-black text-slate-950 dark:text-white md:text-lg">
+              ${formatCurrency(todaySpentCurrency, dailyCurrency)}
             </p>
           </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+          <div className="min-w-0 rounded-2xl border border-slate-200/60 bg-white/50 px-3 py-3 dark:border-white/10 dark:bg-slate-950/30">
+            <p className="truncate text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
               Sisa aman
             </p>
-            <p className="mt-2 text-lg font-bold text-slate-950 dark:text-white">
+            <p className="mt-1.5 truncate text-sm font-black text-slate-950 dark:text-white md:text-lg">
               ${safeRemaining}
             </p>
           </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+          <div className="min-w-0 rounded-2xl border border-slate-200/60 bg-white/50 px-3 py-3 dark:border-white/10 dark:bg-slate-950/30">
+            <p className="truncate text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
               Valuasi IDR
             </p>
-            <p className="mt-2 text-lg font-bold text-slate-950 dark:text-white">
+            <p className="mt-1.5 truncate text-sm font-black text-slate-950 dark:text-white md:text-lg">
               ${todaySpentIdr > 0 ? formatCurrency(todaySpentIdr, "idr") : "-"}
             </p>
           </div>
         </div>
       </div>
 
-      <form className="relative mt-5 grid gap-4" onSubmit=${handleSubmit}>
+      <form className="relative mt-4 grid gap-3.5" onSubmit=${handleSubmit}>
         <label className="block">
-          <span className="mb-2 block text-sm font-medium">Jumlah (THB)</span>
+          <span className="mb-2 block text-sm font-medium">Jumlah (${dailyCurrency})</span>
           <input
             type="text"
             inputMode="decimal"
@@ -5099,10 +6121,18 @@ function DailyExpenseForm({
   `;
 }
 
-function DailyBudgetGuard({ budget, todaySpentThb, todaySpentIdr, monthLabel }) {
+function DailyBudgetGuard({
+  budget,
+  todaySpentThb,
+  todaySpentIdr,
+  monthLabel,
+  currency = DEFAULT_BASE_CURRENCY,
+  todaySpentCurrency = todaySpentThb,
+}) {
+  const budgetCurrency = normalizeCurrencyCode(budget?.currency || currency);
   const statusTone = !budget
     ? "border-slate-300/20 bg-slate-400/10 text-slate-900 dark:border-slate-400/20 dark:bg-slate-500/10 dark:text-slate-200"
-    : budget.status === "over" || budget.todayRemainingSafeThb < 0
+    : budget.status === "over" || budget.todayRemainingSafe < 0
       ? "border-rose-300/20 bg-rose-400/10 text-rose-900 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200"
       : budget.status === "warning"
         ? "border-amber-300/20 bg-amber-400/10 text-amber-900 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200"
@@ -5110,17 +6140,17 @@ function DailyBudgetGuard({ budget, todaySpentThb, todaySpentIdr, monthLabel }) 
 
   const statusLabel = !budget
     ? "Belum ada budget"
-    : budget.todayRemainingSafeThb < 0
+    : budget.todayRemainingSafe < 0
       ? "Lewat batas hari ini"
       : budget.status === "warning"
         ? "Mendekati batas"
         : "Masih aman";
 
-  const todayLimit = budget ? formatCurrency(budget.dynamicDailyLimitThb, "thb") : "-";
+  const todayLimit = budget ? formatCurrency(budget.dynamicDailyLimit, budgetCurrency) : "-";
   const safeRemaining = budget
-    ? budget.todayRemainingSafeThb >= 0
-      ? formatCurrency(budget.todayRemainingSafeThb, "thb")
-      : `- ${formatCurrency(Math.abs(budget.todayRemainingSafeThb), "thb")}`
+    ? budget.todayRemainingSafe >= 0
+      ? formatCurrency(budget.todayRemainingSafe, budgetCurrency)
+      : `- ${formatCurrency(Math.abs(budget.todayRemainingSafe), budgetCurrency)}`
     : "-";
 
   return html`
@@ -5129,7 +6159,7 @@ function DailyBudgetGuard({ budget, todaySpentThb, todaySpentIdr, monthLabel }) 
       <div className="relative">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="font-display text-xl font-bold">Overspending Guard</h3>
+            <h3 className="font-display text-xl font-bold">Proteksi Harian</h3>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
               Ringkasan cepat supaya kamu langsung tahu ritme hari ini.
             </p>
@@ -5149,7 +6179,7 @@ function DailyBudgetGuard({ budget, todaySpentThb, todaySpentIdr, monthLabel }) 
               Terpakai hari ini
             </p>
             <p className="mt-3 text-3xl font-black text-slate-950 dark:text-white">
-              ${formatCurrency(todaySpentThb, "thb")}
+              ${formatCurrency(todaySpentCurrency, budgetCurrency)}
             </p>
             <p className="mt-2 text-sm text-slate-600 dark:text-slate-300/80">
               ${todaySpentIdr > 0 ? formatCurrency(todaySpentIdr, "idr") : "Belum ada valuasi IDR"}
@@ -5179,9 +6209,9 @@ function DailyBudgetGuard({ budget, todaySpentThb, todaySpentIdr, monthLabel }) 
                     Budget bulan ini
                   </span>
                   <span className="font-semibold text-slate-900 dark:text-slate-100">
-                    ${formatCurrency(budget.spentThb, "thb")} / ${formatCurrency(
-                      budget.limit_thb,
-                      "thb",
+                    ${formatCurrency(budget.spentAmount, budgetCurrency)} / ${formatCurrency(
+                      budget.limitAmount,
+                      budgetCurrency,
                     )}
                   </span>
                 </div>
@@ -5190,7 +6220,7 @@ function DailyBudgetGuard({ budget, todaySpentThb, todaySpentIdr, monthLabel }) 
                     className=${`h-full rounded-full bg-gradient-to-r ${budget.barClass}`}
                     style=${{
                       width: `${Math.min(
-                        Math.max(budget.usage * 100, budget.spentThb > 0 ? 8 : 0),
+                        Math.max(budget.usage * 100, budget.spentAmount > 0 ? 8 : 0),
                         100,
                       )}%`,
                     }}
@@ -5215,7 +6245,7 @@ function InvestmentSnapshot({ metrics, onAddGoal }) {
   const totalTrackedAssets =
     Number(metrics.balanceIdr || 0) +
     totalSaved +
-    Number(metrics.balanceThbValuationIdr || 0);
+    Number(metrics.foreignBalanceValuationIdr || 0);
   const nextGoalDailyNeed =
     nextGoal?.daysLeft > 0 && nextGoal.remainingIdr > 0
       ? nextGoal.remainingIdr / nextGoal.daysLeft
@@ -5224,7 +6254,7 @@ function InvestmentSnapshot({ metrics, onAddGoal }) {
     {
       label: "Aset tercatat",
       value: formatCurrency(totalTrackedAssets, "idr"),
-      helper: "Saldo tersedia + goals + valuasi THB",
+      helper: "Saldo tersedia + goals + valuasi mata uang aktif",
     },
     {
       label: "Dana goals",
@@ -5344,7 +6374,7 @@ function InvestmentSnapshot({ metrics, onAddGoal }) {
             `
           : html`
               <p className="mt-2 text-sm text-slate-600 dark:text-slate-300/80">
-                Belum ada target keuangan. Mulai dari dana darurat, target saldo THB, atau pembelian besar.
+                Belum ada target keuangan. Mulai dari dana darurat, target saldo asing, atau pembelian besar.
               </p>
             `}
       </div>
@@ -5360,17 +6390,273 @@ function InvestmentSnapshot({ metrics, onAddGoal }) {
   `;
 }
 
+function CurrencyPicker({ value, onChange }) {
+  const selected = normalizeCurrencyList(value);
+  const selectedSet = new Set(selected);
+
+  function toggleCurrency(currency) {
+    const code = normalizeCurrencyCode(currency);
+    if (code === DEFAULT_BASE_CURRENCY) return;
+    const next = selectedSet.has(code)
+      ? selected.filter((item) => item !== code)
+      : [...selected, code];
+    onChange(normalizeCurrencyList(next));
+  }
+
+  return html`
+    <div className="grid gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        ${DEFAULT_ACTIVE_CURRENCIES.map((currency) => {
+          const active = selectedSet.has(currency);
+          const locked = currency === DEFAULT_BASE_CURRENCY;
+          return html`
+            <button
+              key=${currency}
+              type="button"
+              onClick=${() => toggleCurrency(currency)}
+              aria-pressed=${active}
+              className=${`min-h-12 rounded-2xl border px-3 py-3 text-left transition duration-300 ${
+                active
+                  ? "border-brand-300/35 bg-brand-600 text-white shadow-[0_16px_36px_rgba(16,185,129,0.20)] dark:border-emerald-300/25 dark:bg-emerald-500 dark:text-white"
+                  : "border-slate-200/70 bg-white/58 text-slate-600 hover:border-brand-300/35 hover:bg-white/82 hover:text-slate-950 dark:border-white/10 dark:bg-slate-900/45 dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-white"
+              }`}
+            >
+              <span className="block text-sm font-black">${currency}</span>
+              <span className=${`mt-0.5 block text-[10px] font-bold uppercase tracking-[0.12em] ${
+                active ? "text-white/72" : "text-slate-400 dark:text-slate-500"
+              }`}>
+                ${locked ? "Utama" : active ? "Aktif" : "Opsional"}
+              </span>
+            </button>
+          `;
+        })}
+      </div>
+      <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
+        IDR dikunci sebagai mata uang utama agar valuasi, saldo bersih, dan laporan tetap konsisten.
+      </p>
+    </div>
+  `;
+}
+
+function DailyCurrencySelector({
+  currencies,
+  value,
+  onChange,
+  title = "Mata uang harian",
+  helper = "Dipakai untuk input cepat Pengeluaran Hari Ini.",
+  compact = false,
+}) {
+  const options = getCurrencyOptions(normalizeCurrencyList(currencies));
+  const selectedCurrency = options.some((option) => option.value === normalizeCurrencyCode(value))
+    ? normalizeCurrencyCode(value)
+    : options[0]?.value || DEFAULT_BASE_CURRENCY;
+
+  return html`
+    <div className=${compact
+      ? "rounded-2xl border border-slate-200/70 bg-white/58 p-2.5 dark:border-white/10 dark:bg-slate-900/35"
+      : "rounded-2xl border border-brand-300/20 bg-brand-400/10 p-4 dark:border-brand-300/20 dark:bg-brand-500/10"}>
+      <div className=${compact ? "mb-2 flex items-center justify-between gap-3 px-1" : "mb-3"}>
+        <div>
+          <p className=${compact
+            ? "text-xs font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400"
+            : "text-sm font-black text-slate-900 dark:text-slate-100"}>
+            ${title}
+          </p>
+          ${helper
+            ? html`
+                <p className=${compact
+                  ? "mt-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400"
+                  : "mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300/80"}>
+                  ${helper}
+                </p>
+              `
+            : null}
+        </div>
+        ${compact
+          ? html`
+              <span className="shrink-0 rounded-full border border-brand-300/25 bg-brand-500/10 px-3 py-1 text-xs font-black text-brand-700 dark:text-brand-200">
+                ${selectedCurrency}
+              </span>
+            `
+          : null}
+      </div>
+
+      <div className=${`grid gap-2 ${options.length <= 2 ? "grid-cols-2" : "grid-cols-2 sm:grid-cols-4"}`}>
+        ${options.map((option) => {
+          const active = option.value === selectedCurrency;
+          return html`
+            <button
+              key=${option.value}
+              type="button"
+              onClick=${() => onChange(option.value)}
+              aria-pressed=${active}
+              className=${`min-h-11 rounded-2xl border px-3 py-2.5 text-sm font-black transition duration-300 ${
+                active
+                  ? "border-brand-300/35 bg-brand-600 text-white shadow-[0_14px_32px_rgba(16,185,129,0.20)] dark:border-emerald-300/25 dark:bg-emerald-500 dark:text-white"
+                  : "border-slate-200/70 bg-white/66 text-slate-600 hover:border-brand-300/35 hover:bg-white/90 hover:text-slate-950 dark:border-white/10 dark:bg-slate-900/45 dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-white"
+              }`}
+            >
+              ${option.value}
+            </button>
+          `;
+        })}
+      </div>
+    </div>
+  `;
+}
+
+function CurrencyOnboarding({ onSave }) {
+  const [selectedCurrencies, setSelectedCurrencies] = useState(DEFAULT_SELECTED_CURRENCIES);
+  const [dailyCurrency, setDailyCurrency] = useState(DEFAULT_BASE_CURRENCY);
+  const selectedLabel = normalizeCurrencyList(selectedCurrencies).join(" + ");
+  const normalizedSelectedCurrencies = normalizeCurrencyList(selectedCurrencies);
+  const selectedDailyCurrency = normalizedSelectedCurrencies.includes(dailyCurrency)
+    ? dailyCurrency
+    : normalizedSelectedCurrencies[0] || DEFAULT_BASE_CURRENCY;
+
+  useEffect(() => {
+    setDailyCurrency((current) =>
+      normalizedSelectedCurrencies.includes(current)
+        ? current
+        : normalizedSelectedCurrencies[0] || DEFAULT_BASE_CURRENCY,
+    );
+  }, [normalizedSelectedCurrencies.join("|")]);
+
+  function applyPreset(currencies) {
+    const nextCurrencies = normalizeCurrencyList(currencies);
+    setSelectedCurrencies(nextCurrencies);
+    setDailyCurrency((current) =>
+      nextCurrencies.includes(current) ? current : nextCurrencies[0] || DEFAULT_BASE_CURRENCY,
+    );
+  }
+
+  return html`
+    <main className="relative isolate min-h-screen overflow-hidden px-4 py-7 md:px-6 lg:px-8">
+      <${PremiumMeshBackground} />
+      <div className="relative z-10 mx-auto flex min-h-[calc(100vh-3.5rem)] max-w-xl items-center justify-center">
+        <section className=${`${PREMIUM_PANEL} w-full p-6 md:p-8`}>
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.14),transparent_42%)] opacity-80"></div>
+          <div className="relative">
+            <div className="inline-flex rounded-full border border-brand-300/30 bg-brand-600 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-white shadow-[0_12px_30px_rgba(16,185,129,0.20)]">
+              ${APP_NAME}
+            </div>
+            <p className="mt-6 text-[11px] font-black uppercase tracking-[0.18em] text-brand-700 dark:text-brand-300">
+              Setup pertama
+            </p>
+            <h1 className="mt-2 font-display text-3xl font-black tracking-[-0.03em] text-slate-950 dark:text-white">
+              Pilih mata uang yang kamu pakai
+            </h1>
+            <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300/80">
+              CUANSYNC hanya akan menampilkan saldo, form, filter, dan exchange untuk mata uang yang kamu aktifkan.
+            </p>
+
+            <div className="mt-5 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick=${() => applyPreset(["IDR"])}
+                className="cuan-secondary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+              >
+                IDR saja
+              </button>
+              <button
+                type="button"
+                onClick=${() => applyPreset(["IDR", "THB"])}
+                className="cuan-secondary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+              >
+                IDR + THB
+              </button>
+            </div>
+
+            <div className="mt-5">
+              <${CurrencyPicker}
+                value=${selectedCurrencies}
+                onChange=${setSelectedCurrencies}
+              />
+            </div>
+
+            <div className="mt-5">
+              <${DailyCurrencySelector}
+                currencies=${normalizedSelectedCurrencies}
+                value=${selectedDailyCurrency}
+                onChange=${setDailyCurrency}
+                title="Mata uang harian"
+                helper="Pilih mata uang default untuk Pengeluaran Hari Ini. Bisa diubah lagi dari Pengaturan."
+              />
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-brand-300/20 bg-brand-400/10 px-4 py-3 text-sm font-semibold text-brand-800 dark:border-brand-300/20 dark:bg-brand-500/10 dark:text-brand-100">
+              Aktif: ${selectedLabel} | Harian: ${selectedDailyCurrency}
+            </div>
+
+            <button
+              type="button"
+              onClick=${() =>
+                onSave({
+                  activeCurrencies: selectedCurrencies,
+                  dailyCurrency: selectedDailyCurrency,
+                })}
+              className="history-action-primary mt-5 w-full min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+            >
+              Mulai pakai CUANSYNC
+            </button>
+          </div>
+        </section>
+      </div>
+    </main>
+  `;
+}
+
 function SettingsPanel({
   user,
   profilePhoto,
   theme,
   onThemeChange,
+  currencySettings,
+  onCurrencySettingsChange,
   onUploadPhoto,
   onRemovePhoto,
   onSignOut,
 }) {
   const initials = getUserInitials(user);
   const displayName = getUserDisplayName(user);
+  const normalizedSettings = normalizeCurrencySettings(
+    currencySettings || DEFAULT_SELECTED_CURRENCIES,
+  );
+  const [selectedCurrencies, setSelectedCurrencies] = useState(() =>
+    normalizedSettings.activeCurrencies,
+  );
+  const savedCurrencies = normalizeCurrencyList(
+    currencySettings?.activeCurrencies || DEFAULT_SELECTED_CURRENCIES,
+  );
+  const [selectedDailyCurrency, setSelectedDailyCurrency] = useState(
+    normalizedSettings.dailyCurrency,
+  );
+  const savedDailyCurrency = normalizeCurrencySettings({
+    activeCurrencies: savedCurrencies,
+    dailyCurrency: currencySettings?.dailyCurrency,
+  }).dailyCurrency;
+  const effectiveDailyCurrency = selectedCurrencies.includes(selectedDailyCurrency)
+    ? selectedDailyCurrency
+    : selectedCurrencies[0] || DEFAULT_BASE_CURRENCY;
+  const currencyChanged =
+    selectedCurrencies.join("|") !== savedCurrencies.join("|") ||
+    effectiveDailyCurrency !== savedDailyCurrency;
+
+  useEffect(() => {
+    const nextSettings = normalizeCurrencySettings(
+      currencySettings || DEFAULT_SELECTED_CURRENCIES,
+    );
+    setSelectedCurrencies(nextSettings.activeCurrencies);
+    setSelectedDailyCurrency(nextSettings.dailyCurrency);
+  }, [currencySettings]);
+
+  useEffect(() => {
+    setSelectedDailyCurrency((current) =>
+      selectedCurrencies.includes(current)
+        ? current
+        : selectedCurrencies[0] || DEFAULT_BASE_CURRENCY,
+    );
+  }, [selectedCurrencies.join("|")]);
 
   return html`
     <div className="grid gap-6">
@@ -5379,7 +6665,7 @@ function SettingsPanel({
         <div className="relative">
           <h3 className="font-display text-xl font-bold">Pengaturan</h3>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-            Foto profil, tampilan, dan akun.
+            Foto profil, tampilan, mata uang, dan akun.
           </p>
         </div>
 
@@ -5399,7 +6685,7 @@ function SettingsPanel({
 
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <label className="cuan-secondary flex cursor-pointer items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold transition hover:-translate-y-0.5">
-              Upload foto
+              Upload Profile Picture
               <input
                 type="file"
                 accept="image/*"
@@ -5417,6 +6703,46 @@ function SettingsPanel({
             </button>
           </div>
         </div>
+      </div>
+
+      <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
+        <div className="relative">
+          <h3 className="font-display text-xl font-bold">Mata Uang Aktif</h3>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
+            Pilih mata uang yang benar-benar kamu pakai dan tentukan default untuk pengeluaran harian.
+          </p>
+        </div>
+
+        <div className="relative mt-5">
+          <${CurrencyPicker}
+            value=${selectedCurrencies}
+            onChange=${setSelectedCurrencies}
+          />
+        </div>
+
+        <div className="relative mt-5">
+          <${DailyCurrencySelector}
+            currencies=${selectedCurrencies}
+            value=${effectiveDailyCurrency}
+            onChange=${setSelectedDailyCurrency}
+            title="Default Pengeluaran Hari Ini"
+            helper="Cocok untuk user yang tinggal di Amerika, Australia, atau negara lain tanpa harus mengubah form setiap kali input."
+          />
+        </div>
+
+        <button
+          type="button"
+          onClick=${() =>
+            onCurrencySettingsChange({
+              activeCurrencies: selectedCurrencies,
+              dailyCurrency: effectiveDailyCurrency,
+            })}
+          disabled=${!currencyChanged}
+          className="history-action-primary relative mt-4 w-full min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-55"
+        >
+          ${currencyChanged ? "Simpan mata uang" : "Mata uang sudah tersimpan"}
+        </button>
       </div>
 
       <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
@@ -5471,47 +6797,130 @@ function SettingsPanel({
   `;
 }
 
-function TransactionForm({ transactions, onSubmit, loading }) {
+function TransactionForm({
+  transactions,
+  onSubmit,
+  loading,
+  activeCurrencies: activeCurrencySettings = getActiveCurrencies(),
+}) {
   const [entryType, setEntryType] = useState("income");
-  const [incomeCurrency, setIncomeCurrency] = useState("idr");
-  const [expenseCurrency, setExpenseCurrency] = useState("thb");
+  const [incomeCurrency, setIncomeCurrency] = useState("IDR");
+  const [expenseCurrency, setExpenseCurrency] = useState(DEFAULT_BASE_CURRENCY);
+  const [exchangeAutoTarget, setExchangeAutoTarget] = useState("to_amount");
   const [form, setForm] = useState({
     occurred_at: toInputDateTime(),
     description: "",
     category: DEFAULT_CATEGORY,
     amount_idr: "",
     amount_thb: "",
+    amount: "",
+    from_currency: "IDR",
+    to_currency: "THB",
+    from_amount: "",
+    to_amount: "",
     exchange_rate: "",
-    exchange_source: "purchase",
   });
 
-  const activeExchange = useMemo(
-    () =>
-      form.occurred_at
-        ? getLockedExchange(transactions, new Date(form.occurred_at).toISOString())
-        : null,
-    [form.occurred_at, transactions],
-  );
   const parsedAmountThb = Number(normalizeNumericInput(form.amount_thb));
   const parsedAmountIdr = Number(normalizeNumericInput(form.amount_idr));
-  const parsedExchangeRate = Number(normalizeNumericInput(form.exchange_rate));
+  const parsedAmount = Number(normalizeNumericInput(form.amount));
+  const baseCurrency = getBaseCurrency();
+  const activeCurrencies = normalizeCurrencyList(activeCurrencySettings);
+  const defaultForeignCurrency =
+    activeCurrencies.find((currency) => currency !== baseCurrency) || baseCurrency;
   const isIncome = entryType === "income";
+  const isExpense = entryType === "expense";
+  const isExchange = entryType === "exchange";
+  const settledExchangeForm = isExchange
+    ? settleExchangeCalculation(form, "exchange_rate", {
+        rateField: "exchange_rate",
+        preferredTarget: exchangeAutoTarget,
+      })
+    : form;
+  const parsedFromAmount = Number(normalizeNumericInput(settledExchangeForm.from_amount));
+  const parsedToAmount = Number(normalizeNumericInput(settledExchangeForm.to_amount));
+  const parsedExchangeRate = Number(normalizeNumericInput(form.exchange_rate));
   const selectedCurrency = isIncome ? incomeCurrency : expenseCurrency;
-  const isThb = selectedCurrency === "thb";
-  const isIdr = selectedCurrency === "idr";
-  const parsedSelectedAmount = isIdr ? parsedAmountIdr : parsedAmountThb;
-  const submitDisabled = parsedSelectedAmount <= 0;
+  const selectedCurrencyCode = normalizeCurrencyCode(selectedCurrency);
+  const isThb = selectedCurrencyCode === "THB";
+  const isIdr = selectedCurrencyCode === "IDR";
+  const isForeign = selectedCurrencyCode !== baseCurrency;
+  const latestExpenseExchange =
+    isExpense && isForeign
+      ? getLatestExchangeForCurrencyUntil(
+          transactions,
+          selectedCurrencyCode,
+          new Date(form.occurred_at || Date.now()),
+        )
+      : null;
+  const latestExpenseRate =
+    latestExpenseExchange && isExpense && isForeign
+      ? getExchangeRateToBase(latestExpenseExchange, selectedCurrencyCode, baseCurrency) || 0
+      : 0;
+  const parsedSelectedAmount = parsedAmount || (isIdr ? parsedAmountIdr : parsedAmountThb);
+  const submitDisabled = isExchange
+    ? parsedFromAmount <= 0 ||
+      parsedToAmount <= 0 ||
+      parsedExchangeRate <= 0 ||
+      form.from_currency === form.to_currency
+    : parsedSelectedAmount <= 0;
   const typeOptions = [
-    { value: "income", label: "Uang Masuk" },
-    { value: "expense", label: "Uang Keluar" },
+    { value: "income", label: "Pemasukan" },
+    { value: "expense", label: "Pengeluaran" },
+    ...(activeCurrencies.length > 1
+      ? [{ value: "exchange", label: "Tukar Mata Uang" }]
+      : []),
   ];
-  const currencyOptions = [
-    { value: "idr", label: "IDR" },
-    { value: "thb", label: "THB" },
-  ];
+  const currencyOptions = getCurrencyOptions(activeCurrencies);
+
+  useEffect(() => {
+    if (!activeCurrencies.includes(incomeCurrency)) {
+      setIncomeCurrency(activeCurrencies[0] || baseCurrency);
+    }
+    if (!activeCurrencies.includes(expenseCurrency)) {
+      setExpenseCurrency(defaultForeignCurrency);
+    }
+    if (entryType === "exchange" && activeCurrencies.length < 2) {
+      setEntryType("expense");
+    }
+    setForm((current) => {
+      const fromCurrency = activeCurrencies.includes(current.from_currency)
+        ? current.from_currency
+        : baseCurrency;
+      const toCurrency =
+        activeCurrencies.includes(current.to_currency) &&
+        current.to_currency !== fromCurrency
+          ? current.to_currency
+          : activeCurrencies.find((currency) => currency !== fromCurrency) ||
+            defaultForeignCurrency;
+      return {
+        ...current,
+        from_currency: fromCurrency,
+        to_currency: toCurrency,
+      };
+    });
+  }, [
+    activeCurrencies.join("|"),
+    baseCurrency,
+    defaultForeignCurrency,
+    entryType,
+    expenseCurrency,
+    incomeCurrency,
+  ]);
 
   function updateField(field, value) {
+    if (field === "from_amount") setExchangeAutoTarget("to_amount");
+    if (field === "to_amount") setExchangeAutoTarget("from_amount");
     setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function settleExchangeField(field) {
+    setForm((current) =>
+      settleExchangeCalculation(current, field, {
+        rateField: "exchange_rate",
+        preferredTarget: exchangeAutoTarget,
+      }),
+    );
   }
 
   function setCurrency(value) {
@@ -5524,18 +6933,31 @@ function TransactionForm({ transactions, onSubmit, loading }) {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    const finalForm = isExchange
+      ? settleExchangeCalculation(form, "exchange_rate", {
+          rateField: "exchange_rate",
+          preferredTarget: exchangeAutoTarget,
+        })
+      : form;
+    if (isExchange) setForm(finalForm);
 
     const payload = {
-      type: isIncome ? (isThb ? "exchange" : "income") : "expense",
-      occurred_at: new Date(form.occurred_at).toISOString(),
-      description: form.description.trim(),
-      category_group: !isIncome && isThb ? UNIVERSAL_BUDGET_GROUP : null,
-      category: !isIncome ? form.category : null,
-      amount_idr: isIdr ? normalizeNumericInput(form.amount_idr) : null,
-      amount_thb: isThb ? normalizeNumericInput(form.amount_thb) : null,
-      exchange_rate: isIncome && isThb ? normalizeNumericInput(form.exchange_rate) : null,
-      exchange_source: isIncome && isThb ? form.exchange_source : null,
-      expense_currency: !isIncome ? selectedCurrency : null,
+      type: entryType,
+      occurred_at: new Date(finalForm.occurred_at).toISOString(),
+      description: finalForm.description.trim(),
+      category_group: isExpense ? UNIVERSAL_BUDGET_GROUP : null,
+      category: isExpense ? finalForm.category : null,
+      currency: isExchange ? null : selectedCurrencyCode,
+      amount: isExchange ? null : normalizeNumericInput(finalForm.amount || (isIdr ? finalForm.amount_idr : finalForm.amount_thb)),
+      amount_idr: isIdr && !isExchange ? normalizeNumericInput(finalForm.amount || finalForm.amount_idr) : null,
+      amount_thb: isThb && !isExchange ? normalizeNumericInput(finalForm.amount || finalForm.amount_thb) : null,
+      exchange_rate: isExchange ? normalizeNumericInput(finalForm.exchange_rate) : latestExpenseRate || null,
+      expense_currency: isExpense ? selectedCurrencyCode : null,
+      from_currency: isExchange ? finalForm.from_currency : null,
+      to_currency: isExchange ? finalForm.to_currency : null,
+      from_amount: isExchange ? normalizeNumericInput(finalForm.from_amount) : null,
+      to_amount: isExchange ? normalizeNumericInput(finalForm.to_amount) : null,
+      rate: isExchange ? normalizeNumericInput(finalForm.exchange_rate) : null,
     };
 
     const succeeded = await onSubmit(payload);
@@ -5546,9 +6968,14 @@ function TransactionForm({ transactions, onSubmit, loading }) {
         category: DEFAULT_CATEGORY,
         amount_idr: "",
         amount_thb: "",
+        amount: "",
+        from_currency: baseCurrency,
+        to_currency: defaultForeignCurrency,
+        from_amount: "",
+        to_amount: "",
         exchange_rate: "",
-        exchange_source: "purchase",
       });
+      setExchangeAutoTarget("to_amount");
     }
   }
 
@@ -5556,6 +6983,7 @@ function TransactionForm({ transactions, onSubmit, loading }) {
     value === entryType
       ? "bg-brand-600 text-white shadow-[0_16px_40px_rgba(16,185,129,0.22)] dark:bg-emerald-500 dark:text-white"
       : "text-slate-700 hover:bg-white/70 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-white";
+  const typeGridClass = activeCurrencies.length > 1 ? "grid-cols-3" : "grid-cols-2";
   const currencyButtonClass = (value) =>
     value === selectedCurrency
       ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.18)] dark:bg-emerald-500 dark:text-white"
@@ -5571,7 +6999,7 @@ function TransactionForm({ transactions, onSubmit, loading }) {
         </p>
       </div>
 
-      <div className="cuan-segment relative mt-5 grid grid-cols-2 gap-2 rounded-2xl p-1">
+      <div className=${`cuan-segment relative mt-5 grid ${typeGridClass} gap-2 rounded-2xl p-1`}>
         ${typeOptions.map(
           (option) => html`
             <button
@@ -5586,23 +7014,27 @@ function TransactionForm({ transactions, onSubmit, loading }) {
         )}
       </div>
 
-      <div className="relative mt-4">
-        <span className="mb-2 block text-sm font-medium">Mata uang</span>
-        <div className="cuan-segment grid grid-cols-2 gap-2 rounded-2xl p-1">
-          ${currencyOptions.map(
-            (option) => html`
-              <button
-                key=${option.value}
-                type="button"
-                onClick=${() => setCurrency(option.value)}
-                className=${`rounded-2xl px-3 py-2.5 text-sm font-semibold transition duration-300 ${currencyButtonClass(option.value)}`}
-              >
-                ${option.label}
-              </button>
-            `,
-          )}
-        </div>
-      </div>
+      ${!isExchange
+        ? html`
+            <div className="relative mt-4">
+              <span className="mb-2 block text-sm font-medium">Mata uang</span>
+              <div className="cuan-segment grid grid-cols-2 gap-2 rounded-2xl p-1 sm:grid-cols-5">
+                ${currencyOptions.map(
+                  (option) => html`
+                    <button
+                      key=${option.value}
+                      type="button"
+                      onClick=${() => setCurrency(option.value)}
+                      className=${`rounded-2xl px-3 py-2.5 text-sm font-semibold transition duration-300 ${currencyButtonClass(option.value)}`}
+                    >
+                      ${option.label}
+                    </button>
+                  `,
+                )}
+              </div>
+            </div>
+          `
+        : null}
 
       <form className="relative mt-5 grid gap-4" onSubmit=${handleSubmit}>
         <label className="block">
@@ -5620,9 +7052,11 @@ function TransactionForm({ transactions, onSubmit, loading }) {
           <span className="mb-2 block text-sm font-medium">Deskripsi</span>
           <input
             type="text"
-            placeholder=${isIncome
+            placeholder=${isExchange
+              ? "Beli baht / tukar USD"
+              : isIncome
               ? isThb
-                ? "Bonus THB / pemberian / beli THB"
+                ? "Bonus THB / pemberian"
                 : "Gaji bulanan"
               : isThb
                 ? "Makan siang"
@@ -5633,23 +7067,105 @@ function TransactionForm({ transactions, onSubmit, loading }) {
           />
         </label>
 
-        ${isIncome && isThb
+        ${isExchange
           ? html`
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium">Dari mata uang</span>
+                  <select
+                    value=${form.from_currency}
+                    onChange=${(event) => updateField("from_currency", event.target.value)}
+                    className=${GLASS_INPUT}
+                  >
+                    ${currencyOptions.map(
+                      (option) => html`
+                        <option key=${option.value} value=${option.value}>
+                          ${option.label}
+                        </option>
+                      `,
+                    )}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-sm font-medium">Ke mata uang</span>
+                  <select
+                    value=${form.to_currency}
+                    onChange=${(event) => updateField("to_currency", event.target.value)}
+                    className=${GLASS_INPUT}
+                  >
+                    ${currencyOptions.map(
+                      (option) => html`
+                        <option key=${option.value} value=${option.value}>
+                          ${option.label}
+                        </option>
+                      `,
+                    )}
+                  </select>
+                </label>
+              </div>
+
               <label className="block">
-                <span className="mb-2 block text-sm font-medium">Sumber THB Masuk</span>
-                <select
-                  value=${form.exchange_source}
-                  onChange=${(event) => updateField("exchange_source", event.target.value)}
+                <span className="mb-2 block text-sm font-medium">
+                  Jumlah ${form.from_currency} ditukar
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  required
+                  value=${form.from_amount}
+                  onChange=${(event) =>
+                    updateField("from_amount", formatNumericInput(event.target.value))}
+                  onBlur=${() => settleExchangeField("from_amount")}
+                  placeholder="0"
                   className=${GLASS_INPUT}
-                >
-                  <option value="purchase">Tukar / Beli THB</option>
-                  <option value="bonus">THB masuk non-cashflow</option>
-                </select>
+                />
               </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium">
+                  Jumlah ${form.to_currency} diterima
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  required
+                  value=${form.to_amount}
+                  onChange=${(event) =>
+                    updateField("to_amount", formatNumericInput(event.target.value))}
+                  onBlur=${() => settleExchangeField("to_amount")}
+                  placeholder="0"
+                  className=${GLASS_INPUT}
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium">
+                  Rate (${form.from_currency} / 1 ${form.to_currency})
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  required
+                  value=${form.exchange_rate}
+                  onChange=${(event) =>
+                    updateField("exchange_rate", formatNumericInput(event.target.value))}
+                  onBlur=${() => settleExchangeField("exchange_rate")}
+                  placeholder="0"
+                  className=${GLASS_INPUT}
+                />
+              </label>
+
+              <div className="rounded-2xl border border-sky-300/25 bg-sky-400/10 px-4 py-3 text-sm font-black text-sky-800 backdrop-blur-xl dark:border-sky-300/20 dark:bg-sky-500/10 dark:text-sky-100">
+                ${formatCurrency(parsedFromAmount, form.from_currency)} -> ${formatCurrency(parsedToAmount, form.to_currency)}
+              </div>
             `
           : null}
 
-        ${!isIncome
+        ${isExpense
           ? html`
               <label className="block">
                 <span className="mb-2 block text-sm font-medium">Kategori Uang Keluar</span>
@@ -5670,7 +7186,7 @@ function TransactionForm({ transactions, onSubmit, loading }) {
             `
           : null}
 
-        ${isIdr
+        ${!isExchange && isIdr
           ? html`
               <label className="block">
                 <span className="mb-2 block text-sm font-medium">
@@ -5691,7 +7207,7 @@ function TransactionForm({ transactions, onSubmit, loading }) {
             `
           : null}
 
-        ${isThb
+        ${!isExchange && isThb
           ? html`
               <label className="block">
                 <span className="mb-2 block text-sm font-medium">
@@ -5712,91 +7228,76 @@ function TransactionForm({ transactions, onSubmit, loading }) {
             `
           : null}
 
-        ${isIncome && isThb
+        ${!isExchange && !isIdr && !isThb
           ? html`
               <label className="block">
-                <span className="mb-2 block text-sm font-medium">Rate (IDR / 1 THB)</span>
+                <span className="mb-2 block text-sm font-medium">
+                  ${isIncome ? "Jumlah uang masuk" : "Jumlah uang keluar"} (${selectedCurrencyCode})
+                </span>
                 <input
                   type="text"
                   inputMode="decimal"
                   autoComplete="off"
-                  required=${form.exchange_source === "purchase"}
-                  value=${form.exchange_rate}
+                  required
+                  value=${form.amount}
                   onChange=${(event) =>
-                    updateField("exchange_rate", formatNumericInput(event.target.value))}
-                  placeholder=${form.exchange_source === "purchase" ? "539" : "Opsional"}
+                    updateField("amount", formatNumericInput(event.target.value))}
+                  placeholder="0"
                   className=${GLASS_INPUT}
                 />
               </label>
             `
           : null}
 
-        ${isIncome && isThb && parsedAmountThb > 0
+        ${!isExchange && isExpense && isForeign
           ? html`
-              <div className="rounded-2xl border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-900 backdrop-blur-xl dark:border-emerald-300/20 dark:bg-emerald-400/10 dark:text-emerald-200">
-                ${form.exchange_source === "purchase"
+              <div className="rounded-2xl border border-sky-300/25 bg-sky-400/10 px-4 py-3 text-sm text-sky-900 backdrop-blur-xl dark:border-sky-300/20 dark:bg-sky-500/10 dark:text-sky-200">
+                ${latestExpenseRate > 0
                   ? html`
                       <p className="font-semibold">
-                        Potong saldo utama otomatis: ${formatCurrency(
-                          parsedAmountThb * parsedExchangeRate,
-                          "idr",
+                        Valuasi otomatis ${formatRate(
+                          latestExpenseRate,
+                          baseCurrency,
+                          selectedCurrencyCode,
                         )}
                       </p>
-                      <p className="mt-1">
-                        Rate dipakai: ${formatRate(parsedExchangeRate)}
+                      <p className="mt-1 text-sky-800/80 dark:text-sky-100/80">
+                        Diambil dari exchange terakhir pada ${formatDateTime(latestExpenseExchange.occurred_at)}.
                       </p>
                     `
                   : html`
-                      <p className="font-semibold">
-                        THB masuk tanpa potong saldo utama IDR.
-                      </p>
-                      <p className="mt-1">
-                        ${parsedExchangeRate > 0
-                          ? `Rate patokan disimpan: ${formatRate(parsedExchangeRate)}`
-                          : activeExchange
-                            ? `Rate patokan mengikuti rate aktif: ${formatRate(activeExchange.locked_rate)}`
-                            : "Rate patokan belum ada. Isi rate jika ingin valuasi IDR lebih akurat."}
+                      <p className="font-semibold">Belum ada rate exchange tersimpan.</p>
+                      <p className="mt-1 text-sky-800/80 dark:text-sky-100/80">
+                        Pengeluaran tetap dicatat dalam ${selectedCurrencyCode}. Valuasi ${baseCurrency}
+                        akan otomatis terisi setelah ada transaksi Tukar Mata Uang yang relevan.
                       </p>
                     `}
               </div>
             `
           : null}
 
-        ${!isIncome && isThb
+        ${!isExchange && isIncome && isForeign
           ? html`
-              <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm backdrop-blur-xl dark:bg-slate-900/40">
-                ${activeExchange
-                  ? html`
-                      <p className="font-semibold text-slate-900 dark:text-slate-100">
-                        Rate aktif: ${formatRate(activeExchange.locked_rate)}
-                      </p>
-                      <p className="mt-1 text-slate-600 dark:text-slate-300/80">
-                        Pengeluaran ini otomatis dihitung ke IDR dari transfer THB ber-rate pada ${formatDateTime(activeExchange.occurred_at)}.
-                      </p>
-                    `
-                  : html`
-                      <p className="font-semibold text-slate-900 dark:text-slate-100">
-                        Belum ada rate aktif
-                      </p>
-                      <p className="mt-1 text-slate-600 dark:text-slate-300/80">
-                        Tambahkan transfer THB ber-rate dulu kalau kamu ingin valuasi otomatis ke IDR.
-                      </p>
-                    `}
+              <div className="rounded-2xl border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-900 backdrop-blur-xl dark:border-emerald-300/20 dark:bg-emerald-400/10 dark:text-emerald-200">
+                <p className="font-semibold">
+                  Pemasukan ini langsung menambah saldo ${selectedCurrencyCode}.
+                </p>
+                <p className="mt-1">Kalau berasal dari konversi IDR, gunakan tab Tukar Mata Uang.</p>
               </div>
             `
           : null}
 
-        ${!isIncome && isIdr
+        ${isExpense && isIdr
           ? html`
               <div className="rounded-2xl border border-sky-300/30 bg-sky-400/10 px-4 py-3 text-sm text-sky-900 backdrop-blur-xl dark:border-sky-300/20 dark:bg-sky-500/10 dark:text-sky-200">
-                Belanja IDR akan langsung mengurangi saldo utama dan tidak masuk ke overspending guard THB.
+                Belanja IDR akan langsung mengurangi saldo utama. Atur budget IDR di Kontrol jika ingin batas aman harian aktif.
               </div>
             `
           : null}
 
         <${SubmitActionBar}
-          label=${isIncome && isThb
-            ? "Simpan transfer THB"
+          label=${isExchange
+            ? "Simpan tukar mata uang"
             : isIncome
               ? "Simpan uang masuk"
               : "Simpan uang keluar"}
@@ -5808,23 +7309,49 @@ function TransactionForm({ transactions, onSubmit, loading }) {
   `;
 }
 
-function BudgetForm({ onSubmit, loading, currentMonthKey }) {
+function BudgetForm({
+  onSubmit,
+  loading,
+  currentMonthKey,
+  currency: initialCurrency = getBaseCurrency(),
+  activeCurrencies = getActiveCurrencies(),
+  onCurrencyChange = null,
+}) {
   const [monthKey, setMonthKey] = useState(currentMonthKey);
-  const [limitThb, setLimitThb] = useState("");
+  const [currency, setCurrency] = useState(normalizeCurrencyCode(initialCurrency));
+  const [limitAmount, setLimitAmount] = useState("");
+  const normalizedActiveCurrencies = normalizeCurrencyList(activeCurrencies);
+  const currencyOptions = getCurrencyOptions(normalizedActiveCurrencies);
 
   useEffect(() => {
     setMonthKey(currentMonthKey);
   }, [currentMonthKey]);
+
+  useEffect(() => {
+    const nextCurrency = normalizeCurrencyCode(initialCurrency);
+    setCurrency(
+      normalizedActiveCurrencies.includes(nextCurrency)
+        ? nextCurrency
+        : normalizedActiveCurrencies[0],
+    );
+  }, [initialCurrency, normalizedActiveCurrencies.join("|")]);
+
+  function handleCurrencyChange(value) {
+    const nextCurrency = normalizeCurrencyCode(value);
+    setCurrency(nextCurrency);
+    if (onCurrencyChange) onCurrencyChange(nextCurrency);
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
     const ok = await onSubmit({
       month_key: monthKey,
       group_key: UNIVERSAL_BUDGET_GROUP,
-      limit_thb: normalizeNumericInput(limitThb),
+      currency,
+      limit_amount: normalizeNumericInput(limitAmount),
     });
     if (ok) {
-      setLimitThb("");
+      setLimitAmount("");
     }
   }
 
@@ -5834,7 +7361,7 @@ function BudgetForm({ onSubmit, loading, currentMonthKey }) {
       <div className="relative">
         <h3 className="font-display text-xl font-bold">Budget Uang Keluar Bulanan</h3>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-          Satu limit universal untuk seluruh uang keluar bulanan.
+          Satu limit untuk mata uang yang sedang kamu kontrol.
         </p>
       </div>
 
@@ -5850,15 +7377,32 @@ function BudgetForm({ onSubmit, loading, currentMonthKey }) {
         </label>
 
         <label className="block">
-          <span className="mb-2 block text-sm font-medium">Limit Uang Keluar (THB)</span>
+          <span className="mb-2 block text-sm font-medium">Mata uang budget</span>
+          <select
+            value=${currency}
+            onChange=${(event) => handleCurrencyChange(event.target.value)}
+            className=${GLASS_INPUT}
+          >
+            ${currencyOptions.map(
+              (option) => html`
+                <option key=${option.value} value=${option.value}>
+                  ${option.label}
+                </option>
+              `,
+            )}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-sm font-medium">Limit Uang Keluar (${currency})</span>
           <input
             type="text"
             inputMode="decimal"
             autoComplete="off"
             required
-            value=${limitThb}
+            value=${limitAmount}
             onChange=${(event) =>
-              setLimitThb(formatNumericInput(event.target.value))}
+              setLimitAmount(formatNumericInput(event.target.value))}
             placeholder="0"
             className=${GLASS_INPUT}
           />
@@ -6165,12 +7709,20 @@ function App() {
   const [balanceVisible, setBalanceVisible] = useState(() =>
     readAppStorage("balanceVisible", false),
   );
+  const [currencySettings, setCurrencySettings] = useState(() =>
+    readCurrencySettings(),
+  );
   const [menuOpen, setMenuOpen] = useState(false);
 
   const supabaseReady = Boolean(supabase);
+  setRuntimeCurrencySettings(currencySettings);
+  const activeCurrencies = normalizeCurrencyList(
+    currencySettings?.activeCurrencies || DEFAULT_SELECTED_CURRENCIES,
+  );
+  const currencySetupDone = Boolean(currencySettings?.configured);
   const metrics = useMemo(
     () => computeMetrics(transactions, budgets, goals),
-    [transactions, budgets, goals],
+    [transactions, budgets, goals, currencySettings],
   );
 
   useEffect(() => {
@@ -6239,11 +7791,12 @@ function App() {
         setTransactions(normalizedDemoTransactions);
         setBudgets(readAppStorage("demoBudgets", []).map(normalizeBudget));
         setGoals(readAppStorage("demoGoals", []).map(normalizeGoal));
+        setCurrencySettings(readCurrencySettings());
         return;
       }
 
       setLoading(true);
-      const [transactionResult, budgetResult, goalResult] = await Promise.all([
+      const [transactionResult, budgetResult, goalResult, settingsResult] = await Promise.all([
         supabase
           .from("transactions")
           .select("*")
@@ -6261,6 +7814,11 @@ function App() {
           .select("*")
           .eq("user_id", user.id)
           .order("created_at", { ascending: true }),
+        supabase
+          .from("user_settings")
+          .select("*")
+          .eq("user_id", user.id)
+          .maybeSingle(),
       ]);
 
       if (cancelled) return;
@@ -6285,7 +7843,7 @@ function App() {
           tone: budgetResult.error.code === "42P01" ? "info" : "error",
           text:
             budgetResult.error.code === "42P01"
-              ? "Tabel budget belum ada. Jalankan schema.sql terbaru agar fitur overspending aktif."
+              ? "Tabel budget belum ada. Jalankan schema.sql terbaru agar fitur proteksi budget aktif."
               : budgetResult.error.message,
         });
       } else {
@@ -6303,6 +7861,48 @@ function App() {
         });
       } else {
         setGoals((goalResult.data || []).map(normalizeGoal));
+      }
+
+      if (settingsResult.error) {
+        const localSettings = readCurrencySettings();
+        setCurrencySettings(localSettings);
+        notices.push({
+          tone: settingsResult.error.code === "42P01" ? "info" : "error",
+          text:
+            settingsResult.error.code === "42P01"
+              ? "Tabel user_settings belum ada. Jalankan schema.sql terbaru agar pilihan mata uang tersimpan lintas device."
+              : settingsResult.error.message,
+        });
+      } else {
+        const databaseSettings = normalizeUserSettingsRow(settingsResult.data);
+        const localSettings = readCurrencySettings();
+        const nextSettings = databaseSettings || localSettings;
+        setCurrencySettings(nextSettings);
+        setRuntimeCurrencySettings(nextSettings);
+        if (!databaseSettings && localSettings?.configured) {
+          supabase
+            .from("user_settings")
+            .upsert(
+              {
+                user_id: user.id,
+                base_currency: localSettings.baseCurrency,
+                active_currencies: localSettings.activeCurrencies,
+                daily_currency: localSettings.dailyCurrency,
+                theme,
+                balance_visible: balanceVisible,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: "user_id" },
+            )
+            .then(() => {})
+            .catch(() => {});
+        }
+        if (settingsResult.data?.theme) {
+          setTheme(settingsResult.data.theme);
+        }
+        if (typeof settingsResult.data?.balance_visible === "boolean") {
+          setBalanceVisible(settingsResult.data.balance_visible);
+        }
       }
 
       if (notices.length) {
@@ -6348,6 +7948,7 @@ function App() {
     setTransactions(normalizedDemoTransactions);
     setBudgets(readAppStorage("demoBudgets", []).map(normalizeBudget));
     setGoals(readAppStorage("demoGoals", []).map(normalizeGoal));
+    setCurrencySettings(readCurrencySettings());
     setMessage("Demo lokal aktif. Semua modul analytics, budget, dan goals berjalan di browser ini.");
     setMessageTone("success");
   }
@@ -6388,19 +7989,7 @@ function App() {
     setGoals(nextGoals.map(normalizeGoal));
   }
 function calculateTHBBalance(transactions) {
-  let balance = 0;
-
-  transactions.forEach((item) => {
-    if (item.type === "income" || item.type === "exchange") {
-      balance += Number(item.amount_thb || 0);
-    }
-
-    if (item.type === "expense") {
-      balance -= Number(item.amount_thb || 0);
-    }
-  });
-
-  return balance;
+  return Number(computeCurrencyBalances(transactions).THB || 0);
 }
   async function handleCreateTransaction(payload) {
     try {
@@ -6419,89 +8008,129 @@ function calculateTHBBalance(transactions) {
         amount_idr: null,
         amount_thb: null,
         locked_rate: null,
+        currency: null,
+        amount: null,
+        base_currency: getBaseCurrency(),
+        base_amount: null,
+        from_currency: null,
+        to_currency: null,
+        from_amount: null,
+        to_amount: null,
+        rate: null,
         created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       };
 
       if (payload.type === "income") {
-        const amountIdr = Number(payload.amount_idr);
-        if (!amountIdr || amountIdr <= 0) {
-          throw new Error("Jumlah pemasukan IDR harus lebih besar dari 0.");
+        const currency = normalizeCurrencyCode(payload.currency);
+        const amount = Number(payload.amount || payload.amount_idr || payload.amount_thb);
+        if (!amount || amount <= 0) {
+          throw new Error(`Jumlah pemasukan ${currency} harus lebih besar dari 0.`);
         }
-        record.amount_idr = amountIdr;
+        record.currency = currency;
+        record.amount = amount;
+        record.rate = null;
+        record.locked_rate = null;
+        record.base_amount = currency === getBaseCurrency() ? amount : null;
+        record.amount_idr = currency === getBaseCurrency() ? amount : null;
+        record.amount_thb = currency === "THB" ? amount : null;
         record.category = null;
         record.category_group = null;
       }
 
       if (payload.type === "exchange") {
-        const amountThb = Number(payload.amount_thb);
-        const exchangeRate = Number(payload.exchange_rate);
-        const exchangeSource =
-          payload.exchange_source === "bonus" ? "bonus" : "purchase";
-        const fallbackRate = Number(
-          getLockedExchange(transactions, payload.occurred_at)?.locked_rate || 0,
-        );
-        const resolvedRate =
-          exchangeRate > 0 ? exchangeRate : fallbackRate > 0 ? fallbackRate : null;
-        if (!amountThb || amountThb <= 0) {
-          throw new Error("Masukkan nominal THB diterima yang valid.");
+        const fromCurrency = normalizeCurrencyCode(payload.from_currency);
+        const toCurrency = normalizeCurrencyCode(payload.to_currency, "THB");
+        const fromAmount = Number(payload.from_amount);
+        const toAmount = Number(payload.to_amount);
+        const rate = Number(payload.rate || payload.exchange_rate);
+        if (fromCurrency === toCurrency) {
+          throw new Error("Dari mata uang dan ke mata uang tidak boleh sama.");
         }
-        if (exchangeSource === "purchase" && (!exchangeRate || exchangeRate <= 0)) {
-          throw new Error("Masukkan rate yang valid untuk beli/tukar THB.");
+        if (!fromAmount || fromAmount <= 0) {
+          throw new Error("Jumlah yang ditukar harus lebih besar dari 0.");
         }
+        if (!toAmount || toAmount <= 0) {
+          throw new Error("Jumlah diterima harus lebih besar dari 0.");
+        }
+        if (!rate || rate <= 0) {
+          throw new Error("Rate exchange wajib lebih besar dari 0.");
+        }
+        const balances = computeCurrencyBalances(transactions);
+        const availableFromBalance =
+          fromCurrency === getBaseCurrency()
+            ? metrics.balanceIdr
+            : Number(balances[fromCurrency] || 0);
+        if (availableFromBalance < fromAmount) {
+          throw new Error(`Saldo ${fromCurrency} tidak mencukupi.`);
+        }
+        record.from_currency = fromCurrency;
+        record.to_currency = toCurrency;
+        record.from_amount = fromAmount;
+        record.to_amount = toAmount;
+        record.rate = rate;
+        record.locked_rate = rate;
+        record.base_amount =
+          fromCurrency === getBaseCurrency()
+            ? fromAmount
+            : toCurrency === getBaseCurrency()
+              ? toAmount
+              : fromAmount *
+                (getLatestRateForCurrencyUntil(
+                  transactions,
+                  fromCurrency,
+                  new Date(payload.occurred_at),
+                ) || 0);
         record.amount_idr =
-          exchangeSource === "purchase" ? amountThb * exchangeRate : 0;
-        record.amount_thb = amountThb;
-        record.locked_rate = resolvedRate;
+          fromCurrency === "IDR" ? fromAmount : toCurrency === "IDR" ? toAmount : null;
+        record.amount_thb =
+          fromCurrency === "THB" ? -fromAmount : toCurrency === "THB" ? toAmount : null;
         record.category = null;
         record.category_group = null;
       }
 
       if (payload.type === "expense") {
-        const expenseCurrency =
-          payload.expense_currency === "idr" ? "idr" : "thb";
+        const expenseCurrency = normalizeCurrencyCode(payload.expense_currency || payload.currency);
+        const amount = Number(payload.amount || payload.amount_idr || payload.amount_thb);
 
-        if (expenseCurrency === "idr") {
-          const amountIdr = Number(payload.amount_idr);
-          if (!amountIdr || amountIdr <= 0) {
-            throw new Error("Jumlah belanja IDR harus lebih besar dari 0.");
-          }
-          if (metrics.balanceIdr < amountIdr) {
-            throw new Error("Saldo utama IDR tidak mencukupi.");
-          }
-
-          record.amount_idr = amountIdr;
-          record.amount_thb = null;
-          record.locked_rate = null;
-          record.category = payload.category;
-          record.category_group = null;
-        } else {
-          const amountThb = Number(payload.amount_thb);
-
-          if (!amountThb || amountThb <= 0) {
-            throw new Error("Jumlah pengeluaran THB harus lebih besar dari 0.");
-          }
-
-          const currentBalance = calculateTHBBalance(transactions);
-
-          if (currentBalance < amountThb) {
-            throw new Error("Saldo THB tidak mencukupi.");
-          }
-
-          const activeExchange = getLockedExchange(transactions, payload.occurred_at);
-
-          record.amount_thb = amountThb;
-
-          if (activeExchange) {
-            record.locked_rate = activeExchange.locked_rate;
-            record.amount_idr = amountThb * activeExchange.locked_rate;
-          } else {
-            record.locked_rate = null;
-            record.amount_idr = null;
-          }
-
-          record.category = payload.category;
-          record.category_group = payload.category_group;
+        if (!amount || amount <= 0) {
+          throw new Error(`Jumlah pengeluaran ${expenseCurrency} harus lebih besar dari 0.`);
         }
+        const balances = computeCurrencyBalances(transactions);
+        const availableExpenseBalance =
+          expenseCurrency === getBaseCurrency()
+            ? metrics.balanceIdr
+            : Number(balances[expenseCurrency] || 0);
+        if (availableExpenseBalance < amount) {
+          throw new Error(`Saldo ${expenseCurrency} tidak mencukupi.`);
+        }
+
+        const fallbackRate =
+          expenseCurrency === getBaseCurrency()
+            ? 1
+            : Number(payload.exchange_rate || payload.rate || 0) ||
+              getLatestRateForCurrencyUntil(
+                transactions,
+                expenseCurrency,
+                new Date(payload.occurred_at),
+              );
+
+        record.currency = expenseCurrency;
+        record.amount = amount;
+        record.rate =
+          expenseCurrency === getBaseCurrency() || !fallbackRate ? null : fallbackRate;
+        record.locked_rate =
+          expenseCurrency === getBaseCurrency() || !fallbackRate ? null : fallbackRate;
+        record.base_amount =
+          expenseCurrency === getBaseCurrency()
+            ? amount
+            : fallbackRate > 0
+              ? amount * fallbackRate
+              : null;
+        record.amount_idr = record.base_amount;
+        record.amount_thb = expenseCurrency === "THB" ? amount : null;
+        record.category = payload.category;
+        record.category_group = UNIVERSAL_BUDGET_GROUP;
       }
 
       if (mode === "demo") {
@@ -6548,8 +8177,11 @@ function calculateTHBBalance(transactions) {
         ? payload.type
         : getTransactionFlow(transaction);
       const description = String(payload.description || "").trim();
+      const amount = Number(normalizeNumericInput(payload.amount));
       const amountIdr = Number(normalizeNumericInput(payload.amount_idr));
       const amountThb = Number(normalizeNumericInput(payload.amount_thb));
+      const fromAmount = Number(normalizeNumericInput(payload.from_amount));
+      const toAmount = Number(normalizeNumericInput(payload.to_amount));
       const lockedRate = Number(normalizeNumericInput(payload.locked_rate));
       const record = {
         type: nextType,
@@ -6560,6 +8192,16 @@ function calculateTHBBalance(transactions) {
         amount_idr: null,
         amount_thb: null,
         locked_rate: null,
+        currency: null,
+        amount: null,
+        base_currency: getBaseCurrency(),
+        base_amount: null,
+        from_currency: null,
+        to_currency: null,
+        from_amount: null,
+        to_amount: null,
+        rate: null,
+        updated_at: new Date().toISOString(),
       };
 
       if (!description) {
@@ -6567,56 +8209,93 @@ function calculateTHBBalance(transactions) {
       }
 
       if (nextType === "income") {
-        if (!amountIdr || amountIdr <= 0) {
-          throw new Error("Jumlah pemasukan IDR harus lebih besar dari 0.");
+        const currency = normalizeCurrencyCode(payload.currency);
+        const nextAmount = amount || amountIdr || amountThb;
+        if (!nextAmount || nextAmount <= 0) {
+          throw new Error(`Jumlah pemasukan ${currency} harus lebih besar dari 0.`);
         }
-        record.amount_idr = amountIdr;
+        record.currency = currency;
+        record.amount = nextAmount;
+        record.rate = null;
+        record.locked_rate = null;
+        record.base_amount = currency === getBaseCurrency() ? nextAmount : null;
+        record.amount_idr = currency === getBaseCurrency() ? nextAmount : null;
+        record.amount_thb = currency === "THB" ? nextAmount : null;
       }
 
       if (nextType === "exchange") {
-        if (!amountIdr || amountIdr <= 0) {
-          throw new Error("Jumlah IDR exchange harus lebih besar dari 0.");
+        const fromCurrency = normalizeCurrencyCode(payload.from_currency);
+        const toCurrency = normalizeCurrencyCode(payload.to_currency, "THB");
+        if (fromCurrency === toCurrency) {
+          throw new Error("Dari mata uang dan ke mata uang tidak boleh sama.");
         }
-        if (!amountThb || amountThb <= 0) {
-          throw new Error("Nominal THB exchange harus lebih besar dari 0.");
+        if (!fromAmount || fromAmount <= 0) {
+          throw new Error("Jumlah ditukar harus lebih besar dari 0.");
+        }
+        if (!toAmount || toAmount <= 0) {
+          throw new Error("Jumlah diterima harus lebih besar dari 0.");
         }
         if (!lockedRate || lockedRate <= 0) {
           throw new Error("Rate exchange wajib diisi.");
         }
-        const previousThb = Number(transaction.amount_thb || 0);
-        const isSellExchange = previousThb < 0;
 
-        record.amount_idr = amountIdr;
-        record.amount_thb = isSellExchange ? -amountThb : amountThb;
+        record.from_currency = fromCurrency;
+        record.to_currency = toCurrency;
+        record.from_amount = fromAmount;
+        record.to_amount = toAmount;
+        record.rate = lockedRate;
         record.locked_rate = lockedRate;
+        record.base_amount =
+          fromCurrency === getBaseCurrency()
+            ? fromAmount
+            : toCurrency === getBaseCurrency()
+              ? toAmount
+              : fromAmount *
+                (getLatestRateForCurrencyUntil(
+                  transactions.filter((item) => item.id !== transaction.id),
+                  fromCurrency,
+                  occurredAt,
+                ) || 0);
+        record.amount_idr =
+          fromCurrency === "IDR" ? fromAmount : toCurrency === "IDR" ? toAmount : null;
+        record.amount_thb =
+          fromCurrency === "THB" ? -fromAmount : toCurrency === "THB" ? toAmount : null;
       }
 
       if (nextType === "expense") {
-        const expenseCurrency =
-          payload.expense_currency === "idr" ? "idr" : "thb";
+        const expenseCurrency = normalizeCurrencyCode(payload.expense_currency || payload.currency);
+        const nextAmount = amount || amountIdr || amountThb;
         record.category = payload.category || DEFAULT_CATEGORY;
-        record.category_group =
-          expenseCurrency === "thb" ? UNIVERSAL_BUDGET_GROUP : null;
+        record.category_group = UNIVERSAL_BUDGET_GROUP;
 
-        if (expenseCurrency === "idr") {
-          if (!amountIdr || amountIdr <= 0) {
-            throw new Error("Jumlah pengeluaran IDR harus lebih besar dari 0.");
-          }
-          record.amount_idr = amountIdr;
-          record.amount_thb = null;
-          record.locked_rate = null;
-        } else {
-          if (!amountThb || amountThb <= 0) {
-            throw new Error("Jumlah pengeluaran THB harus lebih besar dari 0.");
-          }
-          if (!lockedRate || lockedRate <= 0) {
-            throw new Error("Rate pengeluaran THB wajib diisi.");
-          }
-
-          record.amount_thb = amountThb;
-          record.locked_rate = lockedRate;
-          record.amount_idr = amountThb * lockedRate;
+        if (!nextAmount || nextAmount <= 0) {
+          throw new Error(`Jumlah pengeluaran ${expenseCurrency} harus lebih besar dari 0.`);
         }
+        const autoRate =
+          expenseCurrency === getBaseCurrency()
+            ? 1
+            : lockedRate > 0
+              ? lockedRate
+              : getLatestRateForCurrencyUntil(
+                  transactions.filter((item) => item.id !== transaction.id),
+                  expenseCurrency,
+                  occurredAt,
+                );
+
+        record.currency = expenseCurrency;
+        record.amount = nextAmount;
+        record.rate =
+          expenseCurrency === getBaseCurrency() || !autoRate ? null : autoRate;
+        record.locked_rate =
+          expenseCurrency === getBaseCurrency() || !autoRate ? null : autoRate;
+        record.base_amount =
+          expenseCurrency === getBaseCurrency()
+            ? nextAmount
+            : autoRate > 0
+              ? nextAmount * autoRate
+              : null;
+        record.amount_idr = record.base_amount;
+        record.amount_thb = expenseCurrency === "THB" ? nextAmount : null;
       }
 
       if (mode === "demo") {
@@ -6698,15 +8377,18 @@ function calculateTHBBalance(transactions) {
       setLoading(true);
       setMessage("");
 
-      const limitThb = Number(payload.limit_thb);
+      const budgetCurrency = normalizeCurrencyCode(payload.currency || getBaseCurrency());
+      const limitAmount = Number(payload.limit_amount || payload.limit_thb);
       const groupKey = UNIVERSAL_BUDGET_GROUP;
-      if (!limitThb || limitThb <= 0) {
-        throw new Error("Limit budget THB harus lebih besar dari 0.");
+      if (!limitAmount || limitAmount <= 0) {
+        throw new Error(`Limit budget ${budgetCurrency} harus lebih besar dari 0.`);
       }
 
       const existing = budgets.find(
         (item) =>
-          item.month_key === payload.month_key && item.group_key === groupKey,
+            item.month_key === payload.month_key &&
+            item.group_key === groupKey &&
+            normalizeCurrencyCode(item.currency || getBaseCurrency()) === budgetCurrency,
       );
 
       const record = {
@@ -6714,7 +8396,8 @@ function calculateTHBBalance(transactions) {
         user_id: user.id,
         month_key: payload.month_key,
         group_key: groupKey,
-        limit_thb: limitThb,
+        currency: budgetCurrency,
+        limit_amount: limitAmount,
         created_at: existing?.created_at || new Date().toISOString(),
       };
 
@@ -6724,7 +8407,8 @@ function calculateTHBBalance(transactions) {
             (item) =>
               !(
                 item.month_key === payload.month_key &&
-                item.group_key === groupKey
+                item.group_key === groupKey &&
+                normalizeCurrencyCode(item.currency || getBaseCurrency()) === budgetCurrency
               ),
           ),
           record,
@@ -6734,7 +8418,7 @@ function calculateTHBBalance(transactions) {
         const { data, error } = await supabase
           .from("budgets")
           .upsert(record, {
-            onConflict: "user_id,month_key,group_key",
+            onConflict: "user_id,month_key,group_key,currency",
           })
           .select()
           .single();
@@ -6763,7 +8447,7 @@ function calculateTHBBalance(transactions) {
 
   async function handleDeleteBudget(budget) {
     const confirmation = window.confirm(
-      `Hapus budget uang keluar untuk ${formatMonthKey(budget.month_key)}?`,
+      `Hapus budget ${budget.currency || getBaseCurrency()} untuk ${formatMonthKey(budget.month_key)}?`,
     );
     if (!confirmation) return;
 
@@ -6941,6 +8625,77 @@ function calculateTHBBalance(transactions) {
     }
   }
 
+  async function persistUserSettings(nextSettings, overrides = {}) {
+    if (mode !== "supabase" || !user || !supabaseReady) return true;
+
+    const normalized = normalizeCurrencySettings(nextSettings, { configured: true });
+    const record = {
+      user_id: user.id,
+      base_currency: normalized.baseCurrency,
+      active_currencies: normalized.activeCurrencies,
+      daily_currency: normalized.dailyCurrency,
+      theme: overrides.theme || theme,
+      balance_visible:
+        typeof overrides.balanceVisible === "boolean"
+          ? overrides.balanceVisible
+          : balanceVisible,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from("user_settings")
+      .upsert(record, { onConflict: "user_id" });
+    if (error) throw error;
+    return true;
+  }
+
+  async function handleSaveCurrencySettings(nextCurrencySettings, options = {}) {
+    const requestedSettings = Array.isArray(nextCurrencySettings)
+      ? { activeCurrencies: nextCurrencySettings }
+      : nextCurrencySettings || {};
+    const activeCurrencyList = normalizeCurrencyList(
+      requestedSettings.activeCurrencies ||
+        currencySettings?.activeCurrencies ||
+        DEFAULT_SELECTED_CURRENCIES,
+    );
+    const currentSettings = normalizeCurrencySettings({
+      activeCurrencies: activeCurrencyList,
+      dailyCurrency:
+        requestedSettings.dailyCurrency ||
+        currencySettings?.dailyCurrency ||
+        activeCurrencyList[0],
+    });
+    const nextSettings = saveCurrencySettings({
+      activeCurrencies: activeCurrencyList,
+      dailyCurrency: currentSettings.dailyCurrency,
+    });
+    setRuntimeCurrencySettings(nextSettings);
+    setCurrencySettings(nextSettings);
+    try {
+      await persistUserSettings(nextSettings);
+      const successMessage = options.message || "Pilihan mata uang diperbarui.";
+      setToast({ message: successMessage });
+      setMessage(successMessage);
+      setMessageTone("success");
+    } catch (error) {
+      const localMessage = options.localMessage || "Mata uang tersimpan lokal.";
+      setToast({ message: localMessage });
+      setMessage(
+        error.code === "42P01"
+          ? "Mata uang tersimpan lokal. Jalankan schema.sql terbaru agar sinkron ke database."
+          : error.message || "Mata uang tersimpan lokal, tapi gagal sinkron ke database.",
+      );
+      setMessageTone(error.code === "42P01" ? "info" : "error");
+    }
+  }
+
+  function handleThemeChange(value) {
+    setTheme(value);
+    persistUserSettings(currencySettings || normalizeCurrencySettings(null), {
+      theme: value,
+    }).catch(() => {});
+  }
+
   if (!user) {
     return html`
       <${AuthScreen}
@@ -6951,43 +8706,56 @@ function calculateTHBBalance(transactions) {
     `;
   }
 
-  const activeBudgetInsight = metrics.budgetInsights[0] || null;
+  if (!currencySetupDone) {
+    return html`
+      <${CurrencyOnboarding}
+        onSave=${handleSaveCurrencySettings}
+      />
+    `;
+  }
+
+  const dailyExpenseCurrency = normalizeCurrencySettings({
+    activeCurrencies,
+    dailyCurrency: currencySettings?.dailyCurrency,
+  }).dailyCurrency;
+  const activeBudgetInsight =
+    metrics.budgetInsights.find((item) => item.currency === dailyExpenseCurrency) || null;
   const todayKey = getLocalDayKey(new Date());
   const todayExpenses = orderTransactions(transactions)
     .filter(
       (item) =>
         item.type === "expense" &&
-        Number(item.amount_thb || 0) > 0 &&
+        getTransactionCurrency(item) === dailyExpenseCurrency &&
         getLocalDayKey(item.occurred_at) === todayKey,
     )
     .reverse();
-  const todaySpentThb = todayExpenses.reduce(
-    (sum, item) => sum + Number(item.amount_thb || 0),
+  const todaySpentCurrency = todayExpenses.reduce(
+    (sum, item) => sum + getTransactionAmountValue(item),
     0,
   );
   const todaySpentIdr = todayExpenses.reduce(
-    (sum, item) => sum + Number(item.amount_idr || 0),
+    (sum, item) => sum + resolveTransactionBaseValue(item),
     0,
   );
   const nextDayBudgetText = !activeBudgetInsight
     ? ""
     : activeBudgetInsight.remainingDaysAfterToday > 0
-      ? `Jatah besok ${formatCurrency(activeBudgetInsight.projectedNextDailyLimitThb, "thb")}.`
+      ? `Jatah besok ${formatCurrency(activeBudgetInsight.projectedNextDailyLimit, dailyExpenseCurrency)}.`
       : "Hari terakhir bulan ini.";
   const overspendingValue = !activeBudgetInsight
     ? "Belum ada"
-    : activeBudgetInsight.remainingThb < 0
+    : activeBudgetInsight.remainingAmount < 0
       ? "Over Bulanan"
-      : activeBudgetInsight.todayRemainingSafeThb < 0
+      : activeBudgetInsight.todayRemainingSafe < 0
         ? "Over Harian"
         : activeBudgetInsight.status === "warning"
           ? "Waspada"
           : "Aman";
   const overspendingHelper = !activeBudgetInsight
-    ? "Buat budget bulanan agar guard overspending aktif."
-    : activeBudgetInsight.todayRemainingSafeThb < 0
-      ? `Hari ini lewat ${formatCurrency(Math.abs(activeBudgetInsight.todayRemainingSafeThb), "thb")} dari batas aman. ${nextDayBudgetText}`
-      : `Batas aman hari ini ${formatCurrency(activeBudgetInsight.dynamicDailyLimitThb, "thb")}. ${nextDayBudgetText}`;
+    ? "Buat budget bulanan agar proteksi budget aktif."
+    : activeBudgetInsight.todayRemainingSafe < 0
+      ? `Hari ini lewat ${formatCurrency(Math.abs(activeBudgetInsight.todayRemainingSafe), dailyExpenseCurrency)} dari batas aman. ${nextDayBudgetText}`
+      : `Batas aman hari ini ${formatCurrency(activeBudgetInsight.dynamicDailyLimit, dailyExpenseCurrency)}. ${nextDayBudgetText}`;
   const userDisplayName = getUserDisplayName(user);
   const userInitials = getUserInitials(user);
   const userStorageId = getUserStorageId(user);
@@ -7011,7 +8779,7 @@ function calculateTHBBalance(transactions) {
     { key: "history", label: "Riwayat" },
     { key: "report", label: "Laporan" },
     { key: "investment", label: "Aset & Goals" },
-    { key: "settings", label: "Profil" },
+    { key: "settings", label: "Setting" },
   ];
   const historyTransactions = [...orderTransactions(transactions)].reverse();
 
@@ -7054,6 +8822,9 @@ function calculateTHBBalance(transactions) {
     setBalanceVisible((current) => {
       const next = !current;
       writeAppStorage("balanceVisible", next);
+      persistUserSettings(currencySettings || normalizeCurrencySettings(null), {
+        balanceVisible: next,
+      }).catch(() => {});
       return next;
     });
   }
@@ -7072,8 +8843,11 @@ function calculateTHBBalance(transactions) {
 
             <div className="flex min-w-0 items-center justify-between gap-3 sm:justify-end">
               <${CompactBalancePrivacyPill}
-                balanceIdr=${metrics.balanceIdr}
-                balanceThb=${metrics.balanceThb}
+                balances=${{
+                  ...metrics.currencyBalances,
+                  [DEFAULT_BASE_CURRENCY]: metrics.balanceIdr,
+                }}
+                activeCurrencies=${activeCurrencies}
                 visible=${balanceVisible}
                 onToggle=${handleToggleBalanceVisibility}
               />
@@ -7146,8 +8920,10 @@ function calculateTHBBalance(transactions) {
                   onSubmit=${handleCreateTransaction}
                   loading=${loading}
                   budget=${activeBudgetInsight}
-                  todaySpentThb=${todaySpentThb}
+                  todaySpentThb=${todaySpentCurrency}
                   todaySpentIdr=${todaySpentIdr}
+                  todaySpentCurrency=${todaySpentCurrency}
+                  expenseCurrency=${dailyExpenseCurrency}
                 />
               </section>
             `
@@ -7173,6 +8949,7 @@ function calculateTHBBalance(transactions) {
                       transactions=${transactions}
                       onSubmit=${handleCreateTransaction}
                       loading=${loading}
+                      activeCurrencies=${activeCurrencies}
                     />
                   </section>
                 `
@@ -7184,6 +8961,7 @@ function calculateTHBBalance(transactions) {
                         onDelete=${handleDeleteTransaction}
                         onUpdate=${handleUpdateTransaction}
                         loading=${loading}
+                        activeCurrencies=${activeCurrencies}
                         title="Riwayat Transaksi"
                         description="Semua pemasukan, pengeluaran, dan pergerakan saldo ada di sini."
                         emptyMessage="Belum ada transaksi."
@@ -7196,6 +8974,7 @@ function calculateTHBBalance(transactions) {
                         <${ControlCenterPage}
                           metrics=${metrics}
                           transactions=${transactions}
+                          activeCurrencies=${activeCurrencies}
                           loading=${loading}
                           onBudgetDelete=${handleDeleteBudget}
                           onBudgetSubmit=${handleSaveBudget}
@@ -7228,7 +9007,9 @@ function calculateTHBBalance(transactions) {
                             user=${user}
                             profilePhoto=${profilePhoto}
                             theme=${theme}
-                            onThemeChange=${(value) => setTheme(value)}
+                            onThemeChange=${handleThemeChange}
+                            currencySettings=${currencySettings}
+                            onCurrencySettingsChange=${handleSaveCurrencySettings}
                             onUploadPhoto=${handleProfilePhotoUpload}
                             onRemovePhoto=${handleRemoveProfilePhoto}
                             onSignOut=${handleSignOut}

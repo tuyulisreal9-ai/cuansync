@@ -3,9 +3,10 @@
 Aplikasi web pengatur keuangan pribadi untuk alur multi-mata uang:
 
 - Pendapatan utama dalam `IDR`
-- Pengeluaran harian operasional dalam `THB`
-- Kurs patokan otomatis dari pemasukan THB ber-rate
-- Form pemasukan THB universal: bisa `tukar/beli` (potong IDR) atau `bonus/pemberian` (tanpa potong IDR)
+- Pengeluaran operasional dalam `IDR`, `THB`, `USD`, `AUD`, `KRW`, dan currency aktif lain
+- Flow `Tukar Mata Uang` terpisah dari income/expense
+- Exchange mengurangi saldo currency asal dan menambah saldo currency tujuan
+- Expense foreign currency tetap masuk pengeluaran dengan valuasi base currency
 - Google OAuth melalui Supabase
 - Dashboard responsif dengan dark mode
 - Tab terpisah: `Utama` untuk transaksi harian dan `Investasi & Tabungan` untuk target IDR
@@ -50,19 +51,20 @@ http://localhost:4173
 
 5. Salin `Project URL` dan `anon public key` ke `src/config.js`.
 
-## Logika kurs terkunci
+## Logika exchange dan kurs terkunci
 
-1. Catat transaksi `pemasukan THB` dengan rate (bisa dari tukar/beli atau bonus/pemberian).
-2. Jika sumbernya `tukar/beli`, sistem menghitung potongan IDR otomatis: `amount_idr = amount_thb * rate`.
-3. Setiap transaksi `expense` mengambil `locked_rate` dari pemasukan THB ber-rate terakhir yang terjadi sebelum waktu pengeluaran.
-4. Nilai ekuivalen IDR disimpan langsung di transaksi expense agar histori tetap konsisten meski ada rate baru setelahnya.
+1. Tukar mata uang dicatat sebagai `type = exchange`, bukan income dan bukan expense.
+2. Struktur exchange menyimpan `from_currency`, `to_currency`, `from_amount`, `to_amount`, dan `rate`.
+3. Exchange hanya memindahkan aset antar wallet: saldo asal berkurang, saldo tujuan bertambah.
+4. Expense foreign currency mengambil `locked_rate` dari rate transaksi atau exchange terakhir yang relevan.
+5. Nilai ekuivalen base currency disimpan di `base_amount` agar histori tetap konsisten meski ada rate baru setelahnya.
 
 ## Modul baru
 
 - `Dashboard Interaktif`: chart harian dan insight kategori berubah otomatis setiap kali transaksi ditambah atau dihapus.
 - `Tab Operasional Harian`: transaksi + chart + budget universal uang keluar ada di tab utama.
 - `Overspending Guard`: satu limit uang keluar per bulan akan berubah jadi warning atau merah saat terlewati.
-- `Tab Investasi & Tabungan`: target seperti dana darurat disimpan di tabel `goals` dan progress tetap di IDR.
+- `Tab Aset & Goals`: target seperti dana darurat disimpan di tabel `goals` dan progress tetap di IDR.
 
 ## Tabel database
 
