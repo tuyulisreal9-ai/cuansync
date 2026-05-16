@@ -1214,7 +1214,7 @@ function WalletHeader({
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2" aria-label=${wordmark}>
             <img
-  src="/public/branding/logo-icon.png"
+  src="./branding/logo-icon.png"
   alt="CUANSYNC"
   className="h-9 w-9 shrink-0 rounded-2xl object-contain"
 />
