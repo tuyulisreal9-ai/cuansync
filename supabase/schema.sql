@@ -222,7 +222,7 @@ create table if not exists public.user_settings (
   base_currency text not null default 'IDR',
   active_currencies text[] not null default array['IDR']::text[],
   daily_currency text not null default 'IDR',
-  theme text not null default 'light' check (theme in ('light', 'dark')),
+  theme text not null default 'system' check (theme in ('system', 'light', 'dark')),
   balance_visible boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -230,6 +230,24 @@ create table if not exists public.user_settings (
 
 alter table public.user_settings
   add column if not exists daily_currency text not null default 'IDR';
+
+alter table public.user_settings
+  alter column theme set default 'system';
+
+alter table public.user_settings
+  drop constraint if exists user_settings_theme_check;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'user_settings_theme_mode_chk'
+  ) then
+    alter table public.user_settings
+      add constraint user_settings_theme_mode_chk
+      check (theme in ('system', 'light', 'dark')) not valid;
+  end if;
+end $$;
 
 do $$
 begin
@@ -288,6 +306,351 @@ end $$;
 create index if not exists user_settings_active_currencies_idx
   on public.user_settings using gin (active_currencies);
 
+create table if not exists public.profiles (
+  id uuid primary key references auth.users (id) on delete cascade,
+  email text,
+  display_name text,
+  avatar_url text,
+  base_currency text default 'IDR',
+  daily_currency text default 'IDR',
+  theme_mode text default 'system' check (theme_mode in ('system', 'light', 'dark')),
+  hide_balances boolean default false,
+  country_code text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+alter table public.profiles
+  add column if not exists email text,
+  add column if not exists display_name text,
+  add column if not exists avatar_url text,
+  add column if not exists base_currency text default 'IDR',
+  add column if not exists daily_currency text default 'IDR',
+  add column if not exists theme_mode text default 'system',
+  add column if not exists hide_balances boolean default false,
+  add column if not exists country_code text,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
+alter table public.profiles
+  alter column base_currency set default 'IDR',
+  alter column daily_currency set default 'IDR',
+  alter column theme_mode set default 'system',
+  alter column hide_balances set default false;
+
+alter table public.profiles
+  drop constraint if exists profiles_theme_mode_check;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'profiles_theme_mode_chk'
+  ) then
+    alter table public.profiles
+      add constraint profiles_theme_mode_chk
+      check (theme_mode in ('system', 'light', 'dark')) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'profiles_currency_code_chk'
+  ) then
+    alter table public.profiles
+      add constraint profiles_currency_code_chk
+      check (
+        coalesce(base_currency, 'IDR') ~ '^[A-Z]{3}$' and
+        coalesce(daily_currency, 'IDR') ~ '^[A-Z]{3}$'
+      ) not valid;
+  end if;
+end $$;
+
+create index if not exists profiles_id_idx
+  on public.profiles (id);
+
+create table if not exists public.user_currencies (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users (id) on delete cascade,
+  currency_code text not null,
+  is_active boolean default true,
+  is_base boolean default false,
+  is_daily boolean default false,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  unique (user_id, currency_code)
+);
+
+alter table public.user_currencies
+  add column if not exists user_id uuid references auth.users (id) on delete cascade,
+  add column if not exists currency_code text,
+  add column if not exists is_active boolean default true,
+  add column if not exists is_base boolean default false,
+  add column if not exists is_daily boolean default false,
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
+
+alter table public.user_currencies
+  alter column currency_code set not null,
+  alter column is_active set default true,
+  alter column is_base set default false,
+  alter column is_daily set default false;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'user_currencies_user_currency_key'
+  ) then
+    alter table public.user_currencies
+      add constraint user_currencies_user_currency_key unique (user_id, currency_code);
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'user_currencies_currency_code_chk'
+  ) then
+    alter table public.user_currencies
+      add constraint user_currencies_currency_code_chk
+      check (currency_code ~ '^[A-Z]{3}$') not valid;
+  end if;
+end $$;
+
+create index if not exists user_currencies_user_id_idx
+  on public.user_currencies (user_id);
+
+create index if not exists user_currencies_user_currency_idx
+  on public.user_currencies (user_id, currency_code);
+
+insert into public.profiles (
+  id,
+  email,
+  display_name,
+  avatar_url,
+  base_currency,
+  daily_currency,
+  theme_mode,
+  hide_balances,
+  created_at,
+  updated_at
+)
+select
+  users.id,
+  users.email,
+  coalesce(users.raw_user_meta_data ->> 'full_name', split_part(users.email, '@', 1)),
+  users.raw_user_meta_data ->> 'avatar_url',
+  coalesce(nullif(settings.base_currency, ''), 'IDR'),
+  coalesce(
+    nullif(settings.daily_currency, ''),
+    settings.active_currencies[1],
+    nullif(settings.base_currency, ''),
+    'IDR'
+  ),
+  case
+    when settings.theme in ('system', 'light', 'dark') then settings.theme
+    else 'system'
+  end,
+  coalesce(not settings.balance_visible, false),
+  coalesce(users.created_at, now()),
+  now()
+from auth.users as users
+left join public.user_settings as settings on settings.user_id = users.id
+on conflict (id) do update
+set
+  email = coalesce(public.profiles.email, excluded.email),
+  display_name = coalesce(public.profiles.display_name, excluded.display_name),
+  avatar_url = coalesce(public.profiles.avatar_url, excluded.avatar_url),
+  base_currency = coalesce(nullif(public.profiles.base_currency, ''), excluded.base_currency, 'IDR'),
+  daily_currency = coalesce(
+    nullif(public.profiles.daily_currency, ''),
+    excluded.daily_currency,
+    excluded.base_currency,
+    'IDR'
+  ),
+  theme_mode = coalesce(nullif(public.profiles.theme_mode, ''), excluded.theme_mode, 'system'),
+  hide_balances = coalesce(public.profiles.hide_balances, excluded.hide_balances, false),
+  updated_at = now();
+
+update public.profiles
+set
+  base_currency = coalesce(nullif(base_currency, ''), 'IDR'),
+  daily_currency = coalesce(nullif(daily_currency, ''), nullif(base_currency, ''), 'IDR'),
+  theme_mode = case
+    when theme_mode in ('system', 'light', 'dark') then theme_mode
+    else 'system'
+  end,
+  hide_balances = coalesce(hide_balances, false),
+  updated_at = now()
+where
+  base_currency is null or base_currency = '' or
+  daily_currency is null or daily_currency = '' or
+  theme_mode is null or theme_mode not in ('system', 'light', 'dark') or
+  hide_balances is null;
+
+insert into public.user_currencies (
+  user_id,
+  currency_code,
+  is_active,
+  is_base,
+  is_daily,
+  updated_at
+)
+select
+  settings.user_id,
+  currency_code,
+  true,
+  currency_code = coalesce(nullif(settings.base_currency, ''), 'IDR'),
+  currency_code = coalesce(
+    nullif(settings.daily_currency, ''),
+    settings.active_currencies[1],
+    nullif(settings.base_currency, ''),
+    'IDR'
+  ),
+  now()
+from public.user_settings as settings
+cross join lateral unnest(settings.active_currencies) as currency_code
+where currency_code ~ '^[A-Z]{3}$'
+on conflict (user_id, currency_code) do update
+set
+  is_active = true,
+  is_base = excluded.is_base,
+  is_daily = excluded.is_daily,
+  updated_at = now();
+
+insert into public.user_currencies (
+  user_id,
+  currency_code,
+  is_active,
+  is_base,
+  is_daily,
+  updated_at
+)
+select
+  profiles.id,
+  coalesce(nullif(profiles.base_currency, ''), 'IDR'),
+  true,
+  true,
+  coalesce(nullif(profiles.base_currency, ''), 'IDR') = coalesce(
+    nullif(profiles.daily_currency, ''),
+    nullif(profiles.base_currency, ''),
+    'IDR'
+  ),
+  now()
+from public.profiles as profiles
+where not exists (
+  select 1
+  from public.user_currencies as currencies
+  where currencies.user_id = profiles.id
+)
+on conflict (user_id, currency_code) do update
+set
+  is_active = true,
+  is_base = true,
+  is_daily = excluded.is_daily,
+  updated_at = now();
+
+insert into public.user_currencies (
+  user_id,
+  currency_code,
+  is_active,
+  is_base,
+  is_daily,
+  updated_at
+)
+select distinct
+  transactions.user_id,
+  'THB',
+  true,
+  false,
+  false,
+  now()
+from public.transactions as transactions
+where (
+    transactions.currency = 'THB' or
+    transactions.from_currency = 'THB' or
+    transactions.to_currency = 'THB' or
+    coalesce(transactions.amount_thb, 0) <> 0
+  )
+  and not exists (
+    select 1
+    from public.user_currencies as currencies
+    where currencies.user_id = transactions.user_id
+      and currencies.currency_code = 'THB'
+  )
+on conflict (user_id, currency_code) do update
+set
+  is_active = true,
+  updated_at = now();
+
+insert into public.user_currencies (
+  user_id,
+  currency_code,
+  is_active,
+  is_base,
+  is_daily,
+  updated_at
+)
+select
+  profiles.id,
+  coalesce(nullif(profiles.daily_currency, ''), nullif(profiles.base_currency, ''), 'IDR'),
+  true,
+  false,
+  true,
+  now()
+from public.profiles as profiles
+on conflict (user_id, currency_code) do update
+set
+  is_active = true,
+  is_daily = true,
+  updated_at = now();
+
+create or replace function public.handle_new_user_profile()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (
+    id,
+    email,
+    display_name,
+    avatar_url,
+    base_currency,
+    daily_currency,
+    theme_mode,
+    hide_balances
+  )
+  values (
+    new.id,
+    new.email,
+    coalesce(new.raw_user_meta_data ->> 'full_name', split_part(new.email, '@', 1)),
+    new.raw_user_meta_data ->> 'avatar_url',
+    'IDR',
+    'IDR',
+    'system',
+    false
+  )
+  on conflict (id) do nothing;
+
+  insert into public.user_currencies (
+    user_id,
+    currency_code,
+    is_active,
+    is_base,
+    is_daily
+  )
+  values (new.id, 'IDR', true, true, true)
+  on conflict (user_id, currency_code) do nothing;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created_profile on auth.users;
+create trigger on_auth_user_created_profile
+  after insert on auth.users
+  for each row execute function public.handle_new_user_profile();
+
 create table if not exists public.goals (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
@@ -305,6 +668,8 @@ alter table public.transactions enable row level security;
 alter table public.budgets enable row level security;
 alter table public.goals enable row level security;
 alter table public.user_settings enable row level security;
+alter table public.profiles enable row level security;
+alter table public.user_currencies enable row level security;
 
 drop policy if exists "Users can read own transactions" on public.transactions;
 create policy "Users can read own transactions"
@@ -374,6 +739,62 @@ create policy "Users can update own settings"
   for update
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete own settings" on public.user_settings;
+create policy "Users can delete own settings"
+  on public.user_settings
+  for delete
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can read own profile" on public.profiles;
+create policy "Users can read own profile"
+  on public.profiles
+  for select
+  using (auth.uid() = id);
+
+drop policy if exists "Users can insert own profile" on public.profiles;
+create policy "Users can insert own profile"
+  on public.profiles
+  for insert
+  with check (auth.uid() = id);
+
+drop policy if exists "Users can update own profile" on public.profiles;
+create policy "Users can update own profile"
+  on public.profiles
+  for update
+  using (auth.uid() = id)
+  with check (auth.uid() = id);
+
+drop policy if exists "Users can delete own profile" on public.profiles;
+create policy "Users can delete own profile"
+  on public.profiles
+  for delete
+  using (auth.uid() = id);
+
+drop policy if exists "Users can read own currencies" on public.user_currencies;
+create policy "Users can read own currencies"
+  on public.user_currencies
+  for select
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert own currencies" on public.user_currencies;
+create policy "Users can insert own currencies"
+  on public.user_currencies
+  for insert
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can update own currencies" on public.user_currencies;
+create policy "Users can update own currencies"
+  on public.user_currencies
+  for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop policy if exists "Users can delete own currencies" on public.user_currencies;
+create policy "Users can delete own currencies"
+  on public.user_currencies
+  for delete
+  using (auth.uid() = user_id);
 
 drop policy if exists "Users can read own goals" on public.goals;
 create policy "Users can read own goals"

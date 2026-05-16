@@ -13,7 +13,9 @@ const STORAGE_KEYS = {
   demoBudgets: "monefy-demo-budgets",
   demoGoals: "monefy-demo-goals",
   profilePhotos: "monefy-profile-photos",
+  profile: "cuansync-profile",
   balanceVisible: "monefy-balance-visible",
+  hideBalances: "cuansync-hide-balances",
   currencySettings: "monefy-currency-settings",
 };
 
@@ -24,7 +26,9 @@ const LEGACY_STORAGE_KEYS = {
   demoBudgets: "kas-poipet-demo-budgets",
   demoGoals: "kas-poipet-demo-goals",
   profilePhotos: "kas-poipet-profile-photos",
+  profile: "kas-poipet-profile",
   balanceVisible: "kas-poipet-balance-visible",
+  hideBalances: "kas-poipet-hide-balances",
   currencySettings: "kas-poipet-currency-settings",
 };
 
@@ -147,18 +151,19 @@ const DEFAULT_SELECTED_CURRENCIES = ["IDR"];
 
 const CURRENCY_META = {
   IDR: { label: "IDR", locale: "id-ID", digits: 0 },
-  THB: { label: "THB", locale: "th-TH", digits: 2 },
-  USD: { label: "USD", locale: "en-US", digits: 2 },
-  AUD: { label: "AUD", locale: "en-AU", digits: 2 },
+  THB: { label: "THB", locale: "th-TH", digits: 0 },
+  USD: { label: "USD", locale: "en-US", digits: 0 },
+  AUD: { label: "AUD", locale: "en-AU", digits: 0 },
   KRW: { label: "KRW", locale: "ko-KR", digits: 0 },
   JPY: { label: "JPY", locale: "ja-JP", digits: 0 },
-  SGD: { label: "SGD", locale: "en-SG", digits: 2 },
-  MYR: { label: "MYR", locale: "ms-MY", digits: 2 },
-  EUR: { label: "EUR", locale: "de-DE", digits: 2 },
-  GBP: { label: "GBP", locale: "en-GB", digits: 2 },
+  SGD: { label: "SGD", locale: "en-SG", digits: 0 },
+  MYR: { label: "MYR", locale: "ms-MY", digits: 0 },
+  EUR: { label: "EUR", locale: "de-DE", digits: 0 },
+  GBP: { label: "GBP", locale: "en-GB", digits: 0 },
 };
 
 const currencyFormatters = {};
+const moneyFormatters = {};
 let runtimeCurrencySettings = null;
 
 const numberFormatter = new Intl.NumberFormat("id-ID", {
@@ -251,7 +256,7 @@ function normalizeCurrencyCode(currency, fallback = DEFAULT_BASE_CURRENCY) {
 
 function getCurrencyMeta(currency) {
   const code = normalizeCurrencyCode(currency);
-  return CURRENCY_META[code] || { label: code, locale: "en-US", digits: 2 };
+  return CURRENCY_META[code] || { label: code, locale: "en-US", digits: 0 };
 }
 
 function formatCurrency(value, currency) {
@@ -268,6 +273,75 @@ function formatCurrency(value, currency) {
   return currencyFormatters[code].format(Number(value || 0));
 }
 
+function formatCurrencyCompact(value, currency) {
+  const code = normalizeCurrencyCode(currency);
+  const numeric = Number(value || 0);
+  const absolute = Math.abs(numeric);
+  if (absolute < 10000) return formatCurrency(numeric, code);
+
+  const meta = getCurrencyMeta(code);
+  return new Intl.NumberFormat(meta.locale, {
+    style: "currency",
+    currency: code,
+    notation: "compact",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: absolute >= 1000000 ? 1 : 0,
+  }).format(numeric);
+}
+
+function formatMoney(value, currency, options = {}) {
+  const code = normalizeCurrencyCode(currency);
+  const meta = getCurrencyMeta(code);
+  const numeric = Number(value || 0);
+  const formatOptions = {
+    style: "currency",
+    currency: code,
+    currencyDisplay: options.currencyDisplay || "narrowSymbol",
+  };
+
+  if (options.notation) formatOptions.notation = options.notation;
+  if (typeof options.minimumFractionDigits === "number") {
+    formatOptions.minimumFractionDigits = options.minimumFractionDigits;
+  }
+  if (typeof options.maximumFractionDigits === "number") {
+    formatOptions.maximumFractionDigits = options.maximumFractionDigits;
+  }
+
+  const cacheKey = JSON.stringify([meta.locale, code, formatOptions]);
+  try {
+    if (!moneyFormatters[cacheKey]) {
+      moneyFormatters[cacheKey] = new Intl.NumberFormat(meta.locale, formatOptions);
+    }
+    return moneyFormatters[cacheKey].format(numeric);
+  } catch {
+    return `${code} ${numberFormatter.format(numeric)}`;
+  }
+}
+
+function formatMoneyCompact(value, currency) {
+  const numeric = Number(value || 0);
+  const absolute = Math.abs(numeric);
+  if (absolute < 10000) return formatMoney(numeric, currency);
+
+  return formatMoney(numeric, currency, {
+    notation: "compact",
+    maximumFractionDigits: absolute >= 1000000 ? 1 : 0,
+  });
+}
+
+const HIDDEN_BALANCE_TEXT = "\u2022\u2022\u2022\u2022\u2022\u2022";
+
+function readBalanceVisiblePreference() {
+  const hideBalances = readAppStorage("hideBalances", null);
+  if (typeof hideBalances === "boolean") return !hideBalances;
+  return readAppStorage("balanceVisible", false);
+}
+
+function writeBalanceVisiblePreference(visible) {
+  writeAppStorage("hideBalances", !visible);
+  writeAppStorage("balanceVisible", visible);
+}
+
 function formatRate(
   value,
   fromCurrency = DEFAULT_BASE_CURRENCY,
@@ -279,10 +353,16 @@ function formatRate(
   )} / 1 ${normalizeCurrencyCode(toCurrency, "THB")}`;
 }
 
-function normalizeCurrencyList(currencies, { ensureBase = true } = {}) {
+function normalizeCurrencyList(
+  currencies,
+  { ensureBase = true, baseCurrency = null } = {},
+) {
   const source = Array.isArray(currencies) ? currencies : [];
   const selected = [];
   const seen = new Set();
+  const requiredBase = normalizeCurrencyCode(
+    baseCurrency || runtimeCurrencySettings?.baseCurrency || DEFAULT_BASE_CURRENCY,
+  );
 
   function addCurrency(currency) {
     const code = normalizeCurrencyCode(currency);
@@ -291,7 +371,7 @@ function normalizeCurrencyList(currencies, { ensureBase = true } = {}) {
     selected.push(code);
   }
 
-  if (ensureBase) addCurrency(DEFAULT_BASE_CURRENCY);
+  if (ensureBase) addCurrency(requiredBase);
   source.forEach(addCurrency);
 
   const order = new Map(DEFAULT_ACTIVE_CURRENCIES.map((code, index) => [code, index]));
@@ -317,8 +397,12 @@ function normalizeCurrencySettings(settings, { configured = false } = {}) {
     : settings?.activeCurrencies || settings?.currencies || DEFAULT_SELECTED_CURRENCIES;
   const activeCurrencies = normalizeCurrencyList(
     source,
+    { baseCurrency },
   );
-  const normalizedActiveCurrencies = normalizeCurrencyList([baseCurrency, ...activeCurrencies]);
+  const normalizedActiveCurrencies = normalizeCurrencyList(
+    [baseCurrency, ...activeCurrencies],
+    { baseCurrency },
+  );
   const requestedDailyCurrency = normalizeCurrencyCode(
     settings?.dailyCurrency ||
       settings?.daily_currency ||
@@ -352,6 +436,26 @@ function normalizeUserSettingsRow(row) {
   );
 }
 
+function isMissingDailyCurrencyColumn(error) {
+  const message = String(error?.message || "");
+  return (
+    message.includes("daily_currency") &&
+    (message.includes("schema cache") || error?.code === "PGRST204")
+  );
+}
+
+function getSettingsSyncErrorMessage(error) {
+  if (error?.code === "42P01") {
+    return "Setting tersimpan di perangkat ini. Jalankan schema.sql terbaru agar profile dan currency sinkron ke database.";
+  }
+
+  if (isMissingDailyCurrencyColumn(error)) {
+    return "Setting utama tersimpan, tapi kolom daily_currency belum ada di database. Jalankan schema.sql terbaru agar mata uang harian ikut sinkron lintas device.";
+  }
+
+  return error?.message || "Setting tersimpan lokal, tapi gagal sinkron ke database.";
+}
+
 function readCurrencySettings() {
   const stored = readAppStorage("currencySettings", null);
   return stored ? normalizeCurrencySettings(stored) : null;
@@ -369,9 +473,17 @@ function setRuntimeCurrencySettings(settings) {
 
 function getActiveCurrencies() {
   return (
-    runtimeCurrencySettings?.activeCurrencies ||
-    readCurrencySettings()?.activeCurrencies ||
-    DEFAULT_SELECTED_CURRENCIES
+    normalizeCurrencyList(
+      runtimeCurrencySettings?.activeCurrencies ||
+        readCurrencySettings()?.activeCurrencies ||
+        DEFAULT_SELECTED_CURRENCIES,
+      {
+        baseCurrency:
+          runtimeCurrencySettings?.baseCurrency ||
+          readCurrencySettings()?.baseCurrency ||
+          DEFAULT_BASE_CURRENCY,
+      },
+    )
   );
 }
 
@@ -383,7 +495,11 @@ function getCurrencyOptions(currencies = getActiveCurrencies()) {
 }
 
 function getBaseCurrency() {
-  return DEFAULT_BASE_CURRENCY;
+  return normalizeCurrencyCode(
+    runtimeCurrencySettings?.baseCurrency ||
+      readCurrencySettings()?.baseCurrency ||
+      DEFAULT_BASE_CURRENCY,
+  );
 }
 
 function formatPercent(value) {
@@ -647,31 +763,54 @@ function CompactBalancePrivacyPill({
   visible,
   onToggle,
 }) {
+  const [expanded, setExpanded] = useState(false);
   const hiddenText = "\u2022\u2022\u2022\u2022\u2022\u2022";
   const balanceItems = normalizeCurrencyList(activeCurrencies).map((currency) => ({
     label: currency,
     value: visible ? formatCurrency(balances[currency] || 0, currency) : hiddenText,
+    compactValue: visible
+      ? formatCurrencyCompact(balances[currency] || 0, currency)
+      : hiddenText,
   }));
+  const visibleItems = balanceItems.slice(0, 2);
+  const hiddenItems = balanceItems.slice(2);
+
+  useEffect(() => {
+    if (!hiddenItems.length && expanded) setExpanded(false);
+  }, [hiddenItems.length, expanded]);
 
   return html`
-    <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-[22px] border border-brand-300/30 bg-gradient-to-br from-brand-600 via-emerald-600 to-teal-700 p-1.5 text-white shadow-[0_16px_38px_rgba(16,185,129,0.24)] ring-1 ring-white/10 sm:flex-none sm:min-w-[19rem] sm:rounded-full">
-      <div className="balance-strip flex min-w-0 flex-1 gap-1.5 overflow-x-auto pr-0.5">
-        ${balanceItems.map(
+    <div className="relative flex min-w-0 flex-1 items-center gap-1 rounded-[22px] border border-brand-300/30 bg-gradient-to-br from-brand-600 via-emerald-600 to-teal-700 p-1.5 text-white shadow-[0_16px_38px_rgba(16,185,129,0.24)] ring-1 ring-white/10 sm:flex-none sm:min-w-[19rem] sm:rounded-full">
+      <div className=${`grid min-w-0 flex-1 gap-1 ${visibleItems.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+        ${visibleItems.map(
           (item) => html`
             <div
               key=${item.label}
-              className="min-w-[5.8rem] flex-1 rounded-2xl bg-white/[0.08] px-2.5 py-2 ring-1 ring-white/[0.08] sm:rounded-full sm:px-3"
+              className="min-w-0 rounded-2xl bg-white/[0.08] px-2.5 py-2 ring-1 ring-white/[0.08] sm:rounded-full sm:px-3"
             >
               <p className="text-[10px] font-black uppercase leading-none tracking-[0.12em] text-white/72">
                 ${item.label}
               </p>
               <p className="mt-1 truncate text-[11px] font-black leading-none tabular-nums text-white min-[390px]:text-xs">
-                ${item.value}
+                ${item.compactValue}
               </p>
             </div>
           `,
         )}
       </div>
+      ${hiddenItems.length
+        ? html`
+            <button
+              type="button"
+              onClick=${() => setExpanded((current) => !current)}
+              aria-expanded=${expanded}
+              aria-label="Lihat semua saldo"
+              className="inline-flex h-11 min-h-11 w-10 shrink-0 items-center justify-center rounded-full border border-white/18 bg-white/10 text-xs font-black text-white transition hover:-translate-y-0.5 hover:bg-white/18 focus:outline-none focus:ring-2 focus:ring-white/45"
+            >
+              +${hiddenItems.length}
+            </button>
+          `
+        : null}
       <button
         type="button"
         onClick=${onToggle}
@@ -681,7 +820,458 @@ function CompactBalancePrivacyPill({
       >
         <${EyeToggleIcon} visible=${visible} />
       </button>
+      ${expanded
+        ? html`
+            <div className="absolute right-0 top-[calc(100%+0.5rem)] z-50 w-[min(19rem,calc(100vw-6rem))] rounded-[22px] border border-slate-200/70 bg-white/92 p-2.5 text-slate-900 shadow-[0_22px_70px_rgba(15,23,42,0.18)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/92 dark:text-white dark:shadow-black/40">
+              <div className="grid gap-1.5">
+                ${balanceItems.map(
+                  (item) => html`
+                    <div
+                      key=${`detail-${item.label}`}
+                      className="flex min-h-11 items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-white/64 px-3 py-2 text-sm dark:border-white/10 dark:bg-slate-900/70"
+                    >
+                      <span className="text-xs font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                        ${item.label}
+                      </span>
+                      <span className="truncate text-right font-black tabular-nums text-slate-950 dark:text-white">
+                        ${item.value}
+                      </span>
+                    </div>
+                  `,
+                )}
+              </div>
+            </div>
+          `
+        : null}
     </div>
+  `;
+}
+
+function AmountFormatter({
+  amount,
+  currency,
+  visible = true,
+  compact = false,
+  className = "",
+}) {
+  const value = visible
+    ? compact
+      ? formatMoneyCompact(amount, currency)
+      : formatMoney(amount, currency)
+    : HIDDEN_BALANCE_TEXT;
+
+  return html`
+    <span
+      className=${`inline-block min-w-[6ch] max-w-full tabular-nums [overflow-wrap:anywhere] ${className}`}
+    >
+      ${value}
+    </span>
+  `;
+}
+
+function PrivacyToggle({ visible, onToggle }) {
+  const label = visible ? "Sembunyikan saldo" : "Tampilkan saldo";
+
+  return html`
+    <button
+      type="button"
+      onClick=${onToggle}
+      aria-label=${label}
+      aria-pressed=${!visible}
+      title=${label}
+      className="inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-300/70 bg-white/70 text-slate-800 shadow-[0_10px_26px_rgba(15,23,42,0.08)] backdrop-blur-xl transition duration-200 hover:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/70 dark:border-white/10 dark:bg-white/5 dark:text-white dark:shadow-black/20 dark:hover:bg-white/10"
+    >
+      <${EyeToggleIcon} visible=${visible} />
+    </button>
+  `;
+}
+
+function AvatarButton({ src, initials, onClick }) {
+  return html`
+    <button
+      type="button"
+      onClick=${onClick}
+      aria-label="Buka profil dan menu akun"
+      className="inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center rounded-full border border-emerald-500/25 bg-white/74 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(15,23,42,0.09)] backdrop-blur-xl transition duration-200 hover:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/70 dark:border-emerald-300/20 dark:bg-white/5 dark:text-white dark:shadow-black/24 dark:hover:bg-white/10"
+    >
+      <${AvatarBadge} src=${src} initials=${initials} size="sm" />
+    </button>
+  `;
+}
+
+function CurrencyChip({ currency, selected, daily, base, onSelect }) {
+  const labelParts = [`Fokuskan saldo ${currency}`];
+  if (daily) labelParts.push("mata uang harian");
+  if (base) labelParts.push("mata uang laporan");
+
+  return html`
+    <button
+      type="button"
+      onClick=${() => onSelect(currency)}
+      aria-label=${labelParts.join(", ")}
+      aria-current=${selected ? "true" : undefined}
+      className=${`inline-flex h-11 min-h-11 shrink-0 items-center justify-center gap-2 rounded-2xl border px-3 text-sm font-bold transition duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 ${
+        selected
+          ? "border-emerald-400/70 bg-emerald-500 text-white shadow-[0_12px_28px_rgba(16,185,129,0.24)] ring-2 ring-emerald-200/70 dark:ring-emerald-300/20"
+          : "border-slate-300/70 bg-white/66 text-slate-800 hover:border-emerald-500/35 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:hover:bg-white/10"
+      }`}
+    >
+      <span
+        aria-hidden="true"
+        className=${`${selected ? "h-2.5 w-2.5 ring-2 ring-white/35" : "h-2 w-2"} ${
+          selected
+            ? "rounded-full bg-white"
+            : daily
+              ? "rounded-sm bg-cyan-400"
+              : base
+                ? "rounded-full bg-emerald-400"
+                : "rounded-full bg-slate-400 dark:bg-slate-500"
+        }`}
+      ></span>
+      <span>${currency}</span>
+    </button>
+  `;
+}
+
+function getRailCurrencies(currencies, selectedCurrency) {
+  if (currencies.length <= 3) return currencies;
+  const firstCurrencies = currencies.slice(0, 3);
+  if (firstCurrencies.includes(selectedCurrency)) return firstCurrencies;
+
+  const visible = [currencies[0], currencies[1], selectedCurrency].filter(Boolean);
+  return [...new Set(visible)].slice(0, 3);
+}
+
+function CurrencySelectorRail({
+  currencies,
+  selectedCurrency,
+  dailyCurrency,
+  baseCurrency,
+  onSelectCurrency,
+  onOpenAll,
+}) {
+  if (currencies.length <= 1) return null;
+
+  const railCurrencies = getRailCurrencies(currencies, selectedCurrency);
+  const hiddenCount = currencies.filter((currency) => !railCurrencies.includes(currency)).length;
+
+  return html`
+    <div
+      className="wallet-selector-rail mt-3 flex flex-wrap items-center gap-2"
+      role="list"
+      aria-label="Pilih mata uang fokus wallet"
+    >
+      ${railCurrencies.map(
+        (currency) => html`
+          <span key=${currency} role="listitem">
+            <${CurrencyChip}
+              currency=${currency}
+              selected=${currency === selectedCurrency}
+              daily=${currency === dailyCurrency}
+              base=${currency === baseCurrency}
+              onSelect=${onSelectCurrency}
+            />
+          </span>
+        `,
+      )}
+      ${hiddenCount > 0
+        ? html`
+            <button
+              type="button"
+              onClick=${onOpenAll}
+              aria-label=${`Lihat ${hiddenCount} mata uang lainnya`}
+              className="inline-flex h-11 min-h-11 shrink-0 items-center justify-center rounded-2xl border border-cyan-400/35 bg-cyan-500/10 px-3 text-sm font-bold text-cyan-700 transition duration-200 hover:bg-cyan-500/16 focus:outline-none focus:ring-2 focus:ring-cyan-500/60 dark:border-cyan-300/24 dark:bg-cyan-300/10 dark:text-cyan-200 dark:hover:bg-cyan-300/16"
+            >
+              +${hiddenCount}
+            </button>
+          `
+        : null}
+    </div>
+  `;
+}
+
+function PrimaryBalanceHero({
+  focusCurrency,
+  focusBalance,
+  totalValueBase,
+  baseCurrency,
+  dailyCurrency,
+  visible,
+}) {
+  const focusState = focusCurrency === dailyCurrency ? "Daily" : "Focus";
+  const amountLabel = visible
+    ? formatMoney(focusBalance, focusCurrency)
+    : "saldo disembunyikan";
+  const totalLabel = visible
+    ? formatMoney(totalValueBase, baseCurrency)
+    : "total value disembunyikan";
+
+  return html`
+    <section
+      className="mt-4"
+      aria-label=${`${focusCurrency} ${focusState}. ${amountLabel}. Total value ${totalLabel}.`}
+    >
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="inline-flex min-h-8 items-center rounded-full bg-emerald-500 px-2.5 text-xs font-bold text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)]">
+            ${focusCurrency}
+          </span>
+          <span className="inline-flex min-h-8 items-center rounded-full border border-slate-300/70 bg-white/58 px-2.5 text-xs font-bold text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+            ${focusState}
+          </span>
+        </div>
+        <span className="shrink-0 rounded-full border border-slate-300/70 bg-white/58 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+          Base ${baseCurrency}
+        </span>
+      </div>
+
+      <p className="mt-3 min-h-[2.35rem] max-w-full text-[2rem] font-black leading-none text-slate-950 min-[390px]:text-[2.125rem] md:text-[2.35rem] dark:text-white">
+        <${AmountFormatter}
+          amount=${focusBalance}
+          currency=${focusCurrency}
+          visible=${visible}
+          className="min-w-[9ch]"
+        />
+      </p>
+
+      <p className="mt-2 flex min-h-6 min-w-0 flex-wrap items-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
+        <span aria-hidden="true">≈</span>
+        <${AmountFormatter}
+          amount=${totalValueBase}
+          currency=${baseCurrency}
+          visible=${visible}
+          className="min-w-[8ch]"
+        />
+        <span>total value</span>
+      </p>
+    </section>
+  `;
+}
+
+function WalletBottomSheet({
+  open,
+  onClose,
+  currencies,
+  selectedCurrency,
+  dailyCurrency,
+  baseCurrency,
+  balances,
+  valuationsByCurrency,
+  visible,
+  onSelectCurrency,
+}) {
+  useEffect(() => {
+    if (!open) return undefined;
+    function handleKeyDown(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return html`
+    <div
+      className="fixed inset-0 flex items-end justify-center px-3 pb-3 pt-20 md:items-center md:p-6"
+      style=${{ zIndex: 1000 }}
+    >
+      <button
+        type="button"
+        aria-label="Tutup daftar mata uang"
+        onClick=${onClose}
+        className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm"
+      ></button>
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="wallet-currency-sheet-title"
+        className="wallet-bottom-sheet relative z-10 w-full max-w-md overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/94 p-4 text-slate-950 shadow-[0_-24px_80px_rgba(15,23,42,0.24)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/94 dark:text-white dark:shadow-black/50"
+      >
+        <div className="mx-auto mb-3 h-1 w-12 rounded-full bg-slate-300 dark:bg-slate-700"></div>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 id="wallet-currency-sheet-title" className="text-base font-black">
+              Semua currency
+            </h2>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+              Pilih fokus tampilan. Daily currency tetap diatur dari Settings.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick=${onClose}
+            aria-label="Tutup bottom sheet currency"
+            className="inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-300/70 bg-white/70 text-sm font-black text-slate-700 transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/70 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="mt-4 grid max-h-[58svh] gap-2 overflow-y-auto pr-1">
+          ${currencies.map((currency) => {
+            const selected = currency === selectedCurrency;
+            const daily = currency === dailyCurrency;
+            const base = currency === baseCurrency;
+            return html`
+              <button
+                key=${currency}
+                type="button"
+                onClick=${() => {
+                  onSelectCurrency(currency);
+                  onClose();
+                }}
+                aria-label=${`Fokuskan saldo ${currency}${daily ? ", mata uang harian" : ""}${base ? ", mata uang laporan" : ""}`}
+                aria-current=${selected ? "true" : undefined}
+                className=${`flex min-h-14 items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-left transition duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 ${
+                  selected
+                    ? "border-emerald-400/70 bg-emerald-500/12 shadow-[0_14px_30px_rgba(16,185,129,0.14)] dark:bg-emerald-400/12"
+                    : "border-slate-200/80 bg-white/62 hover:border-emerald-400/36 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:hover:bg-white/10"
+                }`}
+              >
+                <span className="min-w-0">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-black">${currency}</span>
+                    ${selected
+                      ? html`<span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white">Focus</span>`
+                      : null}
+                    ${daily
+                      ? html`<span className="rounded-full bg-cyan-500/14 px-2 py-0.5 text-[10px] font-bold text-cyan-700 dark:text-cyan-200">Daily</span>`
+                      : null}
+                    ${base
+                      ? html`<span className="rounded-full bg-slate-900/6 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-white/10 dark:text-slate-300">Base</span>`
+                      : null}
+                  </span>
+                  <span className="mt-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    ≈
+                    <${AmountFormatter}
+                      amount=${valuationsByCurrency[currency] || 0}
+                      currency=${baseCurrency}
+                      visible=${visible}
+                      compact=${true}
+                    />
+                  </span>
+                </span>
+                <span className="max-w-[42%] text-right text-sm font-black text-slate-950 dark:text-white">
+                  <${AmountFormatter}
+                    amount=${balances[currency] || 0}
+                    currency=${currency}
+                    visible=${visible}
+                    compact=${true}
+                  />
+                </span>
+              </button>
+            `;
+          })}
+        </div>
+      </section>
+    </div>
+  `;
+}
+
+function WalletHeader({
+  appName,
+  balances = {},
+  valuationsByCurrency = {},
+  totalValueBase = 0,
+  activeCurrencies = getActiveCurrencies(),
+  selectedCurrency,
+  dailyCurrency,
+  baseCurrency = getBaseCurrency(),
+  visible,
+  onToggleVisibility,
+  onSelectCurrency,
+  avatarSrc,
+  avatarInitials,
+  onAvatarClick,
+  compact = false,
+}) {
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const currencies = normalizeCurrencyList(activeCurrencies);
+  const normalizedDailyCurrency = currencies.includes(normalizeCurrencyCode(dailyCurrency))
+    ? normalizeCurrencyCode(dailyCurrency)
+    : currencies[0] || baseCurrency;
+  const normalizedSelectedCurrency =
+    selectedCurrency && currencies.includes(normalizeCurrencyCode(selectedCurrency))
+      ? normalizeCurrencyCode(selectedCurrency)
+      : normalizedDailyCurrency;
+  const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
+  const focusBalance = Number(balances[normalizedSelectedCurrency] || 0);
+  const normalizedTotalValueBase = Number(totalValueBase || 0);
+  const wordmark = String(appName || "CUANSYNC").toUpperCase();
+
+  useEffect(() => {
+    if (currencies.length <= 3 && sheetOpen) setSheetOpen(false);
+  }, [currencies.length, sheetOpen]);
+
+  return html`
+    <${React.Fragment}>
+    <header className=${`wallet-header relative isolate overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/88 px-4 ${compact ? "pb-3" : "pb-4"} pt-[calc(1rem+env(safe-area-inset-top))] text-slate-950 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur-2xl md:px-5 dark:border-white/10 dark:bg-slate-950/75 dark:text-white dark:shadow-[0_22px_70px_rgba(0,0,0,0.38)]`}>
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-300/70 to-transparent dark:via-cyan-200/35"></div>
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.10),transparent_40%,rgba(34,211,238,0.08))] dark:bg-[linear-gradient(135deg,rgba(16,185,129,0.15),transparent_42%,rgba(34,211,238,0.10))]"></div>
+
+      <div className="relative">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2" aria-label=${wordmark}>
+            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/40 bg-emerald-500 text-xs font-black text-white shadow-[0_12px_26px_rgba(16,185,129,0.24)]">
+              CS
+            </span>
+            <span className="truncate font-display text-base font-bold text-slate-950 dark:text-white">
+              ${wordmark}
+            </span>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <${PrivacyToggle}
+              visible=${visible}
+              onToggle=${onToggleVisibility}
+            />
+            <${AvatarButton}
+              src=${avatarSrc}
+              initials=${avatarInitials}
+              onClick=${onAvatarClick}
+            />
+          </div>
+        </div>
+
+        ${compact
+          ? null
+          : html`
+              <${PrimaryBalanceHero}
+                focusCurrency=${normalizedSelectedCurrency}
+                focusBalance=${focusBalance}
+                totalValueBase=${normalizedTotalValueBase}
+                baseCurrency=${normalizedBaseCurrency}
+                dailyCurrency=${normalizedDailyCurrency}
+                visible=${visible}
+              />
+
+              <${CurrencySelectorRail}
+                currencies=${currencies}
+                selectedCurrency=${normalizedSelectedCurrency}
+                dailyCurrency=${normalizedDailyCurrency}
+                baseCurrency=${normalizedBaseCurrency}
+                onSelectCurrency=${onSelectCurrency}
+                onOpenAll=${() => setSheetOpen(true)}
+              />
+            `}
+      </div>
+
+    </header>
+
+    <${WalletBottomSheet}
+        open=${sheetOpen}
+        onClose=${() => setSheetOpen(false)}
+        currencies=${currencies}
+        selectedCurrency=${normalizedSelectedCurrency}
+        dailyCurrency=${normalizedDailyCurrency}
+        baseCurrency=${normalizedBaseCurrency}
+        balances=${balances}
+        valuationsByCurrency=${valuationsByCurrency}
+        visible=${visible}
+        onSelectCurrency=${onSelectCurrency}
+      />
+    <//>
   `;
 }
 
@@ -774,6 +1364,181 @@ function readAppStorage(keyName, fallback) {
 
 function writeAppStorage(keyName, value) {
   writeStorage(STORAGE_KEYS[keyName], value);
+}
+
+const THEME_MODE_OPTIONS = [
+  { key: "system", label: "System" },
+  { key: "light", label: "Light" },
+  { key: "dark", label: "Dark" },
+];
+
+function normalizeThemeMode(value) {
+  return ["system", "light", "dark"].includes(value) ? value : "system";
+}
+
+function resolveThemeMode(themeMode, systemPrefersDark = false) {
+  const normalized = normalizeThemeMode(themeMode);
+  if (normalized === "system") return systemPrefersDark ? "dark" : "light";
+  return normalized;
+}
+
+function getProfileDisplayName(profile, user) {
+  return (
+    profile?.display_name ||
+    user?.user_metadata?.full_name ||
+    user?.email?.split("@")[0] ||
+    "User"
+  );
+}
+
+function getProfileEmail(profile, user) {
+  return profile?.email || user?.email || "Demo Lokal";
+}
+
+function normalizeProfile(row, user, fallback = {}) {
+  const fallbackSettings = normalizeCurrencySettings({
+    baseCurrency: fallback.base_currency || fallback.baseCurrency,
+    dailyCurrency: fallback.daily_currency || fallback.dailyCurrency,
+    activeCurrencies: fallback.activeCurrencies || fallback.active_currencies,
+  });
+  const baseCurrency = normalizeCurrencyCode(
+    row?.base_currency || fallbackSettings.baseCurrency || DEFAULT_BASE_CURRENCY,
+  );
+  const dailyCurrency = normalizeCurrencyCode(
+    row?.daily_currency ||
+      fallbackSettings.dailyCurrency ||
+      fallbackSettings.activeCurrencies?.[0] ||
+      baseCurrency,
+    baseCurrency,
+  );
+  const hideBalances =
+    typeof row?.hide_balances === "boolean"
+      ? row.hide_balances
+      : typeof fallback.hide_balances === "boolean"
+        ? fallback.hide_balances
+        : typeof fallback.hideBalances === "boolean"
+          ? fallback.hideBalances
+          : !readBalanceVisiblePreference();
+
+  return {
+    id: row?.id || user?.id || fallback.id || "demo-user",
+    email: row?.email || fallback.email || user?.email || "",
+    display_name:
+      row?.display_name ||
+      fallback.display_name ||
+      fallback.displayName ||
+      user?.user_metadata?.full_name ||
+      user?.email?.split("@")[0] ||
+      "User",
+    avatar_url:
+      row?.avatar_url ||
+      fallback.avatar_url ||
+      fallback.avatarUrl ||
+      user?.user_metadata?.avatar_url ||
+      "",
+    base_currency: baseCurrency,
+    daily_currency: dailyCurrency,
+    theme_mode: normalizeThemeMode(
+      row?.theme_mode || fallback.theme_mode || fallback.themeMode || readAppStorage("theme", "system"),
+    ),
+    hide_balances: hideBalances,
+    country_code: row?.country_code || fallback.country_code || fallback.countryCode || "",
+    created_at: row?.created_at || fallback.created_at || new Date().toISOString(),
+    updated_at: row?.updated_at || fallback.updated_at || new Date().toISOString(),
+  };
+}
+
+function readLocalProfile(user, currencySettings = null) {
+  const storedProfiles = readAppStorage("profile", {});
+  const storageId = getUserStorageId(user);
+  const stored =
+    storedProfiles && typeof storedProfiles === "object"
+      ? storedProfiles[storageId] || storedProfiles
+      : null;
+  return normalizeProfile(stored, user, {
+    ...(currencySettings || {}),
+    hideBalances: !readBalanceVisiblePreference(),
+  });
+}
+
+function writeLocalProfile(user, profile) {
+  const storageId = getUserStorageId(user);
+  const storedProfiles = readAppStorage("profile", {});
+  writeAppStorage("profile", {
+    ...(storedProfiles && typeof storedProfiles === "object" ? storedProfiles : {}),
+    [storageId]: profile,
+  });
+}
+
+function inferCurrenciesFromTransactions(rows = []) {
+  const currencies = new Set([DEFAULT_BASE_CURRENCY]);
+  rows.forEach((row) => {
+    if (row.currency) currencies.add(normalizeCurrencyCode(row.currency));
+    if (row.base_currency) currencies.add(normalizeCurrencyCode(row.base_currency));
+    if (row.from_currency) currencies.add(normalizeCurrencyCode(row.from_currency));
+    if (row.to_currency) currencies.add(normalizeCurrencyCode(row.to_currency));
+    if (Number(row.amount_thb || 0) !== 0) currencies.add("THB");
+    if (Number(row.amount_idr || 0) !== 0) currencies.add("IDR");
+  });
+  return normalizeCurrencyList([...currencies], {
+    baseCurrency: DEFAULT_BASE_CURRENCY,
+  });
+}
+
+function normalizeUserCurrencyRows(rows = [], profile = null, fallbackSettings = null, inferred = []) {
+  const activeRows = rows.filter((row) => row?.is_active !== false);
+  const rowBase = rows.find((row) => row?.is_base)?.currency_code;
+  const rowDaily = rows.find((row) => row?.is_daily)?.currency_code;
+  const baseCurrency = normalizeCurrencyCode(
+    rowBase ||
+      profile?.base_currency ||
+      fallbackSettings?.baseCurrency ||
+      DEFAULT_BASE_CURRENCY,
+  );
+  const activeCurrencies = activeRows.length
+    ? activeRows.map((row) => row.currency_code)
+    : fallbackSettings?.activeCurrencies?.length
+      ? fallbackSettings.activeCurrencies
+      : inferred.length
+        ? inferred
+        : [baseCurrency];
+  const dailyCurrency = normalizeCurrencyCode(
+    rowDaily ||
+      profile?.daily_currency ||
+      fallbackSettings?.dailyCurrency ||
+      activeCurrencies[0] ||
+      baseCurrency,
+    baseCurrency,
+  );
+
+  return normalizeCurrencySettings(
+    {
+      baseCurrency,
+      activeCurrencies,
+      dailyCurrency,
+      configured: true,
+    },
+    { configured: true },
+  );
+}
+
+function buildUserCurrencyRecords(userId, settings, existingCodes = []) {
+  const normalized = normalizeCurrencySettings(settings, { configured: true });
+  const activeSet = new Set(normalized.activeCurrencies);
+  const allCodes = normalizeCurrencyList(
+    [...existingCodes, ...normalized.activeCurrencies],
+    { ensureBase: false, baseCurrency: normalized.baseCurrency },
+  );
+  const updatedAt = new Date().toISOString();
+
+  return allCodes.map((currencyCode) => ({
+    user_id: userId,
+    currency_code: currencyCode,
+    is_active: activeSet.has(currencyCode),
+    is_base: currencyCode === normalized.baseCurrency,
+    is_daily: currencyCode === normalized.dailyCurrency,
+    updated_at: updatedAt,
+  }));
 }
 
 async function resizeProfileImage(file) {
@@ -3594,12 +4359,16 @@ function MonthlyReportHero({ report }) {
   const netPositive = report.summary.netCashflowIdr >= 0;
   const trendText =
     report.previousDeltaIdr == null
-      ? "Belum ada pembanding bulan lalu"
+      ? "Belum ada data bulan lalu"
       : `${report.previousDeltaIdr >= 0 ? "Naik" : "Turun"} ${formatCurrency(
           Math.abs(report.previousDeltaIdr),
           "idr",
         )} vs bulan lalu`;
-  const statusLabel = netPositive ? "Surplus" : "Defisit";
+  const statusLabel = netPositive ? "Sisa" : "Minus";
+  const heroLabel = netPositive ? "Sisa uang bulan ini" : "Minus bulan ini";
+  const heroHelper = netPositive
+    ? "Bulan ini masih aman."
+    : "Bulan ini lebih besar pasak daripada tiang.";
 
   return html`
     <section className=${`${PREMIUM_PANEL} report-reveal report-glow-sweep p-5 md:p-6`}>
@@ -3611,14 +4380,13 @@ function MonthlyReportHero({ report }) {
             Laporan ${report.meta.label}
           </div>
           <p className="mt-4 text-sm font-semibold text-slate-600 dark:text-slate-300">
-            Cashflow bersih bulan ini
+            ${heroLabel}
           </p>
           <h2 className=${`mt-2 break-words font-display text-4xl font-black text-slate-950 dark:text-white md:text-5xl ${netPositive ? "" : "text-rose-700 dark:text-rose-300"}`}>
             ${netPositive ? "+" : "-"}${formatCurrency(Math.abs(report.summary.netCashflowIdr), "idr")}
           </h2>
           <p className="mt-3 max-w-xl text-sm leading-6 text-slate-700 dark:text-slate-300">
-            ${statusLabel} dari pemasukan eksternal dikurangi semua pengeluaran.
-            Tukar mata uang dicatat terpisah sebagai perpindahan aset, bukan pemasukan atau pengeluaran.
+            ${heroHelper}
           </p>
         </div>
 
@@ -3634,7 +4402,7 @@ function MonthlyReportHero({ report }) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                Pemasukan
+                Uang masuk
               </p>
               <p className="mt-2 break-words text-base font-black text-brand-700 dark:text-brand-300">
                 ${formatCurrency(report.summary.externalIncomeIdr, "idr")}
@@ -3642,7 +4410,7 @@ function MonthlyReportHero({ report }) {
             </div>
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                Pengeluaran
+                Uang keluar
               </p>
               <p className="mt-2 break-words text-base font-black text-rose-700 dark:text-rose-300">
                 ${formatCurrency(report.summary.expenseIdr, "idr")}
@@ -3658,37 +4426,37 @@ function MonthlyReportHero({ report }) {
 function MonthlyReportKpis({ report }) {
   const stats = [
     {
-      title: "Pemasukan",
+      title: "Uang masuk",
       value: formatCurrency(report.summary.externalIncomeIdr, "idr"),
-      helper: "Uang masuk eksternal",
+      helper: "Total pemasukan",
     },
     {
-      title: "Pengeluaran",
+      title: "Uang keluar",
       value: formatCurrency(report.summary.expenseIdr, "idr"),
-      helper: "Total belanja bulan ini",
+      helper: "Total pengeluaran",
     },
     {
-      title: "Rasio simpan",
+      title: "Sisa dari masuk",
       value:
         report.summary.externalIncomeIdr > 0
           ? formatPercent(report.savingsRatio)
           : "-",
-      helper: "Cashflow / pemasukan",
+      helper: "Bagian uang masuk yang belum terpakai",
     },
     {
-      title: "Exchange",
+      title: "Tukar uang",
       value: formatCurrency(report.summary.exchangeVolumeIdr, "idr"),
-      helper: `${report.summary.exchangeCount} tukar mata uang`,
+      helper: `${report.summary.exchangeCount} transaksi tukar`,
     },
     {
-      title: "Valuasi tertunda",
+      title: "Belum ada rate",
       value: report.summary.unvaluedExpenseCount,
-      helper: "Expense asing tanpa rate",
+      helper: "Pengeluaran asing",
     },
     {
       title: "Rata-rata",
       value: formatCurrency(report.dailyAverageExpenseIdr, "idr"),
-      helper: "Pengeluaran per hari",
+      helper: "Keluar per hari",
     },
     {
       title: "Transaksi",
@@ -3844,7 +4612,7 @@ function MonthlyCurrencySummary({ report }) {
             Ringkasan Mata Uang
           </h3>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Income, expense, dan exchange dipisah supaya cashflow tidak tercampur.
+            Uang masuk, uang keluar, dan tukar uang dibuat terpisah agar tidak membingungkan.
           </p>
         </div>
       </div>
@@ -3879,13 +4647,13 @@ function MonthlyCurrencySummary({ report }) {
                       </p>
                     </div>
                     <div>
-                      <p className="text-slate-500 dark:text-slate-400">Exchange in</p>
+                      <p className="text-slate-500 dark:text-slate-400">Diterima</p>
                       <p className="mt-1 font-black text-sky-700 dark:text-sky-300">
                         ${formatCurrency(item.exchangeIn, item.currency)}
                       </p>
                     </div>
                     <div>
-                      <p className="text-slate-500 dark:text-slate-400">Exchange out</p>
+                      <p className="text-slate-500 dark:text-slate-400">Ditukar</p>
                       <p className="mt-1 font-black text-slate-700 dark:text-slate-200">
                         ${formatCurrency(item.exchangeOut, item.currency)}
                       </p>
@@ -3920,16 +4688,16 @@ function MonthlyReportCharts({ report }) {
       <div className=${`${PREMIUM_PANEL} report-reveal p-5 md:p-6`}>
         <div className="relative">
           <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
-            Cashflow
+            Uang Masuk vs Keluar
           </h3>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Pemasukan vs pengeluaran bulan ini.
+            Perbandingan total bulan ini.
           </p>
         </div>
         <div className="relative mt-5 grid gap-4">
           ${[
-            ["Pemasukan", report.summary.externalIncomeIdr, "from-brand-500 to-emerald-300"],
-            ["Pengeluaran", report.summary.expenseIdr, "from-rose-500 to-amber-400"],
+            ["Masuk", report.summary.externalIncomeIdr, "from-brand-500 to-emerald-300"],
+            ["Keluar", report.summary.expenseIdr, "from-rose-500 to-amber-400"],
           ].map(([label, value, gradient], index) => {
             const width = `${Math.max((Number(value) / cashflowMax) * 100, value > 0 ? 8 : 0)}%`;
             return html`
@@ -3957,10 +4725,10 @@ function MonthlyReportCharts({ report }) {
       <div className=${`${PREMIUM_PANEL} report-reveal p-5 md:p-6`}>
         <div className="relative">
           <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
-            Ritme Pengeluaran
+            Pola Harian
           </h3>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Pola harian sepanjang ${report.meta.label}.
+            Pengeluaran per hari di ${report.meta.label}.
           </p>
         </div>
         <div className="relative mt-5 flex h-36 items-end gap-1">
@@ -4065,14 +4833,14 @@ function MonthlyReportInsights({ report }) {
   const topCategory = report.topCategory;
   const budgetHelper =
     report.budgetInsights.length
-      ? `${formatPercent(report.budgetUsage)} terpakai dari total budget bernilai ${formatCurrency(
+      ? `${formatPercent(report.budgetUsage)} dari budget sudah terpakai. Total budget ${formatCurrency(
           report.budgetLimitBaseIdr,
           "idr",
-        )}`
-      : "Tambahkan budget agar laporan bisa memberi sinyal risiko.";
+        )}.`
+      : "Tambahkan budget agar laporan bisa memberi peringatan.";
   const rhythmHelper = report.meta.isCurrentMonth
-    ? `Proyeksi akhir bulan ${formatCurrency(report.projectedExpenseIdr, "idr")}.`
-    : "Rata-rata real dari bulan yang sudah selesai.";
+    ? `Jika pola sama, akhir bulan sekitar ${formatCurrency(report.projectedExpenseIdr, "idr")}.`
+    : "Rata-rata dari bulan yang sudah selesai.";
   const focusHelper =
     topCategory && topCategory.share >= 0.45
       ? `${topCategory.label} mengambil ${formatPercent(topCategory.share)} dari pengeluaran.`
@@ -4086,7 +4854,7 @@ function MonthlyReportInsights({ report }) {
       helper: focusHelper,
     },
     {
-      title: "Laju harian",
+      title: "Rata-rata harian",
       value: formatCurrency(report.dailyAverageExpenseIdr, "idr"),
       helper: rhythmHelper,
     },
@@ -4183,7 +4951,7 @@ function MonthlyReportEmptyState({ onNavigate }) {
         Laporan bulan ini masih kosong
       </h3>
       <p className="relative mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-slate-300">
-        Tambahkan transaksi agar CUANSYNC bisa membuat cashflow, chart kategori, dan insight bulanan.
+        Tambahkan transaksi agar CUANSYNC bisa menampilkan uang masuk, uang keluar, kategori, dan ringkasan bulanan.
       </p>
       <button
         type="button"
@@ -4217,13 +4985,13 @@ function MonthlyReportPage({
       <section className="grid gap-3 md:grid-cols-[1fr_minmax(18rem,24rem)] md:items-end">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
-            Monthly report
+            Laporan bulanan
           </p>
           <h2 className="mt-2 font-display text-2xl font-black text-slate-950 dark:text-white md:text-3xl">
-            Laporan Keuangan Bulanan
+            Ringkasan Bulan Ini
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-            Ringkasan cashflow, budget multi-currency, exchange, kategori, dan ritme pengeluaran dalam satu layar.
+            Lihat uang masuk, uang keluar, budget, dan transaksi penting dalam satu tempat.
           </p>
         </div>
         <${ReportMonthPicker}
@@ -4388,81 +5156,144 @@ function BudgetTracker({ budgets, monthLabel, onDelete }) {
         ? html`
             <div className="relative mt-5 space-y-3">
               ${budgets.map(
-                (budget) => html`
-                  <div
-                    key=${budget.id}
-                    className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <div className=${`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${budget.meta.chip}`}>
-                          ${budget.meta.label}
-                        </div>
-                        <p className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          Limit ${formatCurrency(budget.limitAmount, budget.currency)}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          Terpakai ${formatCurrency(budget.spentAmount, budget.currency)} /
-                          Sisa ${formatCurrency(Math.max(budget.remainingAmount, 0), budget.currency)}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          Batas aman hari ini ${formatCurrency(budget.dynamicDailyLimit, budget.currency)}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          Pengeluaran hari ini ${formatCurrency(budget.spentToday, budget.currency)}
-                        </p>
-                        <p className="mt-1 text-xs font-medium text-slate-600 dark:text-slate-300">
-                          ${budget.todayRemainingSafe >= 0
-                            ? `Sisa aman hari ini ${formatCurrency(budget.todayRemainingSafe, budget.currency)}`
-                            : `Over hari ini ${formatCurrency(Math.abs(budget.todayRemainingSafe), budget.currency)}`}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          ${budget.remainingDaysAfterToday > 0
-                            ? `Jatah harian besok ${formatCurrency(budget.projectedNextDailyLimit, budget.currency)} untuk ${budget.remainingDaysAfterToday} hari tersisa`
-                            : "Hari terakhir bulan ini, tidak ada jatah hari berikutnya."}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          ${budget.dailyAdjustment >= 0
-                            ? `Jatah harian naik ${formatCurrency(budget.dailyAdjustment, budget.currency)} dari rata-rata awal`
-                            : `Jatah harian turun ${formatCurrency(Math.abs(budget.dailyAdjustment), budget.currency)} dari rata-rata awal`}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <div className=${`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${budget.tone}`}>
-                          ${budget.statusLabel}
-                        </div>
-                        <button
-                          type="button"
-                          onClick=${() => onDelete(budget)}
-                          className="mt-3 block text-sm font-semibold text-rose-600 transition hover:text-rose-500"
-                        >
-                          Hapus
-                        </button>
-                      </div>
-                    </div>
-                    <div className="mt-4 h-2 rounded-full bg-slate-200/70 dark:bg-slate-800">
-                      <div
-                        className=${`h-full rounded-full bg-gradient-to-r ${budget.barClass}`}
-                        style=${{
-                          width: `${Math.min(
-                            Math.max(budget.usage * 100, budget.spentAmount > 0 ? 10 : 0),
-                            100,
-                          )}%`,
-                        }}
-                      ></div>
-                    </div>
-                    ${budget.status === "over"
-                      ? html`
-                          <p className="mt-3 text-xs font-semibold text-rose-600 dark:text-rose-300">
-                            Overspending ${formatCurrency(
-                              Math.abs(budget.remainingAmount),
-                              budget.currency,
-                            )} di atas limit.
+                (budget) => {
+                  const progressWidth = Math.min(
+                    Math.max(budget.usage * 100, budget.spentAmount > 0 ? 8 : 0),
+                    100,
+                  );
+                  const remainingAmount = Math.max(budget.remainingAmount, 0);
+                  const todaySafeValue = Math.abs(budget.todayRemainingSafe || 0);
+                  const tomorrowLabel =
+                    budget.remainingDaysAfterToday > 0
+                      ? formatCurrency(budget.projectedNextDailyLimit, budget.currency)
+                      : "-";
+                  const tomorrowHelper =
+                    budget.remainingDaysAfterToday > 0
+                      ? `${budget.remainingDaysAfterToday} hari tersisa`
+                      : "Hari terakhir";
+                  const adjustmentLabel =
+                    budget.dailyAdjustment >= 0
+                      ? `+${formatCurrency(budget.dailyAdjustment, budget.currency)}`
+                      : `-${formatCurrency(Math.abs(budget.dailyAdjustment), budget.currency)}`;
+                  const todaySafeLabel =
+                    budget.todayRemainingSafe >= 0 ? "Sisa hari ini" : "Over hari ini";
+                  const todaySafeTone =
+                    budget.todayRemainingSafe >= 0
+                      ? "text-emerald-700 dark:text-emerald-300"
+                      : "text-rose-600 dark:text-rose-300";
+
+                  return html`
+                    <div
+                      key=${budget.id}
+                      className="rounded-[24px] border border-slate-200/70 bg-white/58 p-4 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/40"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className=${`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${budget.meta.chip}`}>
+                            ${budget.meta.label}
+                          </div>
+                          <p className="mt-3 text-xs font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                            Limit bulanan
                           </p>
-                        `
-                      : null}
-                  </div>
-                `,
+                          <p className="mt-1 text-2xl font-black tracking-[-0.02em] text-slate-950 dark:text-white">
+                            ${formatCurrency(budget.limitAmount, budget.currency)}
+                          </p>
+                        </div>
+
+                        <div className="flex shrink-0 flex-col items-end gap-2">
+                          <div className=${`inline-flex rounded-full border px-2.5 py-1 text-xs font-black ${budget.tone}`}>
+                            ${budget.statusLabel}
+                          </div>
+                          <button
+                            type="button"
+                            onClick=${() => onDelete(budget)}
+                            className="rounded-full px-2 py-1 text-xs font-black text-rose-600 transition hover:bg-rose-500/10 hover:text-rose-500 dark:text-rose-300"
+                          >
+                            Hapus
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <div className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold">
+                          <span className="text-slate-500 dark:text-slate-400">
+                            Terpakai ${formatCurrency(budget.spentAmount, budget.currency)}
+                          </span>
+                          <span className="text-slate-700 dark:text-slate-200">
+                            ${formatPercent(budget.usage)}
+                          </span>
+                        </div>
+                        <div className="h-2.5 rounded-full bg-slate-200/70 dark:bg-slate-800">
+                          <div
+                            className=${`h-full rounded-full bg-gradient-to-r ${budget.barClass}`}
+                            style=${{ width: `${progressWidth}%` }}
+                          ></div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        <div className="rounded-2xl border border-slate-200/65 bg-white/52 p-3 dark:border-white/10 dark:bg-slate-950/30">
+                          <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                            Sisa budget
+                          </p>
+                          <p className="mt-1.5 truncate text-sm font-black text-slate-950 dark:text-white">
+                            ${formatCurrency(remainingAmount, budget.currency)}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200/65 bg-white/52 p-3 dark:border-white/10 dark:bg-slate-950/30">
+                          <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                            Batas hari ini
+                          </p>
+                          <p className="mt-1.5 truncate text-sm font-black text-slate-950 dark:text-white">
+                            ${formatCurrency(budget.dynamicDailyLimit, budget.currency)}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200/65 bg-white/52 p-3 dark:border-white/10 dark:bg-slate-950/30">
+                          <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                            Dipakai hari ini
+                          </p>
+                          <p className="mt-1.5 truncate text-sm font-black text-slate-950 dark:text-white">
+                            ${formatCurrency(budget.spentToday, budget.currency)}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200/65 bg-white/52 p-3 dark:border-white/10 dark:bg-slate-950/30">
+                          <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                            ${todaySafeLabel}
+                          </p>
+                          <p className=${`mt-1.5 truncate text-sm font-black ${todaySafeTone}`}>
+                            ${formatCurrency(todaySafeValue, budget.currency)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <div className="rounded-full border border-slate-200/70 bg-white/58 px-3 py-1.5 text-[11px] font-bold text-slate-600 dark:border-white/10 dark:bg-slate-950/30 dark:text-slate-300">
+                          Besok ${tomorrowLabel}
+                        </div>
+                        <div className="rounded-full border border-slate-200/70 bg-white/58 px-3 py-1.5 text-[11px] font-bold text-slate-600 dark:border-white/10 dark:bg-slate-950/30 dark:text-slate-300">
+                          ${tomorrowHelper}
+                        </div>
+                        <div className="rounded-full border border-slate-200/70 bg-white/58 px-3 py-1.5 text-[11px] font-bold text-slate-600 dark:border-white/10 dark:bg-slate-950/30 dark:text-slate-300">
+                          Ritme ${adjustmentLabel}
+                        </div>
+                      </div>
+
+                      ${budget.status === "over"
+                        ? html`
+                            <p className="mt-3 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-700 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200">
+                              Over ${formatCurrency(
+                                Math.abs(budget.remainingAmount),
+                                budget.currency,
+                              )} dari limit.
+                            </p>
+                          `
+                        : null}
+                    </div>
+                  `;
+                },
               )}
             </div>
           `
@@ -4704,63 +5535,52 @@ function SubmitActionBar({
 function SummaryCards({ summary }) {
   const cards = [
     {
-      title: "Total uang masuk",
-      value: formatCurrency(summary.totalIncomeIdr, "idr"),
+      title: "Masuk",
+      value: formatCurrencyCompact(summary.totalIncomeIdr, "idr"),
       tone: "text-emerald-700 dark:text-emerald-300",
-      halo: "from-emerald-300/30 to-transparent",
     },
     {
-      title: "Total uang keluar",
-      value: formatCurrency(summary.totalExpenseIdr, "idr"),
+      title: "Keluar",
+      value: formatCurrencyCompact(summary.totalExpenseIdr, "idr"),
       tone: "text-amber-700 dark:text-amber-300",
-      halo: "from-amber-300/26 to-transparent",
     },
     {
-      title: "Transfer / Exchange",
-      value: formatCurrency(summary.totalExchangeIdr, "idr"),
-      helper: `${summary.exchangeCount} transaksi`,
-      tone: "text-sky-700 dark:text-sky-300",
-      halo: "from-sky-300/26 to-transparent",
-    },
-    {
-      title: "Saldo bersih",
-      value: formatCurrency(summary.netIdr, "idr"),
+      title: "Bersih",
+      value: formatCurrencyCompact(summary.netIdr, "idr"),
       tone:
         summary.netIdr >= 0
           ? "text-brand-700 dark:text-brand-300"
           : "text-rose-700 dark:text-rose-300",
-      halo:
-        summary.netIdr >= 0
-          ? "from-brand-300/28 to-transparent"
-          : "from-rose-300/26 to-transparent",
-    },
-    {
-      title: "Transaksi tampil",
-      value: `${summary.count}`,
-      tone: "text-slate-950 dark:text-white",
-      halo: "from-sky-300/24 to-transparent",
     },
   ];
+  if (summary.totalExchangeIdr > 0 || summary.exchangeCount > 0) {
+    cards.push({
+      title: "Tukar",
+      value: formatCurrencyCompact(summary.totalExchangeIdr, "idr"),
+      helper: `${summary.exchangeCount}x`,
+      tone: "text-sky-700 dark:text-sky-300",
+    });
+  }
 
   return html`
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+    <div className="rounded-[22px] border border-slate-200/70 bg-white/60 p-2 shadow-[0_14px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/50 dark:shadow-black/24">
+      <div className=${`grid gap-1.5 ${cards.length > 3 ? "grid-cols-4" : "grid-cols-3"}`}>
       ${cards.map(
         (card) => html`
           <div
             key=${card.title}
-            className="cuan-card-soft relative overflow-hidden rounded-[24px] p-4"
+            className="min-w-0 rounded-2xl px-2 py-2 text-center transition hover:bg-slate-900/[0.04] dark:hover:bg-white/8"
           >
-            <div className=${`pointer-events-none absolute -right-12 -top-16 h-36 w-36 rounded-full bg-gradient-to-br ${card.halo} blur-3xl`}></div>
-            <div className="relative">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+            <div className="min-w-0">
+              <p className="truncate text-[9px] font-black uppercase tracking-[0.11em] text-slate-500 dark:text-slate-400">
                 ${card.title}
               </p>
-              <p className=${`mt-3 break-words text-2xl font-black tracking-[-0.02em] ${card.tone}`}>
+              <p className=${`mt-1 truncate text-sm font-black tracking-[-0.02em] tabular-nums min-[390px]:text-base ${card.tone}`}>
                 ${card.value}
               </p>
               ${card.helper
                 ? html`
-                    <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    <p className="mt-0.5 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
                       ${card.helper}
                     </p>
                   `
@@ -4769,6 +5589,7 @@ function SummaryCards({ summary }) {
           </div>
         `,
       )}
+      </div>
     </div>
   `;
 }
@@ -5709,7 +6530,7 @@ function TransactionList({
   loading = false,
   activeCurrencies = getActiveCurrencies(),
   title = "Aktivitas Terakhir",
-  description = "Semua perubahan angka langsung menggerakkan chart, kategori, dan budget.",
+  description = "",
   emptyMessage = "Belum ada transaksi.",
 }) {
   const [filters, setFilters] = useState(DEFAULT_TRANSACTION_FILTERS);
@@ -5762,20 +6583,10 @@ function TransactionList({
   }
 
   return html`
-    <div className="grid gap-5">
-      <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-        <div className="relative">
-          <h3 className="font-display text-2xl font-bold tracking-[-0.02em]">${title}</h3>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600 dark:text-slate-300/80">
-            ${description}
-          </p>
-        </div>
-      </section>
-
+    <div className="grid gap-3">
       <${SummaryCards} summary=${summary} />
 
-      <section className="history-filter-panel sticky top-3 z-20 rounded-[26px] border border-slate-200/70 bg-white/82 p-3 shadow-[0_18px_50px_rgba(15,23,42,0.10)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/82 dark:shadow-black/30">
+      <section className="history-filter-panel sticky top-3 z-20 rounded-[24px] border border-slate-200/70 bg-white/82 p-2.5 shadow-[0_18px_50px_rgba(15,23,42,0.10)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/82 dark:shadow-black/30">
         <div className="grid gap-3">
           <input
             type="search"
@@ -5796,7 +6607,7 @@ function TransactionList({
             <button
               type="button"
               onClick=${() => setShowAdvancedFilters((current) => !current)}
-              className="cuan-secondary min-h-11 rounded-2xl px-4 py-2 text-xs font-black transition hover:-translate-y-0.5"
+              className="cuan-secondary min-h-10 rounded-2xl px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
             >
               ${showAdvancedFilters ? "Tutup filter" : "Filter lanjutan"}
             </button>
@@ -5939,6 +6750,7 @@ function DailyExpenseForm({
   todaySpentIdr,
   todaySpentCurrency = todaySpentThb,
   expenseCurrency = DEFAULT_BASE_CURRENCY,
+  baseCurrency = getBaseCurrency(),
 }) {
   const [form, setForm] = useState({
     description: "",
@@ -6058,10 +6870,12 @@ function DailyExpenseForm({
           </div>
           <div className="min-w-0 rounded-2xl border border-slate-200/60 bg-white/50 px-3 py-3 dark:border-white/10 dark:bg-slate-950/30">
             <p className="truncate text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-              Valuasi IDR
+              Valuasi ${normalizeCurrencyCode(baseCurrency)}
             </p>
             <p className="mt-1.5 truncate text-sm font-black text-slate-950 dark:text-white md:text-lg">
-              ${todaySpentIdr > 0 ? formatCurrency(todaySpentIdr, "idr") : "-"}
+              ${todaySpentIdr > 0
+                ? formatCurrency(todaySpentIdr, normalizeCurrencyCode(baseCurrency))
+                : "-"}
             </p>
           </div>
         </div>
@@ -6390,17 +7204,20 @@ function InvestmentSnapshot({ metrics, onAddGoal }) {
   `;
 }
 
-function CurrencyPicker({ value, onChange }) {
-  const selected = normalizeCurrencyList(value);
+function CurrencyPicker({ value, onChange, baseCurrency = getBaseCurrency() }) {
+  const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
+  const selected = normalizeCurrencyList(value, {
+    baseCurrency: normalizedBaseCurrency,
+  });
   const selectedSet = new Set(selected);
 
   function toggleCurrency(currency) {
     const code = normalizeCurrencyCode(currency);
-    if (code === DEFAULT_BASE_CURRENCY) return;
+    if (code === normalizedBaseCurrency) return;
     const next = selectedSet.has(code)
       ? selected.filter((item) => item !== code)
       : [...selected, code];
-    onChange(normalizeCurrencyList(next));
+    onChange(normalizeCurrencyList(next, { baseCurrency: normalizedBaseCurrency }));
   }
 
   return html`
@@ -6408,7 +7225,7 @@ function CurrencyPicker({ value, onChange }) {
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
         ${DEFAULT_ACTIVE_CURRENCIES.map((currency) => {
           const active = selectedSet.has(currency);
-          const locked = currency === DEFAULT_BASE_CURRENCY;
+          const locked = currency === normalizedBaseCurrency;
           return html`
             <button
               key=${currency}
@@ -6432,7 +7249,7 @@ function CurrencyPicker({ value, onChange }) {
         })}
       </div>
       <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
-        IDR dikunci sebagai mata uang utama agar valuasi, saldo bersih, dan laporan tetap konsisten.
+        ${normalizedBaseCurrency} dikunci sebagai mata uang utama agar valuasi, saldo bersih, dan laporan tetap konsisten.
       </p>
     </div>
   `;
@@ -6522,14 +7339,6 @@ function CurrencyOnboarding({ onSave }) {
     );
   }, [normalizedSelectedCurrencies.join("|")]);
 
-  function applyPreset(currencies) {
-    const nextCurrencies = normalizeCurrencyList(currencies);
-    setSelectedCurrencies(nextCurrencies);
-    setDailyCurrency((current) =>
-      nextCurrencies.includes(current) ? current : nextCurrencies[0] || DEFAULT_BASE_CURRENCY,
-    );
-  }
-
   return html`
     <main className="relative isolate min-h-screen overflow-hidden px-4 py-7 md:px-6 lg:px-8">
       <${PremiumMeshBackground} />
@@ -6549,23 +7358,6 @@ function CurrencyOnboarding({ onSave }) {
             <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300/80">
               CUANSYNC hanya akan menampilkan saldo, form, filter, dan exchange untuk mata uang yang kamu aktifkan.
             </p>
-
-            <div className="mt-5 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick=${() => applyPreset(["IDR"])}
-                className="cuan-secondary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
-              >
-                IDR saja
-              </button>
-              <button
-                type="button"
-                onClick=${() => applyPreset(["IDR", "THB"])}
-                className="cuan-secondary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
-              >
-                IDR + THB
-              </button>
-            </div>
 
             <div className="mt-5">
               <${CurrencyPicker}
@@ -6606,195 +7398,688 @@ function CurrencyOnboarding({ onSave }) {
   `;
 }
 
-function SettingsPanel({
-  user,
-  profilePhoto,
-  theme,
-  onThemeChange,
-  currencySettings,
-  onCurrencySettingsChange,
-  onUploadPhoto,
-  onRemovePhoto,
-  onSignOut,
-}) {
-  const initials = getUserInitials(user);
-  const displayName = getUserDisplayName(user);
-  const normalizedSettings = normalizeCurrencySettings(
-    currencySettings || DEFAULT_SELECTED_CURRENCIES,
-  );
-  const [selectedCurrencies, setSelectedCurrencies] = useState(() =>
-    normalizedSettings.activeCurrencies,
-  );
-  const savedCurrencies = normalizeCurrencyList(
-    currencySettings?.activeCurrencies || DEFAULT_SELECTED_CURRENCIES,
-  );
-  const [selectedDailyCurrency, setSelectedDailyCurrency] = useState(
-    normalizedSettings.dailyCurrency,
-  );
-  const savedDailyCurrency = normalizeCurrencySettings({
-    activeCurrencies: savedCurrencies,
-    dailyCurrency: currencySettings?.dailyCurrency,
-  }).dailyCurrency;
-  const effectiveDailyCurrency = selectedCurrencies.includes(selectedDailyCurrency)
-    ? selectedDailyCurrency
-    : selectedCurrencies[0] || DEFAULT_BASE_CURRENCY;
-  const currencyChanged =
-    selectedCurrencies.join("|") !== savedCurrencies.join("|") ||
-    effectiveDailyCurrency !== savedDailyCurrency;
-
+function SheetShell({ open, title, helper, onClose, children, labelledBy }) {
   useEffect(() => {
-    const nextSettings = normalizeCurrencySettings(
-      currencySettings || DEFAULT_SELECTED_CURRENCIES,
-    );
-    setSelectedCurrencies(nextSettings.activeCurrencies);
-    setSelectedDailyCurrency(nextSettings.dailyCurrency);
-  }, [currencySettings]);
+    if (!open) return undefined;
+    function handleKeyDown(event) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
 
-  useEffect(() => {
-    setSelectedDailyCurrency((current) =>
-      selectedCurrencies.includes(current)
-        ? current
-        : selectedCurrencies[0] || DEFAULT_BASE_CURRENCY,
-    );
-  }, [selectedCurrencies.join("|")]);
+  if (!open) return null;
 
   return html`
-    <div className="grid gap-6">
-      <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-        <div className="relative">
-          <h3 className="font-display text-xl font-bold">Pengaturan</h3>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-            Foto profil, tampilan, mata uang, dan akun.
-          </p>
-        </div>
-
-        <div className="cuan-card-soft relative mt-5 rounded-2xl p-4">
-          <div className="flex items-center gap-4">
-
-            <${AvatarBadge} src=${profilePhoto} initials=${initials} size="lg" />
-            <div className="min-w-0">
-              <p className="truncate text-base font-semibold text-slate-950 dark:text-white">
-                ${displayName}
-              </p>
-              <p className="truncate text-sm text-slate-500 dark:text-slate-400">
-                ${user?.email || "Demo Lokal"}
-              </p>
-            </div>
+    <div
+      className="fixed inset-0 flex items-end justify-center px-3 pb-3 pt-16 md:items-center md:p-6"
+      style=${{ zIndex: 1000 }}
+    >
+      <button
+        type="button"
+        aria-label="Tutup sheet"
+        onClick=${onClose}
+        className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm"
+      ></button>
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby=${labelledBy}
+        className="settings-bottom-sheet relative z-10 w-full max-w-md overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/95 p-4 text-slate-950 shadow-[0_-24px_80px_rgba(15,23,42,0.24)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/95 dark:text-white dark:shadow-black/50"
+      >
+        <div className="mx-auto mb-3 h-1 w-12 rounded-full bg-slate-300 dark:bg-slate-700"></div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 id=${labelledBy} className="font-display text-lg font-black">
+              ${title}
+            </h2>
+            ${helper
+              ? html`
+                  <p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300">
+                    ${helper}
+                  </p>
+                `
+              : null}
           </div>
+          <button
+            type="button"
+            onClick=${onClose}
+            aria-label="Tutup"
+            className="inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-300/70 bg-white/70 text-sm font-black text-slate-700 transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/70 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
+          >
+            x
+          </button>
+        </div>
+        <div className="mt-4 max-h-[70svh] overflow-y-auto pr-1">
+          ${children}
+        </div>
+      </section>
+    </div>
+  `;
+}
 
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <label className="cuan-secondary flex cursor-pointer items-center justify-center rounded-2xl px-4 py-3 text-sm font-semibold transition hover:-translate-y-0.5">
-              Upload Profile Picture
+function SettingsSwitch({ checked, onChange, label }) {
+  return html`
+    <button
+      type="button"
+      role="switch"
+      aria-checked=${checked}
+      aria-label=${label}
+      onClick=${() => onChange(!checked)}
+      className=${`relative inline-flex h-8 min-h-8 w-14 shrink-0 items-center rounded-full border p-1 transition focus:outline-none focus:ring-2 focus:ring-emerald-500/60 ${
+        checked
+          ? "border-emerald-400/50 bg-emerald-500 shadow-[0_12px_28px_rgba(16,185,129,0.22)]"
+          : "border-slate-300/80 bg-slate-200/80 dark:border-white/10 dark:bg-slate-800"
+      }`}
+    >
+      <span
+        className=${`h-6 w-6 rounded-full bg-white shadow-sm transition ${
+          checked ? "translate-x-6" : "translate-x-0"
+        }`}
+      ></span>
+    </button>
+  `;
+}
+
+function SettingsRow({
+  label,
+  value = null,
+  helper = "",
+  onClick = null,
+  right = null,
+  danger = false,
+  disabled = false,
+}) {
+  const content = html`
+    <${React.Fragment}>
+      <span className="min-w-0 flex-1">
+        <span className=${`block truncate text-sm font-black ${danger ? "text-rose-600 dark:text-rose-300" : "text-slate-950 dark:text-white"}`}>
+          ${label}
+        </span>
+        ${helper
+          ? html`
+              <span className="mt-0.5 block truncate text-xs font-semibold text-slate-500 dark:text-slate-400">
+                ${helper}
+              </span>
+            `
+          : null}
+      </span>
+      <span className="ml-3 flex shrink-0 items-center gap-2">
+        ${value
+          ? html`
+              <span className="max-w-[9rem] truncate text-right text-sm font-bold text-slate-500 dark:text-slate-300">
+                ${value}
+              </span>
+            `
+          : null}
+        ${right}
+        ${onClick
+          ? html`
+              <span className=${`text-lg font-black ${danger ? "text-rose-400" : "text-slate-400 dark:text-slate-500"}`}>
+                >
+              </span>
+            `
+          : null}
+      </span>
+    <//>
+  `;
+
+  if (onClick) {
+    return html`
+      <button
+        type="button"
+        onClick=${onClick}
+        disabled=${disabled}
+        className="flex min-h-14 w-full items-center justify-between gap-3 px-3 py-2 text-left transition hover:bg-slate-950/[0.035] disabled:cursor-not-allowed disabled:opacity-55 dark:hover:bg-white/[0.045]"
+      >
+        ${content}
+      </button>
+    `;
+  }
+
+  return html`
+    <div className="flex min-h-14 items-center justify-between gap-3 px-3 py-2">
+      ${content}
+    </div>
+  `;
+}
+
+function SettingsSection({ title, children }) {
+  return html`
+    <section>
+      <h3 className="px-1 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+        ${title}
+      </h3>
+      <div className="cuan-card-soft mt-2 divide-y divide-slate-200/70 overflow-hidden rounded-[24px] dark:divide-white/10">
+        ${children}
+      </div>
+    </section>
+  `;
+}
+
+function formatCurrencySummary(currencies = []) {
+  const normalized = normalizeCurrencyList(currencies, {
+    baseCurrency: currencies[0] || DEFAULT_BASE_CURRENCY,
+  });
+  const visible = normalized.slice(0, 3).join(", ");
+  const hiddenCount = Math.max(normalized.length - 3, 0);
+  return hiddenCount ? `${visible} +${hiddenCount}` : visible;
+}
+
+function ProfileSummaryRow({ profile, user, avatarSrc, onClick }) {
+  const displayName = getProfileDisplayName(profile, user);
+  const email = getProfileEmail(profile, user);
+  const initials = getUserInitials({ ...user, user_metadata: { full_name: displayName } });
+
+  return html`
+    <button
+      type="button"
+      onClick=${onClick}
+      className="cuan-card-soft flex min-h-[68px] w-full items-center gap-3 rounded-[24px] px-3 py-3 text-left transition hover:-translate-y-0.5 hover:border-emerald-400/30"
+    >
+      <${AvatarBadge} src=${avatarSrc} initials=${initials} size="md" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-base font-black text-slate-950 dark:text-white">
+          ${displayName}
+        </span>
+        <span className="mt-0.5 block truncate text-xs font-semibold text-slate-500 dark:text-slate-400">
+          ${email}
+        </span>
+      </span>
+      <span className="shrink-0 text-lg font-black text-slate-400 dark:text-slate-500">></span>
+    </button>
+  `;
+}
+
+function ProfileDetailSheet({ open, profile, user, avatarSrc, onClose, onSave }) {
+  const [displayName, setDisplayName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [saving, setSaving] = useState(false);
+  const email = getProfileEmail(profile, user);
+  const initials = getUserInitials({
+    ...user,
+    user_metadata: { full_name: displayName || getProfileDisplayName(profile, user) },
+  });
+
+  useEffect(() => {
+    if (!open) return;
+    setDisplayName(getProfileDisplayName(profile, user));
+    setAvatarUrl(profile?.avatar_url || avatarSrc || "");
+    setSaving(false);
+  }, [open, profile, user, avatarSrc]);
+
+  async function handleAvatarUpload(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const nextPhoto = await resizeProfileImage(file);
+    setAvatarUrl(nextPhoto);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    const succeeded = await onSave({
+      display_name: displayName.trim() || getProfileDisplayName(profile, user),
+      avatar_url: avatarUrl,
+    });
+    setSaving(false);
+    if (succeeded) onClose();
+  }
+
+  return html`
+    <${SheetShell}
+      open=${open}
+      onClose=${onClose}
+      title="Detail profil"
+      helper="Kelola identitas akun tanpa memenuhi halaman utama Settings."
+      labelledBy="profile-detail-sheet-title"
+    >
+      <div className="grid gap-4">
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-200/70 bg-white/62 p-3 dark:border-white/10 dark:bg-white/5">
+          <${AvatarBadge} src=${avatarUrl} initials=${initials} size="lg" />
+          <div className="grid min-w-0 flex-1 gap-2">
+            <label className="cuan-secondary flex min-h-11 cursor-pointer items-center justify-center rounded-2xl px-3 text-sm font-black transition hover:-translate-y-0.5">
+              Upload / ganti avatar
               <input
                 type="file"
                 accept="image/*"
                 className="hidden"
-                onChange=${onUploadPhoto}
+                onChange=${handleAvatarUpload}
               />
             </label>
             <button
               type="button"
-              onClick=${onRemovePhoto}
-              disabled=${!profilePhoto}
-              className="cuan-secondary rounded-2xl px-4 py-3 text-sm font-semibold transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick=${() => setAvatarUrl("")}
+              disabled=${!avatarUrl}
+              className="rounded-2xl border border-rose-300/25 bg-rose-500/8 px-3 py-2 text-sm font-black text-rose-600 transition hover:bg-rose-500/12 disabled:cursor-not-allowed disabled:opacity-50 dark:text-rose-300"
             >
-              Hapus foto
+              Remove avatar
             </button>
           </div>
         </div>
+
+        <label className="block">
+          <span className="mb-2 block text-sm font-black text-slate-700 dark:text-slate-200">
+            Display name
+          </span>
+          <input
+            type="text"
+            value=${displayName}
+            onChange=${(event) => setDisplayName(event.target.value)}
+            className=${GLASS_INPUT}
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-sm font-black text-slate-700 dark:text-slate-200">
+            Email
+          </span>
+          <input
+            type="email"
+            value=${email}
+            readOnly=${true}
+            className=${`${GLASS_INPUT} cursor-not-allowed opacity-75`}
+          />
+        </label>
+
+        <button
+          type="button"
+          onClick=${handleSave}
+          disabled=${saving}
+          className="history-action-primary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          ${saving ? "Menyimpan..." : "Save changes"}
+        </button>
       </div>
+    <//>
+  `;
+}
 
-      <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-        <div className="relative">
-          <h3 className="font-display text-xl font-bold">Mata Uang Aktif</h3>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-            Pilih mata uang yang benar-benar kamu pakai dan tentukan default untuk pengeluaran harian.
+function CurrencySetupChip({ currency, active, base, daily, onToggle }) {
+  return html`
+    <button
+      type="button"
+      onClick=${() => onToggle(currency)}
+      aria-pressed=${active}
+      className=${`inline-flex min-h-10 items-center gap-2 rounded-2xl border px-3 text-sm font-black transition ${
+        active
+          ? "border-emerald-400/50 bg-emerald-500 text-white shadow-[0_12px_28px_rgba(16,185,129,0.22)]"
+          : "border-slate-300/70 bg-white/60 text-slate-700 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"
+      }`}
+    >
+      <span>${currency}</span>
+      ${base
+        ? html`<span className="rounded-full bg-white/18 px-1.5 py-0.5 text-[10px]">Base</span>`
+        : null}
+      ${daily
+        ? html`<span className="rounded-full bg-white/18 px-1.5 py-0.5 text-[10px]">Daily</span>`
+        : null}
+    </button>
+  `;
+}
+
+function MoneySetupSheet({ open, settings, onClose, onSave }) {
+  const normalizedSettings = normalizeCurrencySettings(settings || DEFAULT_SELECTED_CURRENCIES, {
+    configured: true,
+  });
+  const [query, setQuery] = useState("");
+  const [selectedCurrencies, setSelectedCurrencies] = useState(normalizedSettings.activeCurrencies);
+  const [baseCurrency, setBaseCurrency] = useState(normalizedSettings.baseCurrency);
+  const [dailyCurrency, setDailyCurrency] = useState(normalizedSettings.dailyCurrency);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const next = normalizeCurrencySettings(settings || DEFAULT_SELECTED_CURRENCIES, {
+      configured: true,
+    });
+    setSelectedCurrencies(next.activeCurrencies);
+    setBaseCurrency(next.baseCurrency);
+    setDailyCurrency(next.dailyCurrency);
+    setQuery("");
+    setSaving(false);
+  }, [open, settings]);
+
+  const cleanQuery = String(query || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "")
+    .slice(0, 3);
+  const currencyPool = normalizeCurrencyList(
+    [...DEFAULT_ACTIVE_CURRENCIES, ...selectedCurrencies, cleanQuery].filter(Boolean),
+    { ensureBase: false, baseCurrency },
+  );
+  const filteredCurrencies = currencyPool.filter((currency) =>
+    currency.includes(cleanQuery),
+  );
+  const effectiveSelectedCurrencies = normalizeCurrencyList(selectedCurrencies, {
+    baseCurrency,
+  });
+  const effectiveBaseCurrency = effectiveSelectedCurrencies.includes(baseCurrency)
+    ? baseCurrency
+    : effectiveSelectedCurrencies[0] || DEFAULT_BASE_CURRENCY;
+  const effectiveDailyCurrency = effectiveSelectedCurrencies.includes(dailyCurrency)
+    ? dailyCurrency
+    : effectiveSelectedCurrencies[0] || effectiveBaseCurrency;
+
+  function toggleCurrency(currency) {
+    setSelectedCurrencies((current) => {
+      const normalizedCurrent = normalizeCurrencyList(current, {
+        baseCurrency,
+      });
+      if (normalizedCurrent.includes(currency) && normalizedCurrent.length > 1) {
+        const next = normalizedCurrent.filter((item) => item !== currency);
+        if (baseCurrency === currency) setBaseCurrency(next[0] || DEFAULT_BASE_CURRENCY);
+        if (dailyCurrency === currency) setDailyCurrency(next[0] || DEFAULT_BASE_CURRENCY);
+        return next;
+      }
+      return normalizeCurrencyList([...normalizedCurrent, currency], {
+        baseCurrency: currency === baseCurrency ? currency : baseCurrency,
+      });
+    });
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    const succeeded = await onSave({
+      activeCurrencies: effectiveSelectedCurrencies,
+      baseCurrency: effectiveBaseCurrency,
+      dailyCurrency: effectiveDailyCurrency,
+    });
+    setSaving(false);
+    if (succeeded !== false) onClose();
+  }
+
+  return html`
+    <${SheetShell}
+      open=${open}
+      onClose=${onClose}
+      title="Money setup"
+      helper="Atur mata uang aktif, base laporan, dan default pengeluaran harian."
+      labelledBy="money-setup-sheet-title"
+    >
+      <div className="grid gap-4">
+        <label className="block">
+          <span className="mb-2 block text-sm font-black text-slate-700 dark:text-slate-200">
+            Search / add currency
+          </span>
+          <input
+            type="text"
+            inputMode="text"
+            maxLength=${3}
+            value=${query}
+            onChange=${(event) =>
+              setQuery(
+                String(event.target.value || "")
+                  .toUpperCase()
+                  .replace(/[^A-Z]/g, "")
+                  .slice(0, 3),
+              )}
+            placeholder="USD"
+            className=${GLASS_INPUT}
+          />
+        </label>
+
+        <div>
+          <p className="mb-2 text-sm font-black text-slate-700 dark:text-slate-200">
+            Active currencies
           </p>
+          <div className="flex flex-wrap gap-2">
+            ${filteredCurrencies.map((currency) => html`
+              <${CurrencySetupChip}
+                key=${currency}
+                currency=${currency}
+                active=${effectiveSelectedCurrencies.includes(currency)}
+                base=${currency === effectiveBaseCurrency}
+                daily=${currency === effectiveDailyCurrency}
+                onToggle=${toggleCurrency}
+              />
+            `)}
+          </div>
         </div>
 
-        <div className="relative mt-5">
-          <${CurrencyPicker}
-            value=${selectedCurrencies}
-            onChange=${setSelectedCurrencies}
-          />
-        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-2 block text-sm font-black text-slate-700 dark:text-slate-200">
+              Base currency
+            </span>
+            <select
+              value=${effectiveBaseCurrency}
+              onChange=${(event) => setBaseCurrency(event.target.value)}
+              className=${GLASS_INPUT}
+            >
+              ${effectiveSelectedCurrencies.map((currency) => html`
+                <option key=${currency} value=${currency}>${currency}</option>
+              `)}
+            </select>
+            <span className="mt-2 block text-xs leading-5 text-slate-500 dark:text-slate-400">
+              Base currency dipakai untuk laporan dan valuasi.
+            </span>
+          </label>
 
-        <div className="relative mt-5">
-          <${DailyCurrencySelector}
-            currencies=${selectedCurrencies}
-            value=${effectiveDailyCurrency}
-            onChange=${setSelectedDailyCurrency}
-            title="Default Pengeluaran Hari Ini"
-            helper="Cocok untuk user yang tinggal di Amerika, Australia, atau negara lain tanpa harus mengubah form setiap kali input."
-          />
+          <label className="block">
+            <span className="mb-2 block text-sm font-black text-slate-700 dark:text-slate-200">
+              Daily currency
+            </span>
+            <select
+              value=${effectiveDailyCurrency}
+              onChange=${(event) => setDailyCurrency(event.target.value)}
+              className=${GLASS_INPUT}
+            >
+              ${effectiveSelectedCurrencies.map((currency) => html`
+                <option key=${currency} value=${currency}>${currency}</option>
+              `)}
+            </select>
+            <span className="mt-2 block text-xs leading-5 text-slate-500 dark:text-slate-400">
+              Daily currency dipakai sebagai default pengeluaran harian.
+            </span>
+          </label>
         </div>
 
         <button
           type="button"
-          onClick=${() =>
-            onCurrencySettingsChange({
-              activeCurrencies: selectedCurrencies,
-              dailyCurrency: effectiveDailyCurrency,
-            })}
-          disabled=${!currencyChanged}
-          className="history-action-primary relative mt-4 w-full min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-55"
+          onClick=${handleSave}
+          disabled=${saving}
+          className="history-action-primary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          ${currencyChanged ? "Simpan mata uang" : "Mata uang sudah tersimpan"}
+          ${saving ? "Menyimpan..." : "Save money setup"}
         </button>
       </div>
+    <//>
+  `;
+}
 
-      <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-        <div className="relative">
-          <h3 className="font-display text-xl font-bold">Tampilan</h3>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-            Pilih mode yang paling nyaman dipakai.
-          </p>
-        </div>
+function ThemeSegmentedControl({ value, onChange }) {
+  const normalizedValue = normalizeThemeMode(value);
 
-        <div className="cuan-segment relative mt-5 grid grid-cols-2 gap-2 rounded-2xl p-1">
-          ${[
-            { key: "light", label: "Mode Terang" },
-            { key: "dark", label: "Mode Gelap" },
-          ].map(
-            (option) => html`
-              <button
-                key=${option.key}
-                type="button"
-                onClick=${() => onThemeChange(option.key)}
-                className=${`rounded-2xl px-3 py-3 text-sm font-semibold transition ${
-                  theme === option.key
-                    ? "bg-brand-600 text-white shadow-[0_16px_40px_rgba(16,185,129,0.22)] dark:bg-emerald-500 dark:text-white dark:shadow-[0_16px_40px_rgba(16,185,129,0.22)]"
-                    : "text-slate-700 hover:bg-white/70 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-white"
-                }`}
-              >
-                ${option.label}
-              </button>
-            `,
-          )}
-        </div>
-      </div>
-
-      <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-        <div className="relative">
-          <h3 className="font-display text-xl font-bold">Akun</h3>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-            Keluar dari sesi saat ini.
-          </p>
-        </div>
+  return html`
+    <div className="cuan-segment grid w-full grid-cols-3 gap-1 rounded-2xl p-1">
+      ${THEME_MODE_OPTIONS.map((option) => html`
         <button
+          key=${option.key}
           type="button"
-          onClick=${onSignOut}
-          className="cuan-secondary relative mt-5 w-full rounded-2xl px-4 py-3.5 text-sm font-semibold transition hover:-translate-y-0.5"
+          onClick=${() => onChange(option.key)}
+          className=${`min-h-10 rounded-[14px] px-2 text-xs font-black transition ${
+            normalizedValue === option.key
+              ? "bg-brand-600 text-white shadow-[0_12px_28px_rgba(16,185,129,0.22)] dark:bg-emerald-500"
+              : "text-slate-600 hover:bg-white/70 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"
+          }`}
         >
-          Keluar
+          ${option.label}
         </button>
-      </div>
+      `)}
     </div>
   `;
+}
+
+function ConfirmLogoutSheet({ open, onClose, onConfirm }) {
+  return html`
+    <${SheetShell}
+      open=${open}
+      onClose=${onClose}
+      title="Keluar akun?"
+      helper="Sesi di perangkat ini akan ditutup. Data tersimpan tetap aman di akun kamu."
+      labelledBy="confirm-logout-sheet-title"
+    >
+      <div className="grid gap-3">
+        <button
+          type="button"
+          onClick=${onConfirm}
+          className="min-h-12 rounded-2xl bg-rose-500 px-4 py-3 text-sm font-black text-white shadow-[0_16px_38px_rgba(244,63,94,0.22)] transition hover:-translate-y-0.5 hover:bg-rose-600"
+        >
+          Ya, logout
+        </button>
+        <button
+          type="button"
+          onClick=${onClose}
+          className="history-action-secondary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+        >
+          Batal
+        </button>
+      </div>
+    <//>
+  `;
+}
+
+function SettingsPage({
+  user,
+  profile,
+  profilePhoto,
+  theme,
+  onThemeChange,
+  currencySettings,
+  balanceVisible,
+  onToggleBalanceVisibility,
+  onCurrencySettingsChange,
+  onSaveProfile,
+  onSignOut,
+}) {
+  const [profileSheetOpen, setProfileSheetOpen] = useState(false);
+  const [moneySheetOpen, setMoneySheetOpen] = useState(false);
+  const [logoutSheetOpen, setLogoutSheetOpen] = useState(false);
+  const normalizedSettings = normalizeCurrencySettings(
+    currencySettings || DEFAULT_SELECTED_CURRENCIES,
+    { configured: true },
+  );
+  const activeCurrencies = normalizedSettings.activeCurrencies;
+  const activeCurrencySummary = formatCurrencySummary(activeCurrencies);
+
+  return html`
+    <div className="settings-page mx-auto grid max-w-2xl gap-4 pb-[calc(110px+env(safe-area-inset-bottom))] md:pb-6">
+      <div className="px-1">
+        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-300">
+          CUANSYNC
+        </p>
+        <h2 className="mt-1 font-display text-2xl font-black text-slate-950 dark:text-white">
+          Settings
+        </h2>
+      </div>
+
+      <${ProfileSummaryRow}
+        profile=${profile}
+        user=${user}
+        avatarSrc=${profilePhoto}
+        onClick=${() => setProfileSheetOpen(true)}
+      />
+
+      <${SettingsSection} title="Money setup">
+        <${SettingsRow}
+          label="Active currencies"
+          helper="Mata uang yang tampil di wallet dan form"
+          value=${activeCurrencySummary}
+          onClick=${() => setMoneySheetOpen(true)}
+        />
+        <${SettingsRow}
+          label="Daily currency"
+          helper="Default pengeluaran harian"
+          value=${normalizedSettings.dailyCurrency}
+          onClick=${() => setMoneySheetOpen(true)}
+        />
+        <${SettingsRow}
+          label="Base currency"
+          helper="Laporan dan valuasi saldo"
+          value=${normalizedSettings.baseCurrency}
+          onClick=${() => setMoneySheetOpen(true)}
+        />
+        <${SettingsRow}
+          label="Hide balances"
+          helper="Sembunyikan nominal sensitif"
+          right=${html`
+            <${SettingsSwitch}
+              checked=${!balanceVisible}
+              label="Hide balances"
+              onChange=${(checked) => onToggleBalanceVisibility(checked)}
+            />
+          `}
+        />
+      <//>
+
+      <${SettingsSection} title="Preferences">
+        <${SettingsRow}
+          label="Theme mode"
+          helper="Simpan otomatis saat berubah"
+          right=${html`
+            <div className="w-[11.5rem] max-w-[48vw]">
+              <${ThemeSegmentedControl} value=${theme} onChange=${onThemeChange} />
+            </div>
+          `}
+        />
+      <//>
+
+      <${SettingsSection} title="Security & privacy">
+        <${SettingsRow}
+          label="App lock"
+          helper="Biometric lock segera hadir"
+          value="Soon"
+          disabled=${true}
+        />
+        <${SettingsRow}
+          label="Export / backup data"
+          helper="Backup transaksi dan budget"
+          value="Soon"
+          disabled=${true}
+        />
+      <//>
+
+      <section className="pt-1">
+        <button
+          type="button"
+          onClick=${() => setLogoutSheetOpen(true)}
+          className="flex min-h-14 w-full items-center justify-between rounded-[22px] border border-rose-300/25 bg-rose-500/8 px-3 py-2 text-left text-sm font-black text-rose-600 transition hover:bg-rose-500/12 dark:border-rose-400/20 dark:text-rose-300"
+        >
+          <span>Logout</span>
+          <span>></span>
+        </button>
+      </section>
+
+      <${ProfileDetailSheet}
+        open=${profileSheetOpen}
+        profile=${profile}
+        user=${user}
+        avatarSrc=${profilePhoto}
+        onClose=${() => setProfileSheetOpen(false)}
+        onSave=${onSaveProfile}
+      />
+      <${MoneySetupSheet}
+        open=${moneySheetOpen}
+        settings=${normalizedSettings}
+        onClose=${() => setMoneySheetOpen(false)}
+        onSave=${onCurrencySettingsChange}
+      />
+      <${ConfirmLogoutSheet}
+        open=${logoutSheetOpen}
+        onClose=${() => setLogoutSheetOpen(false)}
+        onConfirm=${() => {
+          setLogoutSheetOpen(false);
+          onSignOut();
+        }}
+      />
+    </div>
+  `;
+}
+
+function SettingsPanel(props) {
+  return html`<${SettingsPage} ...${props} />`;
 }
 
 function TransactionForm({
@@ -6802,10 +8087,14 @@ function TransactionForm({
   onSubmit,
   loading,
   activeCurrencies: activeCurrencySettings = getActiveCurrencies(),
+  dailyCurrency: dailyCurrencySetting = getBaseCurrency(),
+  baseCurrency: baseCurrencySetting = getBaseCurrency(),
 }) {
   const [entryType, setEntryType] = useState("income");
-  const [incomeCurrency, setIncomeCurrency] = useState("IDR");
-  const [expenseCurrency, setExpenseCurrency] = useState(DEFAULT_BASE_CURRENCY);
+  const [incomeCurrency, setIncomeCurrency] = useState(() => getBaseCurrency());
+  const [expenseCurrency, setExpenseCurrency] = useState(() =>
+    normalizeCurrencyCode(dailyCurrencySetting, getBaseCurrency()),
+  );
   const [exchangeAutoTarget, setExchangeAutoTarget] = useState("to_amount");
   const [form, setForm] = useState({
     occurred_at: toInputDateTime(),
@@ -6814,7 +8103,7 @@ function TransactionForm({
     amount_idr: "",
     amount_thb: "",
     amount: "",
-    from_currency: "IDR",
+    from_currency: getBaseCurrency(),
     to_currency: "THB",
     from_amount: "",
     to_amount: "",
@@ -6824,8 +8113,15 @@ function TransactionForm({
   const parsedAmountThb = Number(normalizeNumericInput(form.amount_thb));
   const parsedAmountIdr = Number(normalizeNumericInput(form.amount_idr));
   const parsedAmount = Number(normalizeNumericInput(form.amount));
-  const baseCurrency = getBaseCurrency();
-  const activeCurrencies = normalizeCurrencyList(activeCurrencySettings);
+  const baseCurrency = normalizeCurrencyCode(baseCurrencySetting);
+  const activeCurrencies = normalizeCurrencyList(activeCurrencySettings, {
+    baseCurrency,
+  });
+  const preferredExpenseCurrency = activeCurrencies.includes(
+    normalizeCurrencyCode(dailyCurrencySetting, baseCurrency),
+  )
+    ? normalizeCurrencyCode(dailyCurrencySetting, baseCurrency)
+    : activeCurrencies[0] || baseCurrency;
   const defaultForeignCurrency =
     activeCurrencies.find((currency) => currency !== baseCurrency) || baseCurrency;
   const isIncome = entryType === "income";
@@ -6878,7 +8174,7 @@ function TransactionForm({
       setIncomeCurrency(activeCurrencies[0] || baseCurrency);
     }
     if (!activeCurrencies.includes(expenseCurrency)) {
-      setExpenseCurrency(defaultForeignCurrency);
+      setExpenseCurrency(preferredExpenseCurrency);
     }
     if (entryType === "exchange" && activeCurrencies.length < 2) {
       setEntryType("expense");
@@ -6906,7 +8202,12 @@ function TransactionForm({
     entryType,
     expenseCurrency,
     incomeCurrency,
+    preferredExpenseCurrency,
   ]);
+
+  useEffect(() => {
+    setExpenseCurrency(preferredExpenseCurrency);
+  }, [preferredExpenseCurrency]);
 
   function updateField(field, value) {
     if (field === "from_amount") setExchangeAutoTarget("to_amount");
@@ -7268,8 +8569,7 @@ function TransactionForm({
                   : html`
                       <p className="font-semibold">Belum ada rate exchange tersimpan.</p>
                       <p className="mt-1 text-sky-800/80 dark:text-sky-100/80">
-                        Pengeluaran tetap dicatat dalam ${selectedCurrencyCode}. Valuasi ${baseCurrency}
-                        akan otomatis terisi setelah ada transaksi Tukar Mata Uang yang relevan.
+                        Pengeluaran tetap dicatat dalam ${selectedCurrencyCode}. Valuasi ${baseCurrency} akan otomatis terisi setelah ada transaksi Tukar Mata Uang yang relevan.
                       </p>
                     `}
               </div>
@@ -7620,17 +8920,31 @@ function InfoBanner({ message, tone }) {
 
 function ToastMessage({ toast, onDismiss }) {
   if (!toast) return null;
+  const tone = toast.tone || "success";
+  const tones = {
+    success:
+      "border-emerald-300/25 bg-emerald-500/14 text-emerald-900 shadow-[0_22px_60px_rgba(16,185,129,0.22)] dark:border-emerald-400/20 dark:bg-emerald-500/16 dark:text-emerald-100",
+    info:
+      "border-sky-300/25 bg-sky-500/14 text-sky-900 shadow-[0_22px_60px_rgba(14,165,233,0.20)] dark:border-sky-400/20 dark:bg-sky-500/16 dark:text-sky-100",
+    error:
+      "border-rose-300/25 bg-rose-500/14 text-rose-900 shadow-[0_22px_60px_rgba(244,63,94,0.20)] dark:border-rose-400/20 dark:bg-rose-500/16 dark:text-rose-100",
+  };
+  const closeTone = {
+    success: "text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-200",
+    info: "text-sky-700 hover:bg-sky-500/10 dark:text-sky-200",
+    error: "text-rose-700 hover:bg-rose-500/10 dark:text-rose-200",
+  };
 
   return html`
     <div className="fixed inset-x-4 top-4 z-50 sm:left-auto sm:right-6 sm:w-[22rem]">
-      <div className="rounded-[22px] border border-emerald-300/25 bg-emerald-500/14 px-4 py-3 text-sm font-semibold text-emerald-900 shadow-[0_22px_60px_rgba(16,185,129,0.22)] backdrop-blur-2xl transition duration-300 ease-out dark:border-emerald-400/20 dark:bg-emerald-500/16 dark:text-emerald-100">
+      <div className=${`rounded-[22px] border px-4 py-3 text-sm font-semibold backdrop-blur-2xl transition duration-300 ease-out ${tones[tone] || tones.success}`}>
         <div className="flex items-start justify-between gap-3">
           <p>${toast.message}</p>
           <button
             type="button"
             onClick=${onDismiss}
             aria-label="Tutup toast"
-            className="min-h-0 rounded-full px-2 py-0.5 text-xs text-emerald-700 transition hover:bg-emerald-500/10 dark:text-emerald-200"
+            className=${`min-h-0 rounded-full px-2 py-0.5 text-xs transition ${closeTone[tone] || closeTone.success}`}
           >
             Tutup
           </button>
@@ -7691,8 +9005,16 @@ function MobileBottomNav({ activeTab, onChange }) {
 }
 
 function App() {
-  const [theme, setTheme] = useState(readAppStorage("theme", "light"));
+  const [theme, setTheme] = useState(() =>
+    normalizeThemeMode(readAppStorage("theme", "system")),
+  );
+  const [systemPrefersDark, setSystemPrefersDark] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia
+      ? window.matchMedia("(prefers-color-scheme: dark)").matches
+      : false,
+  );
   const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [mode, setMode] = useState("loading");
   const [transactions, setTransactions] = useState([]);
   const [budgets, setBudgets] = useState([]);
@@ -7707,18 +9029,21 @@ function App() {
   const [activeTab, setActiveTab] = useState("today");
   const [reportMonthKey, setReportMonthKey] = useState(getMonthKey(new Date()));
   const [balanceVisible, setBalanceVisible] = useState(() =>
-    readAppStorage("balanceVisible", false),
+    readBalanceVisiblePreference(),
   );
   const [currencySettings, setCurrencySettings] = useState(() =>
     readCurrencySettings(),
   );
+  const [selectedWalletCurrency, setSelectedWalletCurrency] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const supabaseReady = Boolean(supabase);
   setRuntimeCurrencySettings(currencySettings);
-  const activeCurrencies = normalizeCurrencyList(
-    currencySettings?.activeCurrencies || DEFAULT_SELECTED_CURRENCIES,
+  const normalizedAppCurrencySettings = normalizeCurrencySettings(
+    currencySettings || DEFAULT_SELECTED_CURRENCIES,
+    { configured: Boolean(currencySettings?.configured) },
   );
+  const activeCurrencies = normalizedAppCurrencySettings.activeCurrencies;
   const currencySetupDone = Boolean(currencySettings?.configured);
   const metrics = useMemo(
     () => computeMetrics(transactions, budgets, goals),
@@ -7726,15 +9051,36 @@ function App() {
   );
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
-    writeAppStorage("theme", theme);
-  }, [theme]);
+    if (!window.matchMedia) return undefined;
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const handleChange = () => setSystemPrefersDark(mediaQuery.matches);
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
+
+  useEffect(() => {
+    const resolvedTheme = resolveThemeMode(theme, systemPrefersDark);
+    document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
+    writeAppStorage("theme", normalizeThemeMode(theme));
+  }, [theme, systemPrefersDark]);
 
   useEffect(() => {
     if (!toast) return undefined;
     const timer = window.setTimeout(() => setToast(null), 3200);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    setSelectedWalletCurrency(null);
+  }, [currencySettings?.dailyCurrency, activeCurrencies.join("|")]);
+
+  useEffect(() => {
+    if (!message || messageTone === "error") return undefined;
+    setToast({ message, tone: messageTone });
+    const timer = window.setTimeout(() => setMessage(""), 3400);
+    return () => window.clearTimeout(timer);
+  }, [message, messageTone]);
 
   useEffect(() => {
     const demoAuth = readAppStorage("demoAuth", false);
@@ -7777,6 +9123,7 @@ function App() {
       setTransactions([]);
       setBudgets([]);
       setGoals([]);
+      setProfile(null);
       return;
     }
 
@@ -7787,16 +9134,38 @@ function App() {
         const normalizedDemoTransactions = orderTransactions(
           normalizeTransactions(readAppStorage("demoTransactions", [])),
         );
+        const inferredDemoCurrencies = inferCurrenciesFromTransactions(
+          normalizedDemoTransactions,
+        );
+        const localSettings =
+          readCurrencySettings() ||
+          saveCurrencySettings({
+            activeCurrencies: inferredDemoCurrencies,
+            baseCurrency: DEFAULT_BASE_CURRENCY,
+            dailyCurrency: inferredDemoCurrencies[0] || DEFAULT_BASE_CURRENCY,
+          });
+        const localProfile = readLocalProfile(user, localSettings);
         writeAppStorage("demoTransactions", normalizedDemoTransactions);
         setTransactions(normalizedDemoTransactions);
         setBudgets(readAppStorage("demoBudgets", []).map(normalizeBudget));
         setGoals(readAppStorage("demoGoals", []).map(normalizeGoal));
-        setCurrencySettings(readCurrencySettings());
+        setProfile(localProfile);
+        setTheme(localProfile.theme_mode);
+        setBalanceVisible(!localProfile.hide_balances);
+        setCurrencySettings(localSettings);
+        setRuntimeCurrencySettings(localSettings);
         return;
       }
 
       setLoading(true);
-      const [transactionResult, budgetResult, goalResult, settingsResult] = await Promise.all([
+      const [
+        transactionResult,
+        budgetResult,
+        goalResult,
+        settingsResult,
+        profileResult,
+        currencyResult,
+      ] = await Promise.all([
         supabase
           .from("transactions")
           .select("*")
@@ -7819,6 +9188,16 @@ function App() {
           .select("*")
           .eq("user_id", user.id)
           .maybeSingle(),
+        supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", user.id)
+          .maybeSingle(),
+        supabase
+          .from("user_currencies")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: true }),
       ]);
 
       if (cancelled) return;
@@ -7863,46 +9242,103 @@ function App() {
         setGoals((goalResult.data || []).map(normalizeGoal));
       }
 
-      if (settingsResult.error) {
-        const localSettings = readCurrencySettings();
-        setCurrencySettings(localSettings);
-        notices.push({
-          tone: settingsResult.error.code === "42P01" ? "info" : "error",
-          text:
-            settingsResult.error.code === "42P01"
-              ? "Tabel user_settings belum ada. Jalankan schema.sql terbaru agar pilihan mata uang tersimpan lintas device."
-              : settingsResult.error.message,
-        });
-      } else {
-        const databaseSettings = normalizeUserSettingsRow(settingsResult.data);
-        const localSettings = readCurrencySettings();
-        const nextSettings = databaseSettings || localSettings;
-        setCurrencySettings(nextSettings);
-        setRuntimeCurrencySettings(nextSettings);
-        if (!databaseSettings && localSettings?.configured) {
-          supabase
-            .from("user_settings")
-            .upsert(
-              {
-                user_id: user.id,
-                base_currency: localSettings.baseCurrency,
-                active_currencies: localSettings.activeCurrencies,
-                daily_currency: localSettings.dailyCurrency,
-                theme,
-                balance_visible: balanceVisible,
-                updated_at: new Date().toISOString(),
-              },
-              { onConflict: "user_id" },
+      const legacySettings = settingsResult.error
+        ? null
+        : normalizeUserSettingsRow(settingsResult.data);
+      const localSettings = readCurrencySettings();
+      const inferredCurrencies = inferCurrenciesFromTransactions(
+        transactionResult.data || [],
+      );
+      const fallbackSettings =
+        legacySettings ||
+        localSettings ||
+        normalizeCurrencySettings(
+          {
+            activeCurrencies: inferredCurrencies,
+            baseCurrency: DEFAULT_BASE_CURRENCY,
+            dailyCurrency: inferredCurrencies[0] || DEFAULT_BASE_CURRENCY,
+          },
+          { configured: true },
+        );
+
+      const modernProfile =
+        !profileResult.error && profileResult.data
+          ? normalizeProfile(profileResult.data, user, {
+              ...fallbackSettings,
+              theme_mode: settingsResult.data?.theme,
+              hideBalances:
+                typeof settingsResult.data?.balance_visible === "boolean"
+                  ? !settingsResult.data.balance_visible
+                  : undefined,
+            })
+          : null;
+      const modernSettings =
+        !currencyResult.error && Array.isArray(currencyResult.data)
+          ? normalizeUserCurrencyRows(
+              currencyResult.data,
+              modernProfile || profileResult.data,
+              fallbackSettings,
+              inferredCurrencies,
             )
-            .then(() => {})
-            .catch(() => {});
-        }
-        if (settingsResult.data?.theme) {
-          setTheme(settingsResult.data.theme);
-        }
-        if (typeof settingsResult.data?.balance_visible === "boolean") {
-          setBalanceVisible(settingsResult.data.balance_visible);
-        }
+          : null;
+      const nextSettings = normalizeCurrencySettings(
+        modernSettings || fallbackSettings,
+        { configured: true },
+      );
+      const nextProfile = normalizeProfile(modernProfile || profileResult.data, user, {
+        ...nextSettings,
+        theme_mode: settingsResult.data?.theme || theme,
+        hideBalances:
+          typeof settingsResult.data?.balance_visible === "boolean"
+            ? !settingsResult.data.balance_visible
+            : !balanceVisible,
+      });
+
+      setCurrencySettings(nextSettings);
+      setRuntimeCurrencySettings(nextSettings);
+      saveCurrencySettings(nextSettings);
+      setProfile(nextProfile);
+      setTheme(nextProfile.theme_mode);
+      writeBalanceVisiblePreference(!nextProfile.hide_balances);
+      setBalanceVisible(!nextProfile.hide_balances);
+
+      const modernTablesReady = !profileResult.error && !currencyResult.error;
+      if (modernTablesReady) {
+        const existingCodes = (currencyResult.data || []).map((row) => row.currency_code);
+        Promise.all([
+          supabase.from("profiles").upsert(
+            {
+              id: user.id,
+              email: nextProfile.email || user.email || "",
+              display_name: nextProfile.display_name,
+              avatar_url: nextProfile.avatar_url,
+              base_currency: nextSettings.baseCurrency,
+              daily_currency: nextSettings.dailyCurrency,
+              theme_mode: nextProfile.theme_mode,
+              hide_balances: nextProfile.hide_balances,
+              country_code: nextProfile.country_code || null,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "id" },
+          ),
+          supabase.from("user_currencies").upsert(
+            buildUserCurrencyRecords(user.id, nextSettings, existingCodes),
+            { onConflict: "user_id,currency_code" },
+          ),
+        ]).catch(() => {});
+      } else if (profileResult.error?.code === "42P01" || currencyResult.error?.code === "42P01") {
+        notices.push({
+          tone: "info",
+          text:
+            "Schema profile terbaru belum aktif. Jalankan schema.sql agar Settings sinkron lintas device.",
+        });
+      }
+
+      if (settingsResult.error && settingsResult.error.code !== "42P01") {
+        notices.push({
+          tone: "error",
+          text: settingsResult.error.message,
+        });
       }
 
       if (notices.length) {
@@ -7942,13 +9378,28 @@ function App() {
     const normalizedDemoTransactions = orderTransactions(
       normalizeTransactions(readAppStorage("demoTransactions", [])),
     );
+    const inferredDemoCurrencies = inferCurrenciesFromTransactions(
+      normalizedDemoTransactions,
+    );
+    const localSettings =
+      readCurrencySettings() ||
+      saveCurrencySettings({
+        activeCurrencies: inferredDemoCurrencies,
+        baseCurrency: DEFAULT_BASE_CURRENCY,
+        dailyCurrency: inferredDemoCurrencies[0] || DEFAULT_BASE_CURRENCY,
+      });
+    const localProfile = readLocalProfile(DEMO_USER, localSettings);
     writeAppStorage("demoTransactions", normalizedDemoTransactions);
     setUser(DEMO_USER);
     setMode("demo");
     setTransactions(normalizedDemoTransactions);
     setBudgets(readAppStorage("demoBudgets", []).map(normalizeBudget));
     setGoals(readAppStorage("demoGoals", []).map(normalizeGoal));
-    setCurrencySettings(readCurrencySettings());
+    setProfile(localProfile);
+    setTheme(localProfile.theme_mode);
+    setBalanceVisible(!localProfile.hide_balances);
+    setCurrencySettings(localSettings);
+    setRuntimeCurrencySettings(localSettings);
     setMessage("Demo lokal aktif. Semua modul analytics, budget, dan goals berjalan di browser ini.");
     setMessageTone("success");
   }
@@ -7963,6 +9414,7 @@ function App() {
       setTransactions([]);
       setBudgets([]);
       setGoals([]);
+      setProfile(null);
       return;
     }
 
@@ -8626,39 +10078,116 @@ function calculateTHBBalance(transactions) {
   }
 
   async function persistUserSettings(nextSettings, overrides = {}) {
-    if (mode !== "supabase" || !user || !supabaseReady) return true;
+    if (mode !== "supabase" || !user || !supabaseReady) {
+      return { synced: false, localOnly: true };
+    }
 
     const normalized = normalizeCurrencySettings(nextSettings, { configured: true });
-    const record = {
+    const themeMode = normalizeThemeMode(
+      overrides.themeMode || overrides.theme || profile?.theme_mode || theme,
+    );
+    const hideBalances =
+      typeof overrides.hideBalances === "boolean"
+        ? overrides.hideBalances
+        : typeof overrides.balanceVisible === "boolean"
+          ? !overrides.balanceVisible
+          : profile?.hide_balances ?? !balanceVisible;
+    const nextProfile = normalizeProfile({
+      ...(profile || {}),
+      base_currency: normalized.baseCurrency,
+      daily_currency: normalized.dailyCurrency,
+      theme_mode: themeMode,
+      hide_balances: hideBalances,
+    }, user, {
+      ...normalized,
+      theme_mode: themeMode,
+      hideBalances,
+    });
+    const profileRecord = {
+      id: user.id,
+      email: nextProfile.email || user.email || "",
+      display_name: nextProfile.display_name,
+      avatar_url: nextProfile.avatar_url,
+      base_currency: normalized.baseCurrency,
+      daily_currency: normalized.dailyCurrency,
+      theme_mode: themeMode,
+      hide_balances: hideBalances,
+      country_code: nextProfile.country_code || null,
+      updated_at: new Date().toISOString(),
+    };
+    const legacyRecord = {
       user_id: user.id,
       base_currency: normalized.baseCurrency,
       active_currencies: normalized.activeCurrencies,
       daily_currency: normalized.dailyCurrency,
-      theme: overrides.theme || theme,
-      balance_visible:
-        typeof overrides.balanceVisible === "boolean"
-          ? overrides.balanceVisible
-          : balanceVisible,
+      theme: themeMode === "system" ? resolveThemeMode(themeMode, systemPrefersDark) : themeMode,
+      balance_visible: !hideBalances,
       updated_at: new Date().toISOString(),
     };
 
+    const existingCurrencyResult = await supabase
+      .from("user_currencies")
+      .select("currency_code")
+      .eq("user_id", user.id);
+    if (!existingCurrencyResult.error) {
+      const currencyRows = buildUserCurrencyRecords(
+        user.id,
+        normalized,
+        (existingCurrencyResult.data || []).map((row) => row.currency_code),
+      );
+      const [profileUpsert, currenciesUpsert] = await Promise.all([
+        supabase.from("profiles").upsert(profileRecord, { onConflict: "id" }),
+        supabase
+          .from("user_currencies")
+          .upsert(currencyRows, { onConflict: "user_id,currency_code" }),
+      ]);
+      if (!profileUpsert.error && !currenciesUpsert.error) {
+        setProfile(nextProfile);
+        return { synced: true, modern: true };
+      }
+      if (
+        profileUpsert.error?.code !== "42P01" &&
+        currenciesUpsert.error?.code !== "42P01"
+      ) {
+        throw profileUpsert.error || currenciesUpsert.error;
+      }
+    }
+
     const { error } = await supabase
       .from("user_settings")
-      .upsert(record, { onConflict: "user_id" });
+      .upsert(legacyRecord, { onConflict: "user_id" });
+    if (isMissingDailyCurrencyColumn(error)) {
+      const fallbackRecord = { ...legacyRecord };
+      delete fallbackRecord.daily_currency;
+      const { error: fallbackError } = await supabase
+        .from("user_settings")
+        .upsert(fallbackRecord, { onConflict: "user_id" });
+      if (fallbackError) throw fallbackError;
+      return { synced: true, dailyCurrencyLocalOnly: true };
+    }
     if (error) throw error;
-    return true;
+    setProfile(nextProfile);
+    return { synced: true, modern: false };
   }
 
   async function handleSaveCurrencySettings(nextCurrencySettings, options = {}) {
     const requestedSettings = Array.isArray(nextCurrencySettings)
       ? { activeCurrencies: nextCurrencySettings }
       : nextCurrencySettings || {};
+    const requestedBaseCurrency = normalizeCurrencyCode(
+      requestedSettings.baseCurrency ||
+        requestedSettings.base_currency ||
+        currencySettings?.baseCurrency ||
+        getBaseCurrency(),
+    );
     const activeCurrencyList = normalizeCurrencyList(
       requestedSettings.activeCurrencies ||
         currencySettings?.activeCurrencies ||
         DEFAULT_SELECTED_CURRENCIES,
+      { baseCurrency: requestedBaseCurrency },
     );
     const currentSettings = normalizeCurrencySettings({
+      baseCurrency: requestedBaseCurrency,
       activeCurrencies: activeCurrencyList,
       dailyCurrency:
         requestedSettings.dailyCurrency ||
@@ -8666,33 +10195,68 @@ function calculateTHBBalance(transactions) {
         activeCurrencyList[0],
     });
     const nextSettings = saveCurrencySettings({
+      baseCurrency: currentSettings.baseCurrency,
       activeCurrencies: activeCurrencyList,
       dailyCurrency: currentSettings.dailyCurrency,
     });
     setRuntimeCurrencySettings(nextSettings);
     setCurrencySettings(nextSettings);
+    setProfile((current) => {
+      const nextProfile = normalizeProfile({
+        ...(current || {}),
+        base_currency: nextSettings.baseCurrency,
+        daily_currency: nextSettings.dailyCurrency,
+      }, user, {
+        ...nextSettings,
+        theme_mode: theme,
+        hideBalances: !balanceVisible,
+      });
+      if (mode === "demo") writeLocalProfile(user, nextProfile);
+      return nextProfile;
+    });
     try {
-      await persistUserSettings(nextSettings);
+      const syncResult = await persistUserSettings(nextSettings);
+      if (syncResult?.dailyCurrencyLocalOnly) {
+        const infoMessage =
+          "Mata uang aktif tersimpan. Jalankan schema.sql terbaru agar mata uang harian ikut sinkron lintas device.";
+        setToast({ message: "Mata uang tersimpan." });
+        setMessage(infoMessage);
+        setMessageTone("info");
+        return true;
+      }
       const successMessage = options.message || "Pilihan mata uang diperbarui.";
       setToast({ message: successMessage });
       setMessage(successMessage);
       setMessageTone("success");
+      return true;
     } catch (error) {
       const localMessage = options.localMessage || "Mata uang tersimpan lokal.";
       setToast({ message: localMessage });
-      setMessage(
-        error.code === "42P01"
-          ? "Mata uang tersimpan lokal. Jalankan schema.sql terbaru agar sinkron ke database."
-          : error.message || "Mata uang tersimpan lokal, tapi gagal sinkron ke database.",
+      setMessage(getSettingsSyncErrorMessage(error));
+      setMessageTone(
+        error.code === "42P01" || isMissingDailyCurrencyColumn(error) ? "info" : "error",
       );
-      setMessageTone(error.code === "42P01" ? "info" : "error");
+      return true;
     }
   }
 
   function handleThemeChange(value) {
-    setTheme(value);
+    const nextTheme = normalizeThemeMode(value);
+    setTheme(nextTheme);
+    setProfile((current) => {
+      const nextProfile = normalizeProfile({
+        ...(current || {}),
+        theme_mode: nextTheme,
+      }, user, {
+        ...(currencySettings || normalizeCurrencySettings(null)),
+        theme_mode: nextTheme,
+        hideBalances: !balanceVisible,
+      });
+      if (mode === "demo") writeLocalProfile(user, nextProfile);
+      return nextProfile;
+    });
     persistUserSettings(currencySettings || normalizeCurrencySettings(null), {
-      theme: value,
+      themeMode: nextTheme,
     }).catch(() => {});
   }
 
@@ -8714,10 +10278,13 @@ function calculateTHBBalance(transactions) {
     `;
   }
 
-  const dailyExpenseCurrency = normalizeCurrencySettings({
+  const dashboardCurrencySettings = normalizeCurrencySettings({
     activeCurrencies,
+    baseCurrency: currencySettings?.baseCurrency,
     dailyCurrency: currencySettings?.dailyCurrency,
-  }).dailyCurrency;
+  });
+  const dailyExpenseCurrency = dashboardCurrencySettings.dailyCurrency;
+  const walletBaseCurrency = dashboardCurrencySettings.baseCurrency;
   const activeBudgetInsight =
     metrics.budgetInsights.find((item) => item.currency === dailyExpenseCurrency) || null;
   const todayKey = getLocalDayKey(new Date());
@@ -8756,12 +10323,19 @@ function calculateTHBBalance(transactions) {
     : activeBudgetInsight.todayRemainingSafe < 0
       ? `Hari ini lewat ${formatCurrency(Math.abs(activeBudgetInsight.todayRemainingSafe), dailyExpenseCurrency)} dari batas aman. ${nextDayBudgetText}`
       : `Batas aman hari ini ${formatCurrency(activeBudgetInsight.dynamicDailyLimit, dailyExpenseCurrency)}. ${nextDayBudgetText}`;
-  const userDisplayName = getUserDisplayName(user);
-  const userInitials = getUserInitials(user);
+  const userDisplayName = getProfileDisplayName(profile, user);
+  const userInitials = getUserInitials({
+    ...user,
+    user_metadata: { full_name: userDisplayName },
+  });
   const userStorageId = getUserStorageId(user);
   const profilePhoto =
-    profilePhotos[userStorageId] || user?.user_metadata?.avatar_url || "";
-  const isDark = theme === "dark";
+    profile?.avatar_url ||
+    profilePhotos[userStorageId] ||
+    user?.user_metadata?.avatar_url ||
+    "";
+  const resolvedTheme = resolveThemeMode(theme, systemPrefersDark);
+  const isDark = resolvedTheme === "dark";
   const menuTabClass = (tab) =>
     tab === activeTab
       ? "bg-brand-600 text-white shadow-[0_16px_40px_rgba(16,185,129,0.22)] dark:bg-emerald-500 dark:text-white"
@@ -8782,6 +10356,106 @@ function calculateTHBBalance(transactions) {
     { key: "settings", label: "Setting" },
   ];
   const historyTransactions = [...orderTransactions(transactions)].reverse();
+  const walletBalances = {
+    ...metrics.currencyBalances,
+    [DEFAULT_BASE_CURRENCY]: metrics.balanceIdr,
+  };
+  const walletRateEndDate = new Date(8640000000000000);
+  const walletValuationsByCurrency = Object.fromEntries(
+    activeCurrencies.map((currency) => {
+      const balance = Number(walletBalances[currency] || 0);
+      const rate = getLatestRateForCurrencyUntil(
+        transactions,
+        currency,
+        walletRateEndDate,
+        walletBaseCurrency,
+      );
+      return [
+        currency,
+        currency === walletBaseCurrency ? balance : rate > 0 ? balance * rate : 0,
+      ];
+    }),
+  );
+  const walletTotalValueBase = activeCurrencies.reduce(
+    (sum, currency) => sum + Number(walletValuationsByCurrency[currency] || 0),
+    0,
+  );
+
+  async function handleSaveProfile(nextProfileFields) {
+    const nextProfile = normalizeProfile(
+      {
+        ...(profile || {}),
+        ...nextProfileFields,
+        email: profile?.email || user?.email || "",
+      },
+      user,
+      {
+        ...(currencySettings || normalizeCurrencySettings(null)),
+        theme_mode: theme,
+        hideBalances: !balanceVisible,
+      },
+    );
+
+    setProfile(nextProfile);
+    setProfilePhotos((current) => {
+      const next = { ...current };
+      if (nextProfile.avatar_url) {
+        next[userStorageId] = nextProfile.avatar_url;
+      } else {
+        delete next[userStorageId];
+      }
+      writeAppStorage("profilePhotos", next);
+      return next;
+    });
+
+    if (mode === "demo") {
+      writeLocalProfile(user, nextProfile);
+      setMessage("Profil diperbarui.");
+      setMessageTone("success");
+      return true;
+    }
+
+    try {
+      const { error } = await supabase.from("profiles").upsert(
+        {
+          id: user.id,
+          email: nextProfile.email || user.email || "",
+          display_name: nextProfile.display_name,
+          avatar_url: nextProfile.avatar_url,
+          base_currency: currencySettings?.baseCurrency || getBaseCurrency(),
+          daily_currency:
+            currencySettings?.dailyCurrency ||
+            currencySettings?.activeCurrencies?.[0] ||
+            getBaseCurrency(),
+          theme_mode: nextProfile.theme_mode,
+          hide_balances: nextProfile.hide_balances,
+          country_code: nextProfile.country_code || null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "id" },
+      );
+      if (error) throw error;
+      supabase.auth
+        .updateUser({
+          data: {
+            full_name: nextProfile.display_name,
+            avatar_url: nextProfile.avatar_url,
+          },
+        })
+        .catch(() => {});
+      setMessage("Profil diperbarui.");
+      setMessageTone("success");
+      return true;
+    } catch (error) {
+      setMessage(
+        error?.code === "42P01"
+          ? "Profil tersimpan lokal. Jalankan schema.sql terbaru agar sinkron lintas device."
+          : error.message || "Gagal memperbarui profil.",
+      );
+      setMessageTone(error?.code === "42P01" ? "info" : "error");
+      return error?.code === "42P01";
+    }
+  }
 
   async function handleProfilePhotoUpload(event) {
     const file = event.target.files?.[0];
@@ -8818,13 +10492,37 @@ function calculateTHBBalance(transactions) {
     setMessageTone("info");
   }
 
+  function applyBalanceVisibility(nextVisible) {
+    writeBalanceVisiblePreference(nextVisible);
+    const nextHideBalances = !nextVisible;
+    setProfile((current) => {
+      const nextProfile = normalizeProfile({
+        ...(current || {}),
+        hide_balances: nextHideBalances,
+      }, user, {
+        ...(currencySettings || normalizeCurrencySettings(null)),
+        theme_mode: theme,
+        hideBalances: nextHideBalances,
+      });
+      if (mode === "demo") writeLocalProfile(user, nextProfile);
+      return nextProfile;
+    });
+    persistUserSettings(currencySettings || normalizeCurrencySettings(null), {
+      hideBalances: nextHideBalances,
+      balanceVisible: nextVisible,
+    }).catch(() => {});
+  }
+
+  function handleSetHideBalances(hideBalances) {
+    const nextVisible = !hideBalances;
+    setBalanceVisible(nextVisible);
+    applyBalanceVisibility(nextVisible);
+  }
+
   function handleToggleBalanceVisibility() {
     setBalanceVisible((current) => {
       const next = !current;
-      writeAppStorage("balanceVisible", next);
-      persistUserSettings(currencySettings || normalizeCurrencySettings(null), {
-        balanceVisible: next,
-      }).catch(() => {});
+      applyBalanceVisibility(next);
       return next;
     });
   }
@@ -8834,34 +10532,23 @@ function calculateTHBBalance(transactions) {
       <${PremiumMeshBackground} />
       <${ToastMessage} toast=${toast} onDismiss=${() => setToast(null)} />
       <div className="relative z-10 mx-auto max-w-7xl">
-        <header className=${`${PREMIUM_PANEL} px-5 py-4 md:px-6`}>
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.14),transparent_42%)] opacity-80"></div>
-          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="inline-flex w-fit rounded-full border border-brand-300/30 bg-brand-600 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-white shadow-[0_12px_30px_rgba(16,185,129,0.20)]">
-              ${APP_NAME}
-            </div>
-
-            <div className="flex min-w-0 items-center justify-between gap-3 sm:justify-end">
-              <${CompactBalancePrivacyPill}
-                balances=${{
-                  ...metrics.currencyBalances,
-                  [DEFAULT_BASE_CURRENCY]: metrics.balanceIdr,
-                }}
-                activeCurrencies=${activeCurrencies}
-                visible=${balanceVisible}
-                onToggle=${handleToggleBalanceVisibility}
-              />
-
-              <button
-                type="button"
-                onClick=${() => setMenuOpen((current) => !current)}
-                className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-brand-500/20 bg-white/[0.76] text-sm font-semibold text-slate-900 shadow-[0_12px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl transition hover:-translate-y-0.5 hover:bg-white/[0.90] dark:border-slate-700/60 dark:bg-slate-950/78 dark:text-slate-100 dark:hover:bg-slate-900/80"
-              >
-                <${AvatarBadge} src=${profilePhoto} initials=${userInitials} size="sm" />
-              </button>
-            </div>
-          </div>
-        </header>
+        <${WalletHeader}
+          appName=${APP_NAME}
+          balances=${walletBalances}
+          valuationsByCurrency=${walletValuationsByCurrency}
+          totalValueBase=${walletTotalValueBase}
+          activeCurrencies=${activeCurrencies}
+          selectedCurrency=${selectedWalletCurrency}
+          dailyCurrency=${dailyExpenseCurrency}
+          baseCurrency=${walletBaseCurrency}
+          visible=${balanceVisible}
+          onToggleVisibility=${handleToggleBalanceVisibility}
+          onSelectCurrency=${setSelectedWalletCurrency}
+          avatarSrc=${profilePhoto}
+          avatarInitials=${userInitials}
+          onAvatarClick=${() => setMenuOpen((current) => !current)}
+          compact=${activeTab === "settings"}
+        />
 
         ${menuOpen
           ? html`
@@ -8909,9 +10596,13 @@ function calculateTHBBalance(transactions) {
             `
           : null}
 
-        <div className="mt-5">
-          <${InfoBanner} message=${message} tone=${messageTone} />
-        </div>
+        ${message && messageTone === "error"
+          ? html`
+              <div className="mt-5">
+                <${InfoBanner} message=${message} tone=${messageTone} />
+              </div>
+            `
+          : null}
 
         ${activeTab === "today"
           ? html`
@@ -8924,6 +10615,7 @@ function calculateTHBBalance(transactions) {
                   todaySpentIdr=${todaySpentIdr}
                   todaySpentCurrency=${todaySpentCurrency}
                   expenseCurrency=${dailyExpenseCurrency}
+                  baseCurrency=${walletBaseCurrency}
                 />
               </section>
             `
@@ -8945,12 +10637,14 @@ function calculateTHBBalance(transactions) {
             : activeTab === "add"
               ? html`
                   <section className="mt-6">
-                    <${TransactionForm}
-                      transactions=${transactions}
-                      onSubmit=${handleCreateTransaction}
-                      loading=${loading}
-                      activeCurrencies=${activeCurrencies}
-                    />
+                      <${TransactionForm}
+                        transactions=${transactions}
+                        onSubmit=${handleCreateTransaction}
+                        loading=${loading}
+                        activeCurrencies=${activeCurrencies}
+                        dailyCurrency=${dailyExpenseCurrency}
+                        baseCurrency=${walletBaseCurrency}
+                      />
                   </section>
                 `
               : activeTab === "history"
@@ -8962,8 +10656,6 @@ function calculateTHBBalance(transactions) {
                         onUpdate=${handleUpdateTransaction}
                         loading=${loading}
                         activeCurrencies=${activeCurrencies}
-                        title="Riwayat Transaksi"
-                        description="Semua pemasukan, pengeluaran, dan pergerakan saldo ada di sini."
                         emptyMessage="Belum ada transaksi."
                       />
                     </section>
@@ -9005,13 +10697,15 @@ function calculateTHBBalance(transactions) {
                         <section className="mt-6">
                           <${SettingsPanel}
                             user=${user}
+                            profile=${profile}
                             profilePhoto=${profilePhoto}
                             theme=${theme}
                             onThemeChange=${handleThemeChange}
                             currencySettings=${currencySettings}
+                            balanceVisible=${balanceVisible}
+                            onToggleBalanceVisibility=${handleSetHideBalances}
                             onCurrencySettingsChange=${handleSaveCurrencySettings}
-                            onUploadPhoto=${handleProfilePhotoUpload}
-                            onRemovePhoto=${handleRemoveProfilePhoto}
+                            onSaveProfile=${handleSaveProfile}
                             onSignOut=${handleSignOut}
                           />
                         </section>

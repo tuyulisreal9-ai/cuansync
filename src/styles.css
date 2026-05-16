@@ -47,7 +47,7 @@ textarea {
 }
 
 .app-shell {
-  padding-bottom: calc(9rem + env(safe-area-inset-bottom));
+  padding-bottom: calc(110px + env(safe-area-inset-bottom));
 }
 
 @media (max-width: 767px) {
@@ -106,6 +106,37 @@ select optgroup {
 
 .balance-strip::-webkit-scrollbar {
   display: none;
+}
+
+.wallet-selector-rail {
+  scrollbar-width: none;
+}
+
+.wallet-selector-rail::-webkit-scrollbar {
+  display: none;
+}
+
+.wallet-header,
+.wallet-bottom-sheet,
+.settings-bottom-sheet {
+  backdrop-filter: blur(24px);
+}
+
+.wallet-bottom-sheet,
+.settings-bottom-sheet {
+  animation: wallet-sheet-up 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes wallet-sheet-up {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .cuan-card,
@@ -445,6 +476,18 @@ body:has(.history-detail-sheet) .mobile-bottom-nav {
   transform: translateY(calc(120% + env(safe-area-inset-bottom)));
 }
 
+body:has(.wallet-bottom-sheet) .mobile-bottom-nav {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(calc(120% + env(safe-area-inset-bottom)));
+}
+
+body:has(.settings-bottom-sheet) .mobile-bottom-nav {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(calc(120% + env(safe-area-inset-bottom)));
+}
+
 @media (min-width: 768px) {
   .history-detail-sheet {
     padding-bottom: 1.25rem;
@@ -756,8 +799,19 @@ body:has(.history-detail-sheet) .mobile-bottom-nav {
   .report-column,
   .report-glow-sweep::after,
   .transaction-item,
-  .transaction-sheet {
+  .transaction-sheet,
+  .wallet-bottom-sheet,
+  .settings-bottom-sheet {
     animation: none;
+  }
+
+  .wallet-header *,
+  .wallet-bottom-sheet,
+  .wallet-bottom-sheet *,
+  .settings-bottom-sheet,
+  .settings-bottom-sheet * {
+    scroll-behavior: auto !important;
+    transition-duration: 0ms !important;
   }
 
   .report-column,
