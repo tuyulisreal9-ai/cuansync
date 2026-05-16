@@ -1213,9 +1213,11 @@ function WalletHeader({
       <div className="relative">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2" aria-label=${wordmark}>
-            <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border border-emerald-300/40 bg-emerald-500 text-xs font-black text-white shadow-[0_12px_26px_rgba(16,185,129,0.24)]">
-              CS
-            </span>
+            <img
+  src="/public/branding/logo-icon.png"
+  alt="CUANSYNC"
+  className="h-9 w-9 shrink-0 rounded-2xl object-contain"
+/>
             <span className="truncate font-display text-base font-bold text-slate-950 dark:text-white">
               ${wordmark}
             </span>
