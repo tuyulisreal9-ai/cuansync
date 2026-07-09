@@ -763,7 +763,7 @@ function PrivacyToggle({ visible, onToggle }) {
       aria-label=${label}
       aria-pressed=${!visible}
       title=${label}
-      className="inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-300/70 bg-white/70 text-slate-800 shadow-[0_10px_26px_rgba(15,23,42,0.08)] backdrop-blur-xl transition duration-200 hover:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/70 dark:border-white/10 dark:bg-white/5 dark:text-white dark:shadow-black/20 dark:hover:bg-white/10"
+      className="inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-300/70 bg-white/70 text-slate-800 shadow-[0_10px_26px_rgba(15,23,42,0.08)] backdrop-blur-xl transition duration-200 hover:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/70 dark:border-white/10 dark:bg-white/5 dark:text-white dark:shadow-black/20 dark:hover:bg-white/10 lg:h-9 lg:min-h-9 lg:w-9"
     >
       <${EyeToggleIcon} visible=${visible} />
     </button>
@@ -776,7 +776,7 @@ function AvatarButton({ src, initials, onClick }) {
       type="button"
       onClick=${onClick}
       aria-label="Buka profil dan menu akun"
-      className="inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center rounded-full border border-emerald-500/25 bg-white/74 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(15,23,42,0.09)] backdrop-blur-xl transition duration-200 hover:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/70 dark:border-emerald-300/20 dark:bg-white/5 dark:text-white dark:shadow-black/24 dark:hover:bg-white/10"
+      className="inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center rounded-full border border-emerald-500/25 bg-white/74 text-sm font-semibold text-slate-950 shadow-[0_12px_30px_rgba(15,23,42,0.09)] backdrop-blur-xl transition duration-200 hover:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/70 dark:border-emerald-300/20 dark:bg-white/5 dark:text-white dark:shadow-black/24 dark:hover:bg-white/10 lg:h-9 lg:min-h-9 lg:w-9"
     >
       <${AvatarBadge} src=${src} initials=${initials} size="sm" />
     </button>
@@ -794,7 +794,7 @@ function CurrencyChip({ currency, selected, daily, base, onSelect }) {
       onClick=${() => onSelect(currency)}
       aria-label=${labelParts.join(", ")}
       aria-current=${selected ? "true" : undefined}
-      className=${`inline-flex h-11 min-h-11 shrink-0 items-center justify-center gap-2 rounded-2xl border px-3 text-sm font-bold transition duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 ${
+      className=${`inline-flex h-11 min-h-11 shrink-0 items-center justify-center gap-2 rounded-2xl border px-3 text-sm font-bold transition duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 lg:h-9 lg:min-h-9 lg:text-xs ${
         selected
           ? "border-emerald-400/70 bg-emerald-500 text-white shadow-[0_12px_28px_rgba(16,185,129,0.24)] ring-2 ring-emerald-200/70 dark:ring-emerald-300/20"
           : "border-slate-300/70 bg-white/66 text-slate-800 hover:border-emerald-500/35 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-100 dark:hover:bg-white/10"
@@ -841,7 +841,7 @@ function CurrencySelectorRail({
 
   return html`
     <div
-      className="wallet-selector-rail mt-3 flex flex-wrap items-center gap-2"
+      className="wallet-selector-rail mt-3 flex flex-wrap items-center gap-2 lg:absolute lg:bottom-4 lg:right-5 lg:mt-0"
       role="list"
       aria-label="Pilih mata uang fokus wallet"
     >
@@ -892,24 +892,24 @@ function PrimaryBalanceHero({
 
   return html`
     <section
-      className="mt-4"
+      className="mt-4 lg:mt-2 lg:pr-64"
       aria-label=${`${focusCurrency} ${focusState}. ${amountLabel}. Total aset ${totalLabel}.`}
     >
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="inline-flex min-h-8 items-center rounded-full bg-emerald-500 px-2.5 text-xs font-bold text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)]">
+          <span className="inline-flex min-h-8 items-center rounded-full bg-emerald-500 px-2.5 text-xs font-bold text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] lg:min-h-6 lg:px-2 lg:text-[11px]">
             ${focusCurrency}
           </span>
-          <span className="inline-flex min-h-8 items-center rounded-full border border-slate-300/70 bg-white/58 px-2.5 text-xs font-bold text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+          <span className="inline-flex min-h-8 items-center rounded-full border border-slate-300/70 bg-white/58 px-2.5 text-xs font-bold text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 lg:min-h-6 lg:px-2 lg:text-[11px]">
             ${focusState}
           </span>
         </div>
-        <span className="shrink-0 rounded-full border border-slate-300/70 bg-white/58 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300">
+        <span className="shrink-0 rounded-full border border-slate-300/70 bg-white/58 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 lg:px-2 lg:py-0.5 lg:text-[11px]">
           Base ${baseCurrency}
         </span>
       </div>
 
-      <p className="mt-3 min-h-[2.35rem] max-w-full text-[2rem] font-black leading-none text-slate-950 min-[390px]:text-[2.125rem] md:text-[2.35rem] dark:text-white">
+      <p className="mt-3 min-h-[2.35rem] max-w-full text-[2rem] font-black leading-none text-slate-950 min-[390px]:text-[2.125rem] md:text-[2.35rem] lg:mt-1 lg:min-h-[2rem] lg:text-[2rem] dark:text-white">
         <${AmountFormatter}
           amount=${focusBalance}
           currency=${focusCurrency}
@@ -918,7 +918,7 @@ function PrimaryBalanceHero({
         />
       </p>
 
-      <p className="mt-2 flex min-h-6 min-w-0 flex-wrap items-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
+      <p className="mt-2 flex min-h-6 min-w-0 flex-wrap items-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300 lg:mt-0.5 lg:min-h-5 lg:text-xs">
         <${AmountFormatter}
           amount=${totalValueBase}
           currency=${baseCurrency}
@@ -1088,7 +1088,7 @@ function WalletHeader({
 
   return html`
     <${React.Fragment}>
-    <header className=${`wallet-header relative isolate overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/88 px-4 ${compact ? "pb-3" : "pb-4"} pt-[calc(1rem+env(safe-area-inset-top))] text-slate-950 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur-2xl md:px-5 dark:border-white/10 dark:bg-slate-950/75 dark:text-white dark:shadow-[0_22px_70px_rgba(0,0,0,0.38)]`}>
+    <header className=${`wallet-header relative isolate overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/88 px-4 ${compact ? "pb-3 lg:pb-3" : "pb-4 lg:pb-3"} pt-[calc(1rem+env(safe-area-inset-top))] text-slate-950 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur-2xl md:px-5 lg:px-5 lg:pt-3 dark:border-white/10 dark:bg-slate-950/75 dark:text-white dark:shadow-[0_22px_70px_rgba(0,0,0,0.38)]`}>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-300/70 to-transparent dark:via-cyan-200/35"></div>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.10),transparent_40%,rgba(34,211,238,0.08))] dark:bg-[linear-gradient(135deg,rgba(16,185,129,0.15),transparent_42%,rgba(34,211,238,0.10))]"></div>
 
@@ -1098,7 +1098,7 @@ function WalletHeader({
             <img
   src="./branding/logo-icon.png"
   alt="CUANSYNC"
-  className="h-9 w-9 shrink-0 rounded-2xl object-contain"
+              className="h-9 w-9 shrink-0 rounded-2xl object-contain lg:h-8 lg:w-8"
 />
             <span className="truncate font-display text-base font-bold text-slate-950 dark:text-white">
               ${wordmark}
@@ -5868,6 +5868,88 @@ function TransactionItem({ transaction, onOpen, fallbackRate = 0 }) {
   `;
 }
 
+function RecentTransactionPreviewRow({ transaction, fallbackRate = 0 }) {
+  const tone = getTransactionTone(transaction);
+  const compactAmount = getTransactionCompactAmount(transaction, fallbackRate);
+  const title = getTransactionDisplayTitle(transaction);
+  const categoryLabel = getTransactionCategoryLabel(transaction);
+  const flow = getTransactionFlow(transaction);
+
+  return html`
+    <div className="grid min-h-[58px] grid-cols-[38px_1fr_auto] items-center gap-3 rounded-2xl border border-slate-200/65 bg-white/55 px-3 py-2.5 dark:border-white/10 dark:bg-slate-950/32">
+      <span className=${`flex h-9 w-9 items-center justify-center rounded-2xl text-[10px] font-black uppercase leading-none ring-1 ${tone.historyIcon}`}>
+        ${getTransactionIconLabel(transaction)}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-sm font-black text-slate-950 dark:text-white">
+          ${title}
+        </span>
+        <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+          <span className="truncate">${flow === "exchange" ? "Exchange" : categoryLabel}</span>
+          <span>${formatShortTime(transaction.occurred_at)}</span>
+        </span>
+      </span>
+      <span className="min-w-0 text-right">
+        <span className=${`block max-w-[7.5rem] truncate text-sm font-black ${tone.amount}`}>
+          ${compactAmount.primary}
+        </span>
+        <span className="mt-0.5 block max-w-[7.5rem] truncate text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+          ${compactAmount.secondary}
+        </span>
+      </span>
+    </div>
+  `;
+}
+
+function RecentTransactionsPreview({
+  transactions = [],
+  fallbackRate = 0,
+  onOpenHistory,
+}) {
+  const previewTransactions = transactions.slice(0, 5);
+
+  return html`
+    <section className=${`${PREMIUM_PANEL_SOFT} hidden p-5 lg:block`}>
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.10),transparent_55%)] opacity-80"></div>
+      <div className="relative flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
+            Transaksi Terbaru
+          </h3>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
+            Aktivitas hari ini, dibuat ringkas.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick=${onOpenHistory}
+          className="cuan-secondary min-h-10 rounded-2xl px-3 py-2 text-xs font-black"
+        >
+          Riwayat
+        </button>
+      </div>
+
+      <div className="relative mt-4 grid gap-2.5">
+        ${previewTransactions.length
+          ? previewTransactions.map(
+              (transaction) => html`
+                <${RecentTransactionPreviewRow}
+                  key=${transaction.id}
+                  transaction=${transaction}
+                  fallbackRate=${fallbackRate}
+                />
+              `,
+            )
+          : html`
+              <div className="rounded-2xl border border-dashed border-slate-300/70 bg-white/40 px-4 py-5 text-center text-sm font-semibold text-slate-600 dark:border-white/10 dark:bg-slate-950/24 dark:text-slate-300">
+                Belum ada transaksi hari ini.
+              </div>
+            `}
+      </div>
+    </section>
+  `;
+}
+
 function TransactionEditForm({
   transaction,
   form,
@@ -6878,7 +6960,7 @@ function DailyExpenseForm({
   }
 
   return html`
-    <div className=${`${PREMIUM_PANEL} p-4 md:p-6`}>
+    <div className=${`${PREMIUM_PANEL} p-4 md:p-6 lg:p-5`}>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
       <div className="relative">
         <div className="flex items-start justify-between gap-3">
@@ -6899,7 +6981,7 @@ function DailyExpenseForm({
         </div>
       </div>
 
-      <div className="relative mt-4 rounded-2xl border border-slate-200/70 bg-white/58 p-3.5 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/40">
+      <div className="relative mt-4 rounded-2xl border border-slate-200/70 bg-white/58 p-3.5 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/40 lg:hidden">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className=${`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusTone}`}>
             ${statusLabel}
@@ -6943,8 +7025,8 @@ function DailyExpenseForm({
         </div>
       </div>
 
-      <form className="relative mt-4 grid gap-3.5" onSubmit=${handleSubmit}>
-        <label className="block">
+      <form className="relative mt-4 grid gap-3.5 lg:mt-5 lg:grid-cols-2 lg:gap-4" onSubmit=${handleSubmit}>
+        <label className="block lg:col-span-2">
           <span className="mb-2 block text-sm font-medium">Jumlah (${dailyCurrency})</span>
           <input
             type="text"
@@ -6979,7 +7061,7 @@ function DailyExpenseForm({
         ${accountOptions.length
           ? html`
               <label className="block">
-                <span className="mb-2 block text-sm font-medium">Keluar dari akun</span>
+                <span className="mb-2 block text-sm font-medium">Wallet / akun</span>
                 <select
                   value=${form.source_account_id}
                   onChange=${(event) => updateField("source_account_id", event.target.value)}
@@ -6997,7 +7079,7 @@ function DailyExpenseForm({
             `
           : null}
 
-        <label className="block">
+        <label className="block lg:col-span-2">
           <span className="mb-2 block text-sm font-medium">Catatan</span>
           <input
             type="text"
@@ -7008,11 +7090,13 @@ function DailyExpenseForm({
           />
         </label>
 
-        <${SubmitActionBar}
-          label="Simpan pengeluaran"
-          loading=${loading}
-          disabled=${submitDisabled}
-        />
+        <div className="lg:col-span-2">
+          <${SubmitActionBar}
+            label="Simpan pengeluaran"
+            loading=${loading}
+            disabled=${submitDisabled}
+          />
+        </div>
       </form>
     </div>
   `;
@@ -9485,6 +9569,212 @@ function ToastMessage({ toast, onDismiss }) {
   `;
 }
 
+const DESKTOP_NAV_TABS = [
+  { key: "today", label: "Hari Ini" },
+  { key: "history", label: "Riwayat" },
+  { key: "overview", label: "Keuangan" },
+  { key: "investment", label: "Aset" },
+  { key: "settings", label: "Setting" },
+];
+
+function getDesktopActiveTab(activeTab) {
+  if (activeTab === "report") return "investment";
+  if (activeTab === "budget") return "overview";
+  if (activeTab === "add") return "today";
+  return activeTab;
+}
+
+function DesktopTopTabs({ activeTab, onChange }) {
+  const activeKey = getDesktopActiveTab(activeTab);
+
+  return html`
+    <nav className="mt-4 hidden items-center justify-center rounded-[28px] border border-slate-200/70 bg-white/64 p-1.5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/58 dark:shadow-black/22 lg:flex">
+      <div className="grid w-full grid-cols-5 gap-1">
+        ${DESKTOP_NAV_TABS.map((tab) => {
+          const active = activeKey === tab.key;
+          return html`
+            <button
+              key=${tab.key}
+              type="button"
+              aria-current=${active ? "page" : undefined}
+              onClick=${() => onChange(tab.key)}
+              className=${`min-h-[46px] rounded-[22px] px-4 text-sm font-black transition duration-300 ${
+                active
+                  ? "bg-brand-600 text-white shadow-[0_16px_36px_rgba(16,185,129,0.24)] dark:bg-emerald-500"
+                  : "text-slate-600 hover:bg-white/70 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"
+              }`}
+            >
+              ${tab.label}
+            </button>
+          `;
+        })}
+      </div>
+    </nav>
+  `;
+}
+
+function DesktopPanelStat({ label, value, helper = "" }) {
+  return html`
+    <div className="rounded-2xl border border-slate-200/60 bg-white/48 px-3 py-3 dark:border-white/10 dark:bg-slate-950/30">
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+        ${label}
+      </p>
+      <div className="mt-1.5 truncate text-sm font-black text-slate-950 dark:text-white">
+        ${value}
+      </div>
+      ${helper
+        ? html`
+            <p className="mt-1 truncate text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+              ${helper}
+            </p>
+          `
+        : null}
+    </div>
+  `;
+}
+
+function DesktopRightPanel({
+  assetAccounts = [],
+  budget = null,
+  todaySpentCurrency = 0,
+  todaySpentIdr = 0,
+  dailyCurrency = DEFAULT_BASE_CURRENCY,
+  baseCurrency = getBaseCurrency(),
+  visible = true,
+  onNavigate,
+}) {
+  const normalizedDailyCurrency = normalizeCurrencyCode(dailyCurrency);
+  const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
+  const budgetCurrency = normalizeCurrencyCode(budget?.currency || normalizedDailyCurrency);
+  const safeRemaining = !budget
+    ? "-"
+    : !visible
+      ? HIDDEN_BALANCE_TEXT
+      : budget.todayRemainingSafe >= 0
+        ? formatCurrency(budget.todayRemainingSafe, budgetCurrency)
+        : `- ${formatCurrency(Math.abs(budget.todayRemainingSafe), budgetCurrency)}`;
+  const budgetLimit = budget
+    ? visible
+      ? formatCurrency(budget.limitAmount, budgetCurrency)
+      : HIDDEN_BALANCE_TEXT
+    : "-";
+  const baseValuation = todaySpentIdr > 0
+    ? visible
+      ? formatCurrency(todaySpentIdr, normalizedBaseCurrency)
+      : HIDDEN_BALANCE_TEXT
+    : "-";
+  const walletRows = assetAccounts.slice(0, 5);
+  const quickActions = [
+    { label: "Pengeluaran", target: "today" },
+    { label: "Pemasukan", target: "add" },
+    { label: "Exchange", target: "add" },
+    { label: "Wallet", target: "investment" },
+  ];
+
+  return html`
+    <aside className="hidden lg:block">
+      <div className="sticky top-6 grid gap-4">
+        <section className=${`${PREMIUM_PANEL_SOFT} p-5`}>
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.10),transparent_55%)] opacity-80"></div>
+          <div className="relative">
+            <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
+              Ringkasan Hari Ini
+            </h3>
+            <div className="mt-4 grid grid-cols-2 gap-2.5">
+              <${DesktopPanelStat}
+                label="Terpakai"
+                value=${html`<${AmountFormatter} amount=${todaySpentCurrency} currency=${normalizedDailyCurrency} visible=${visible} compact=${true} />`}
+              />
+              <${DesktopPanelStat}
+                label="Sisa aman"
+                value=${safeRemaining}
+              />
+              <${DesktopPanelStat}
+                label="Budget"
+                value=${budgetLimit}
+              />
+              <${DesktopPanelStat}
+                label=${`Valuasi ${normalizedBaseCurrency}`}
+                value=${baseValuation}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section className=${`${PREMIUM_PANEL_SOFT} p-5`}>
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.10),transparent_55%)] opacity-80"></div>
+          <div className="relative">
+            <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
+              Wallet Aktif
+            </h3>
+            <div className="mt-4 grid gap-2.5">
+              ${walletRows.length
+                ? walletRows.map((account) => html`
+                    <div
+                      key=${account.id}
+                      className="rounded-2xl border border-slate-200/60 bg-white/48 px-3 py-3 dark:border-white/10 dark:bg-slate-950/30"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-black text-slate-950 dark:text-white">
+                            ${account.name}
+                          </p>
+                          <p className="mt-1 text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                            ${account.typeLabel} - ${account.currency}
+                          </p>
+                        </div>
+                        <p className="shrink-0 text-right text-sm font-black text-slate-950 dark:text-white">
+                          <${AmountFormatter}
+                            amount=${account.balanceAmount}
+                            currency=${account.currency}
+                            visible=${visible}
+                            compact=${true}
+                          />
+                        </p>
+                      </div>
+                      <p className="mt-2 truncate text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                        ${account.valuationIdr == null
+                          ? "Rate belum tersedia"
+                          : visible
+                            ? formatCurrency(account.valuationIdr, normalizedBaseCurrency)
+                            : HIDDEN_BALANCE_TEXT}
+                      </p>
+                    </div>
+                  `)
+                : html`
+                    <div className="rounded-2xl border border-dashed border-slate-300/70 bg-white/40 px-4 py-5 text-center text-sm font-semibold text-slate-600 dark:border-white/10 dark:bg-slate-950/24 dark:text-slate-300">
+                      Belum ada wallet tambahan.
+                    </div>
+                  `}
+            </div>
+          </div>
+        </section>
+
+        <section className=${`${PREMIUM_PANEL_SOFT} p-5`}>
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.10),transparent_55%)] opacity-80"></div>
+          <div className="relative">
+            <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
+              Quick Actions
+            </h3>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              ${quickActions.map((action) => html`
+                <button
+                  key=${action.label}
+                  type="button"
+                  onClick=${() => onNavigate(action.target)}
+                  className="cuan-secondary min-h-11 rounded-2xl px-3 py-2 text-xs font-black"
+                >
+                  ${action.label}
+                </button>
+              `)}
+            </div>
+          </div>
+        </section>
+      </div>
+    </aside>
+  `;
+}
+
 function MobileBottomNav({ activeTab, onChange }) {
   const items = [
     { key: "today", label: "Hari Ini" },
@@ -9496,7 +9786,7 @@ function MobileBottomNav({ activeTab, onChange }) {
 
   return html`
     <nav
-      className="mobile-bottom-nav fixed inset-x-3 z-40 transition duration-300 md:hidden"
+      className="mobile-bottom-nav fixed inset-x-3 z-40 transition duration-300 lg:hidden"
       style=${{ bottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
     >
       <div
@@ -11396,11 +11686,147 @@ function App() {
     });
   }
 
+  function navigateAppTab(tab) {
+    setActiveTab(tab);
+    setMenuOpen(false);
+  }
+
+  const recentTodayTransactions = orderTransactions(transactions)
+    .filter((item) => getLocalDayKey(item.occurred_at) === todayKey)
+    .reverse()
+    .slice(0, 5);
+  const latestTransactionRate = getLatestRateUntil(
+    transactions,
+    new Date(8640000000000000),
+  );
+  const activeContent = activeTab === "today"
+    ? html`
+        <section className="grid gap-5">
+          <${DailyExpenseForm}
+            onSubmit=${handleCreateTransaction}
+            loading=${loading}
+            budget=${activeBudgetInsight}
+            todaySpentThb=${todaySpentCurrency}
+            todaySpentIdr=${todaySpentIdr}
+            todaySpentCurrency=${todaySpentCurrency}
+            expenseCurrency=${dailyExpenseCurrency}
+            baseCurrency=${walletBaseCurrency}
+            accounts=${assetAccounts}
+          />
+          <${RecentTransactionsPreview}
+            transactions=${recentTodayTransactions}
+            fallbackRate=${latestTransactionRate}
+            onOpenHistory=${() => navigateAppTab("history")}
+          />
+        </section>
+      `
+    : activeTab === "budget"
+      ? html`
+          <section className="grid gap-6">
+            <${BudgetForm}
+              onSubmit=${handleSaveBudget}
+              loading=${loading}
+              currentMonthKey=${metrics.currentMonthKey}
+            />
+            <${BudgetTracker}
+              budgets=${metrics.budgetInsights}
+              monthLabel=${metrics.currentMonthLabel}
+              onDelete=${handleDeleteBudget}
+            />
+          </section>
+        `
+      : activeTab === "add"
+        ? html`
+            <section>
+              <${TransactionForm}
+                transactions=${transactions}
+                onSubmit=${handleCreateTransaction}
+                loading=${loading}
+                activeCurrencies=${dashboardActiveCurrencies}
+                dailyCurrency=${dailyExpenseCurrency}
+                baseCurrency=${walletBaseCurrency}
+                assetAccounts=${assetAccounts}
+              />
+            </section>
+          `
+        : activeTab === "history"
+          ? html`
+              <section>
+                <${TransactionList}
+                  transactions=${historyTransactions}
+                  onDelete=${handleDeleteTransaction}
+                  onUpdate=${handleUpdateTransaction}
+                  loading=${loading}
+                  activeCurrencies=${dashboardActiveCurrencies}
+                  emptyMessage="Belum ada transaksi."
+                />
+              </section>
+            `
+          : activeTab === "overview"
+            ? html`
+                <section>
+                  <${ControlCenterPage}
+                    metrics=${metrics}
+                    transactions=${transactions}
+                    activeCurrencies=${dashboardActiveCurrencies}
+                    loading=${loading}
+                    onBudgetDelete=${handleDeleteBudget}
+                    onBudgetSubmit=${handleSaveBudget}
+                    onNavigate=${navigateAppTab}
+                  />
+                </section>
+              `
+            : activeTab === "report"
+              ? html`
+                  <section>
+                    <${MonthlyReportPage}
+                      transactions=${transactions}
+                      budgets=${budgets}
+                      selectedMonthKey=${reportMonthKey}
+                      onMonthChange=${setReportMonthKey}
+                      onNavigate=${navigateAppTab}
+                    />
+                  </section>
+                `
+              : activeTab === "settings"
+                ? html`
+                    <section>
+                      <${SettingsPanel}
+                        user=${user}
+                        profile=${profile}
+                        profilePhoto=${profilePhoto}
+                        theme=${theme}
+                        onThemeChange=${handleThemeChange}
+                        currencySettings=${currencySettings}
+                        balanceVisible=${balanceVisible}
+                        onToggleBalanceVisibility=${handleSetHideBalances}
+                        onCurrencySettingsChange=${handleSaveCurrencySettings}
+                        onSaveProfile=${handleSaveProfile}
+                        onSignOut=${handleSignOut}
+                      />
+                    </section>
+                  `
+                : html`
+                    <section>
+                      <${WealthGoalsPage}
+                        metrics=${metrics}
+                        loading=${loading}
+                        activeCurrencies=${dashboardActiveCurrencies}
+                        onCreateAssetAccount=${handleCreateAssetAccount}
+                        onDeleteAssetAccount=${handleDeleteAssetAccount}
+                        onCreateGoal=${handleCreateGoal}
+                        onDeleteGoal=${handleDeleteGoal}
+                        onContribute=${handleAddGoalProgress}
+                        onOpenReport=${() => navigateAppTab("report")}
+                      />
+                    </section>
+                  `;
+
   return html`
-    <main className="app-shell relative isolate min-h-screen overflow-hidden px-4 pt-5 md:px-6 md:py-6 lg:px-8">
+    <main className="app-shell relative isolate min-h-screen overflow-hidden px-4 pt-5 md:px-6 md:py-6 lg:px-8 lg:pt-6">
       <${PremiumMeshBackground} />
       <${ToastMessage} toast=${toast} onDismiss=${() => setToast(null)} />
-      <div className="relative z-10 mx-auto max-w-7xl">
+      <div className="relative z-10 mx-auto max-w-[1180px]">
         <${WalletHeader}
           appName=${APP_NAME}
           balances=${walletBalances}
@@ -11417,6 +11843,11 @@ function App() {
           avatarInitials=${userInitials}
           onAvatarClick=${() => setMenuOpen((current) => !current)}
           compact=${activeTab === "settings"}
+        />
+
+        <${DesktopTopTabs}
+          activeTab=${activeTab}
+          onChange=${navigateAppTab}
         />
 
         ${menuOpen
@@ -11473,152 +11904,25 @@ function App() {
             `
           : null}
 
-        ${activeTab === "today"
-          ? html`
-              <section className="mt-6">
-                <${DailyExpenseForm}
-                  onSubmit=${handleCreateTransaction}
-                  loading=${loading}
-                  budget=${activeBudgetInsight}
-                  todaySpentThb=${todaySpentCurrency}
-                  todaySpentIdr=${todaySpentIdr}
-                  todaySpentCurrency=${todaySpentCurrency}
-                  expenseCurrency=${dailyExpenseCurrency}
-                  baseCurrency=${walletBaseCurrency}
-                  accounts=${assetAccounts}
-                />
-              </section>
-            `
-          : activeTab === "budget"
-            ? html`
-                <section className="mt-6 grid gap-6">
-                  <${BudgetForm}
-                    onSubmit=${handleSaveBudget}
-                    loading=${loading}
-                    currentMonthKey=${metrics.currentMonthKey}
-                  />
-                  <${BudgetTracker}
-                    budgets=${metrics.budgetInsights}
-                    monthLabel=${metrics.currentMonthLabel}
-                    onDelete=${handleDeleteBudget}
-                  />
-                </section>
-              `
-            : activeTab === "add"
-              ? html`
-                  <section className="mt-6">
-                      <${TransactionForm}
-                        transactions=${transactions}
-                        onSubmit=${handleCreateTransaction}
-                        loading=${loading}
-                        activeCurrencies=${dashboardActiveCurrencies}
-                        dailyCurrency=${dailyExpenseCurrency}
-                        baseCurrency=${walletBaseCurrency}
-                        assetAccounts=${assetAccounts}
-                      />
-                  </section>
-                `
-              : activeTab === "history"
-                ? html`
-                    <section className="mt-6">
-                      <${TransactionList}
-                        transactions=${historyTransactions}
-                        onDelete=${handleDeleteTransaction}
-                        onUpdate=${handleUpdateTransaction}
-                        loading=${loading}
-                        activeCurrencies=${dashboardActiveCurrencies}
-                        emptyMessage="Belum ada transaksi."
-                      />
-                    </section>
-                  `
-                : activeTab === "overview"
-                  ? html`
-                      <section className="mt-6">
-                        <${ControlCenterPage}
-                          metrics=${metrics}
-                          transactions=${transactions}
-                          activeCurrencies=${dashboardActiveCurrencies}
-                          loading=${loading}
-                          onBudgetDelete=${handleDeleteBudget}
-                          onBudgetSubmit=${handleSaveBudget}
-                          onNavigate=${(tab) => {
-                            setActiveTab(tab);
-                            setMenuOpen(false);
-                          }}
-                        />
-                      </section>
-                    `
-                  : activeTab === "report"
-                    ? html`
-                        <section className="mt-6">
-                          <${MonthlyReportPage}
-                            transactions=${transactions}
-                            budgets=${budgets}
-                            selectedMonthKey=${reportMonthKey}
-                            onMonthChange=${setReportMonthKey}
-                            onNavigate=${(tab) => {
-                              setActiveTab(tab);
-                              setMenuOpen(false);
-                            }}
-                          />
-                        </section>
-                      `
-                    : activeTab === "settings"
-                    ? html`
-                        <section className="mt-6">
-                          <${SettingsPanel}
-                            user=${user}
-                            profile=${profile}
-                            profilePhoto=${profilePhoto}
-                            theme=${theme}
-                            onThemeChange=${handleThemeChange}
-                            currencySettings=${currencySettings}
-                            balanceVisible=${balanceVisible}
-                            onToggleBalanceVisibility=${handleSetHideBalances}
-                            onCurrencySettingsChange=${handleSaveCurrencySettings}
-                            onSaveProfile=${handleSaveProfile}
-                            onSignOut=${handleSignOut}
-                          />
-                        </section>
-                      `
-                    : activeTab === "investment"
-                    ? html`
-                        <section className="mt-6">
-                          <${WealthGoalsPage}
-                            metrics=${metrics}
-                            loading=${loading}
-                            activeCurrencies=${dashboardActiveCurrencies}
-                            onCreateAssetAccount=${handleCreateAssetAccount}
-                            onDeleteAssetAccount=${handleDeleteAssetAccount}
-                            onCreateGoal=${handleCreateGoal}
-                            onDeleteGoal=${handleDeleteGoal}
-                            onContribute=${handleAddGoalProgress}
-                            onOpenReport=${() => setActiveTab("report")}
-                          />
-                        </section>
-                      `
-                  : html`
-                      <section className="mt-6">
-                        <${WealthGoalsPage}
-                          metrics=${metrics}
-                          loading=${loading}
-                          activeCurrencies=${dashboardActiveCurrencies}
-                          onCreateAssetAccount=${handleCreateAssetAccount}
-                          onDeleteAssetAccount=${handleDeleteAssetAccount}
-                          onCreateGoal=${handleCreateGoal}
-                          onDeleteGoal=${handleDeleteGoal}
-                          onContribute=${handleAddGoalProgress}
-                          onOpenReport=${() => setActiveTab("report")}
-                        />
-                      </section>
-                    `}
+        <div className="mt-5 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-5 xl:grid-cols-[minmax(0,760px)_320px] xl:justify-center">
+          <div className="min-w-0">
+            ${activeContent}
+          </div>
+          <${DesktopRightPanel}
+            assetAccounts=${metrics.assetAccountInsights}
+            budget=${activeBudgetInsight}
+            todaySpentCurrency=${todaySpentCurrency}
+            todaySpentIdr=${todaySpentIdr}
+            dailyCurrency=${dailyExpenseCurrency}
+            baseCurrency=${walletBaseCurrency}
+            visible=${balanceVisible}
+            onNavigate=${navigateAppTab}
+          />
+        </div>
       </div>
       <${MobileBottomNav}
         activeTab=${activeTab}
-        onChange=${(tab) => {
-          setActiveTab(tab);
-          setMenuOpen(false);
-        }}
+        onChange=${navigateAppTab}
       />
     </main>
   `;
