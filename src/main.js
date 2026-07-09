@@ -2600,6 +2600,8 @@ function computeMetrics(
   };
 }
 
+const HISTORY_DEFAULT_DAYS = 7;
+
 const DEFAULT_TRANSACTION_FILTERS = {
   startDate: "",
   endDate: "",
@@ -2611,6 +2613,23 @@ const DEFAULT_TRANSACTION_FILTERS = {
   search: "",
   sortBy: "newest",
 };
+
+function getRecentDateRange(days = HISTORY_DEFAULT_DAYS) {
+  const end = new Date();
+  const start = new Date(end);
+  start.setDate(start.getDate() - Math.max(days - 1, 0));
+  return {
+    startDate: getDateInputValue(start),
+    endDate: getDateInputValue(end),
+  };
+}
+
+function getDefaultTransactionFilters() {
+  return {
+    ...DEFAULT_TRANSACTION_FILTERS,
+    ...getRecentDateRange(),
+  };
+}
 
 const HISTORY_SORT_OPTIONS = [
   { value: "newest", label: "Terbaru" },
@@ -2810,6 +2829,15 @@ function getTransactionGroupLabel(dayKey) {
   return formatLongDate(`${dayKey}T00:00:00`);
 }
 
+function getTransactionRangeLabel(filters) {
+  if (filters.startDate && filters.endDate) {
+    return `${formatDay(`${filters.startDate}T00:00:00`)} - ${formatDay(`${filters.endDate}T00:00:00`)}`;
+  }
+  if (filters.startDate) return `Mulai ${formatDay(`${filters.startDate}T00:00:00`)}`;
+  if (filters.endDate) return `Sampai ${formatDay(`${filters.endDate}T00:00:00`)}`;
+  return "Semua tanggal";
+}
+
 function groupTransactionsByDay(transactions) {
   const groups = [];
   const groupMap = new Map();
@@ -2832,9 +2860,95 @@ function groupTransactionsByDay(transactions) {
 }
 
 function hasActiveTransactionFilters(filters) {
-  return Object.keys(DEFAULT_TRANSACTION_FILTERS).some(
-    (key) => filters[key] !== DEFAULT_TRANSACTION_FILTERS[key],
+  const defaults = getDefaultTransactionFilters();
+  return Object.keys(defaults).some(
+    (key) => filters[key] !== defaults[key],
   );
+}
+
+function escapeCsvValue(value) {
+  const text = value == null ? "" : String(value);
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function formatCsvNumber(value) {
+  const number = Number(value || 0);
+  return Number.isFinite(number) && number !== 0 ? String(number) : "";
+}
+
+function getMonthlyStatementRows(transactions, monthKey, fallbackRate = 0) {
+  return orderTransactions(transactions)
+    .filter((transaction) => getMonthKey(transaction.occurred_at) === monthKey)
+    .sort(compareTransactionsByDate)
+    .map((transaction) => {
+      const flow = getTransactionFlow(transaction);
+      const valuationIdr = getTransactionIdrValuationWithRate(transaction, fallbackRate);
+      const rate = Number(transaction.rate || transaction.locked_rate || 0);
+      const fromAmount = Math.abs(Number(transaction.from_amount || 0));
+      const toAmount = Math.abs(Number(transaction.to_amount || 0));
+      const amount = getTransactionAmountValue(transaction);
+      return {
+        tanggal: formatDateTime(transaction.occurred_at),
+        tipe: getTransactionTypeLabel(transaction),
+        deskripsi: getTransactionDisplayTitle(transaction),
+        kategori: getTransactionCategoryLabel(transaction),
+        mataUang:
+          flow === "exchange"
+            ? `${normalizeCurrencyCode(transaction.from_currency)} -> ${normalizeCurrencyCode(transaction.to_currency)}`
+            : getTransactionCurrency(transaction),
+        masuk: flow === "income" ? formatCsvNumber(amount) : "",
+        keluar: flow === "expense" ? formatCsvNumber(amount) : "",
+        tukarKeluar: flow === "exchange" ? formatCsvNumber(fromAmount) : "",
+        tukarMasuk: flow === "exchange" ? formatCsvNumber(toAmount) : "",
+        rate: formatCsvNumber(rate),
+        valuasiIdr: valuationIdr != null ? formatCsvNumber(valuationIdr) : "",
+      };
+    });
+}
+
+function downloadMonthlyStatement(transactions, monthKey, fallbackRate = 0) {
+  const rows = getMonthlyStatementRows(transactions, monthKey, fallbackRate);
+  const headers = [
+    "Tanggal",
+    "Tipe",
+    "Deskripsi",
+    "Kategori",
+    "Mata uang",
+    "Masuk",
+    "Keluar",
+    "Tukar keluar",
+    "Tukar masuk",
+    "Rate",
+    "Valuasi IDR",
+  ];
+  const csvRows = [
+    headers,
+    ...rows.map((row) => [
+      row.tanggal,
+      row.tipe,
+      row.deskripsi,
+      row.kategori,
+      row.mataUang,
+      row.masuk,
+      row.keluar,
+      row.tukarKeluar,
+      row.tukarMasuk,
+      row.rate,
+      row.valuasiIdr,
+    ]),
+  ];
+  const csv = `\uFEFF${csvRows
+    .map((row) => row.map(escapeCsvValue).join(","))
+    .join("\n")}`;
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `cuansync-mutasi-${monthKey}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function filterAndSortTransactions(transactions, filters) {
@@ -6407,7 +6521,8 @@ function TransactionList({
   description = "",
   emptyMessage = "Belum ada transaksi.",
 }) {
-  const [filters, setFilters] = useState(DEFAULT_TRANSACTION_FILTERS);
+  const [filters, setFilters] = useState(() => getDefaultTransactionFilters());
+  const [exportMonthKey, setExportMonthKey] = useState(getMonthKey(new Date()));
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const categoryOptions = useMemo(
@@ -6430,7 +6545,16 @@ function TransactionList({
     () => getLatestRateUntil(transactions, new Date(8640000000000000)),
     [transactions],
   );
+  const exportCount = useMemo(
+    () =>
+      transactions.filter(
+        (transaction) =>
+          exportMonthKey && getMonthKey(transaction.occurred_at) === exportMonthKey,
+      ).length,
+    [transactions, exportMonthKey],
+  );
   const hasFilters = hasActiveTransactionFilters(filters);
+  const rangeLabel = getTransactionRangeLabel(filters);
 
   useEffect(() => {
     setFilters((current) => {
@@ -6449,7 +6573,12 @@ function TransactionList({
   }
 
   function resetFilters() {
-    setFilters({ ...DEFAULT_TRANSACTION_FILTERS });
+    setFilters(getDefaultTransactionFilters());
+  }
+
+  function handleDownloadMonth() {
+    if (!exportMonthKey || exportCount === 0) return;
+    downloadMonthlyStatement(transactions, exportMonthKey, latestRate);
   }
 
   return html`
@@ -6468,9 +6597,30 @@ function TransactionList({
             value=${filters.type}
             onChange=${(value) => updateFilter("type", value)}
           />
+          <div className="grid gap-2 rounded-[20px] border border-slate-200/70 bg-white/56 p-2 dark:border-white/10 dark:bg-slate-900/36 sm:grid-cols-[1fr_auto] sm:items-end">
+            <label className="block">
+              <span className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
+                Mutasi
+              </span>
+              <input
+                type="month"
+                value=${exportMonthKey}
+                onChange=${(event) => setExportMonthKey(event.target.value)}
+                className=${`${GLASS_INPUT} min-h-11 py-2.5`}
+              />
+            </label>
+            <button
+              type="button"
+              onClick=${handleDownloadMonth}
+              disabled=${!exportMonthKey || exportCount === 0}
+              className="history-action-primary min-h-11 rounded-2xl px-4 py-2.5 text-xs font-black disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              Unduh CSV
+            </button>
+          </div>
           <div className="flex items-center justify-between gap-3">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              ${filteredTransactions.length} dari ${transactions.length} transaksi
+              ${filteredTransactions.length} dari ${transactions.length} transaksi - ${rangeLabel}
             </p>
             <button
               type="button"
