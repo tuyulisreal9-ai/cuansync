@@ -2600,7 +2600,7 @@ function computeMetrics(
   };
 }
 
-const HISTORY_DEFAULT_DAYS = 7;
+const HISTORY_VISIBLE_LIMIT = 30;
 
 const DEFAULT_TRANSACTION_FILTERS = {
   startDate: "",
@@ -2613,23 +2613,6 @@ const DEFAULT_TRANSACTION_FILTERS = {
   search: "",
   sortBy: "newest",
 };
-
-function getRecentDateRange(days = HISTORY_DEFAULT_DAYS) {
-  const end = new Date();
-  const start = new Date(end);
-  start.setDate(start.getDate() - Math.max(days - 1, 0));
-  return {
-    startDate: getDateInputValue(start),
-    endDate: getDateInputValue(end),
-  };
-}
-
-function getDefaultTransactionFilters() {
-  return {
-    ...DEFAULT_TRANSACTION_FILTERS,
-    ...getRecentDateRange(),
-  };
-}
 
 const HISTORY_SORT_OPTIONS = [
   { value: "newest", label: "Terbaru" },
@@ -2860,7 +2843,7 @@ function groupTransactionsByDay(transactions) {
 }
 
 function hasActiveTransactionFilters(filters) {
-  const defaults = getDefaultTransactionFilters();
+  const defaults = DEFAULT_TRANSACTION_FILTERS;
   return Object.keys(defaults).some(
     (key) => filters[key] !== defaults[key],
   );
@@ -6521,8 +6504,9 @@ function TransactionList({
   description = "",
   emptyMessage = "Belum ada transaksi.",
 }) {
-  const [filters, setFilters] = useState(() => getDefaultTransactionFilters());
+  const [filters, setFilters] = useState(() => ({ ...DEFAULT_TRANSACTION_FILTERS }));
   const [exportMonthKey, setExportMonthKey] = useState(getMonthKey(new Date()));
+  const [showAllHistory, setShowAllHistory] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const categoryOptions = useMemo(
@@ -6537,9 +6521,17 @@ function TransactionList({
     () => filterAndSortTransactions(transactions, filters),
     [transactions, filters],
   );
+  const hasFilters = hasActiveTransactionFilters(filters);
+  const visibleTransactions = useMemo(
+    () =>
+      hasFilters || showAllHistory
+        ? filteredTransactions
+        : filteredTransactions.slice(0, HISTORY_VISIBLE_LIMIT),
+    [filteredTransactions, hasFilters, showAllHistory],
+  );
   const groupedTransactions = useMemo(
-    () => groupTransactionsByDay(filteredTransactions),
-    [filteredTransactions],
+    () => groupTransactionsByDay(visibleTransactions),
+    [visibleTransactions],
   );
   const latestRate = useMemo(
     () => getLatestRateUntil(transactions, new Date(8640000000000000)),
@@ -6553,8 +6545,19 @@ function TransactionList({
       ).length,
     [transactions, exportMonthKey],
   );
-  const hasFilters = hasActiveTransactionFilters(filters);
-  const rangeLabel = getTransactionRangeLabel(filters);
+  const hiddenTransactionCount = Math.max(
+    filteredTransactions.length - visibleTransactions.length,
+    0,
+  );
+  const hasDateFilter = Boolean(filters.startDate || filters.endDate);
+  const rangeLabel = hasDateFilter ? getTransactionRangeLabel(filters) : "";
+  const historyCountLabel = !transactions.length
+    ? "0 transaksi"
+    : hasFilters
+      ? `${filteredTransactions.length} dari ${transactions.length} transaksi${hasDateFilter ? ` - ${rangeLabel}` : ""}`
+      : hiddenTransactionCount
+        ? `${visibleTransactions.length} terbaru dari ${transactions.length} transaksi`
+        : `${filteredTransactions.length} transaksi`;
 
   useEffect(() => {
     setFilters((current) => {
@@ -6568,12 +6571,16 @@ function TransactionList({
     });
   }, [activeCurrencies.join("|")]);
 
+  useEffect(() => {
+    setShowAllHistory(false);
+  }, [filters]);
+
   function updateFilter(field, value) {
     setFilters((current) => ({ ...current, [field]: value }));
   }
 
   function resetFilters() {
-    setFilters(getDefaultTransactionFilters());
+    setFilters({ ...DEFAULT_TRANSACTION_FILTERS });
   }
 
   function handleDownloadMonth() {
@@ -6618,17 +6625,30 @@ function TransactionList({
               Unduh CSV
             </button>
           </div>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-              ${filteredTransactions.length} dari ${transactions.length} transaksi - ${rangeLabel}
+              ${historyCountLabel}
             </p>
-            <button
-              type="button"
-              onClick=${() => setShowAdvancedFilters((current) => !current)}
-              className="cuan-secondary min-h-10 rounded-2xl px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
-            >
-              ${showAdvancedFilters ? "Tutup filter" : "Filter lanjutan"}
-            </button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              ${!hasFilters && filteredTransactions.length > HISTORY_VISIBLE_LIMIT
+                ? html`
+                    <button
+                      type="button"
+                      onClick=${() => setShowAllHistory((current) => !current)}
+                      className="cuan-secondary min-h-10 rounded-2xl px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
+                    >
+                      ${showAllHistory ? "Ringkas" : "Lihat semua"}
+                    </button>
+                  `
+                : null}
+              <button
+                type="button"
+                onClick=${() => setShowAdvancedFilters((current) => !current)}
+                className="cuan-secondary min-h-10 rounded-2xl px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
+              >
+                ${showAdvancedFilters ? "Tutup filter" : "Filter lanjutan"}
+              </button>
+            </div>
           </div>
         </div>
       </section>
@@ -6648,7 +6668,7 @@ function TransactionList({
 
       <section className="history-list-panel relative overflow-hidden rounded-[30px] p-3 md:p-5">
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-        ${filteredTransactions.length
+        ${visibleTransactions.length
           ? html`
               <div className="relative grid gap-5">
                 ${groupedTransactions.map(
