@@ -2897,47 +2897,6 @@ function filterAndSortTransactions(transactions, filters) {
     });
 }
 
-function computeTransactionSummary(transactions, allTransactions = transactions) {
-  const latestRate = getLatestRateUntil(
-    allTransactions,
-    new Date(8640000000000000),
-  );
-
-  return transactions.reduce(
-    (summary, transaction) => {
-      const valuation =
-        resolveTransactionBaseValue(
-          transaction,
-          getLatestRateForCurrencyUntil(
-            allTransactions,
-            getTransactionCurrency(transaction),
-            new Date(transaction.occurred_at || Date.now()),
-          ) || (getTransactionCurrency(transaction) === "THB" ? latestRate : 0),
-        ) || 0;
-      if (transaction.type === "income") {
-        summary.totalIncomeIdr += valuation;
-      } else if (transaction.type === "expense") {
-        summary.totalExpenseIdr += valuation;
-      } else if (transaction.type === "exchange") {
-        summary.totalExchangeIdr += getExchangeVolumeIdr(transaction, latestRate);
-        summary.exchangeCount += 1;
-      }
-      summary.count += 1;
-      summary.netIdr = summary.totalIncomeIdr - summary.totalExpenseIdr;
-      return summary;
-    },
-    {
-      totalIncomeIdr: 0,
-      totalExpenseIdr: 0,
-      totalExchangeIdr: 0,
-      netIdr: 0,
-      exchangeCount: 0,
-      count: 0,
-      fallbackRate: latestRate,
-    },
-  );
-}
-
 function getAvailableReportMonths(transactions, selectedMonthKey) {
   const months = new Set([selectedMonthKey, getMonthKey(new Date())]);
   transactions.forEach((transaction) => {
@@ -5531,68 +5490,6 @@ function SubmitActionBar({
   `;
 }
 
-function SummaryCards({ summary }) {
-  const cards = [
-    {
-      title: "Masuk",
-      value: formatCurrencyCompact(summary.totalIncomeIdr, "idr"),
-      tone: "text-emerald-700 dark:text-emerald-300",
-    },
-    {
-      title: "Keluar",
-      value: formatCurrencyCompact(summary.totalExpenseIdr, "idr"),
-      tone: "text-amber-700 dark:text-amber-300",
-    },
-    {
-      title: "Bersih",
-      value: formatCurrencyCompact(summary.netIdr, "idr"),
-      tone:
-        summary.netIdr >= 0
-          ? "text-brand-700 dark:text-brand-300"
-          : "text-rose-700 dark:text-rose-300",
-    },
-  ];
-  if (summary.totalExchangeIdr > 0 || summary.exchangeCount > 0) {
-    cards.push({
-      title: "Tukar",
-      value: formatCurrencyCompact(summary.totalExchangeIdr, "idr"),
-      helper: `${summary.exchangeCount}x`,
-      tone: "text-sky-700 dark:text-sky-300",
-    });
-  }
-
-  return html`
-    <div className="rounded-[22px] border border-slate-200/70 bg-white/60 p-2 shadow-[0_14px_36px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/50 dark:shadow-black/24">
-      <div className=${`grid gap-1.5 ${cards.length > 3 ? "grid-cols-4" : "grid-cols-3"}`}>
-      ${cards.map(
-        (card) => html`
-          <div
-            key=${card.title}
-            className="min-w-0 rounded-2xl px-2 py-2 text-center transition hover:bg-slate-900/[0.04] dark:hover:bg-white/8"
-          >
-            <div className="min-w-0">
-              <p className="truncate text-[9px] font-black uppercase tracking-[0.11em] text-slate-500 dark:text-slate-400">
-                ${card.title}
-              </p>
-              <p className=${`mt-1 truncate text-sm font-black tracking-[-0.02em] tabular-nums min-[390px]:text-base ${card.tone}`}>
-                ${card.value}
-              </p>
-              ${card.helper
-                ? html`
-                    <p className="mt-0.5 text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                      ${card.helper}
-                    </p>
-                  `
-                : null}
-            </div>
-          </div>
-        `,
-      )}
-      </div>
-    </div>
-  `;
-}
-
 function TransactionFilter({
   filters,
   onChange,
@@ -6525,10 +6422,6 @@ function TransactionList({
     () => filterAndSortTransactions(transactions, filters),
     [transactions, filters],
   );
-  const summary = useMemo(
-    () => computeTransactionSummary(filteredTransactions, transactions),
-    [filteredTransactions, transactions],
-  );
   const groupedTransactions = useMemo(
     () => groupTransactionsByDay(filteredTransactions),
     [filteredTransactions],
@@ -6561,8 +6454,6 @@ function TransactionList({
 
   return html`
     <div className="grid gap-3">
-      <${SummaryCards} summary=${summary} />
-
       <section className="history-filter-panel sticky top-3 z-20 rounded-[24px] border border-slate-200/70 bg-white/82 p-2.5 shadow-[0_18px_50px_rgba(15,23,42,0.10)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/82 dark:shadow-black/30">
         <div className="grid gap-3">
           <input
