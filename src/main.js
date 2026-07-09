@@ -62,7 +62,7 @@ const DEMO_USER = {
   id: "demo-user",
   email: "demo@cuansync.local",
   user_metadata: {
-    full_name: "Demo User",
+    full_name: "Demo Lokal",
     avatar_url: "",
   },
 };
@@ -333,14 +333,14 @@ function isMissingDailyCurrencyColumn(error) {
 
 function getSettingsSyncErrorMessage(error) {
   if (error?.code === "42P01") {
-    return "Setting tersimpan di perangkat ini. Jalankan schema.sql terbaru agar profile dan currency sinkron ke database.";
+    return "Pengaturan tersimpan di perangkat ini. Jalankan schema.sql terbaru agar profil dan mata uang sinkron ke database.";
   }
 
   if (isMissingDailyCurrencyColumn(error)) {
-    return "Setting utama tersimpan, tapi kolom daily_currency belum ada di database. Jalankan schema.sql terbaru agar mata uang harian ikut sinkron lintas device.";
+    return "Pengaturan utama tersimpan, tapi kolom daily_currency belum ada di database. Jalankan schema.sql terbaru agar mata uang harian ikut sinkron lintas perangkat.";
   }
 
-  return error?.message || "Setting tersimpan lokal, tapi gagal sinkron ke database.";
+  return error?.message || "Pengaturan tersimpan lokal, tapi gagal sinkron ke database.";
 }
 
 function getCurrencySettingsOwnerId(user) {
@@ -546,7 +546,7 @@ function getUserDisplayName(user) {
   return (
     user?.user_metadata?.full_name ||
     user?.email?.split("@")[0] ||
-    "User"
+    "Pengguna"
   );
 }
 
@@ -628,8 +628,8 @@ function EyeToggleIcon({ visible }) {
 }
 
 function BalancePrivacyPill({ balanceIdr, balanceThb, visible, onToggle }) {
-  const idrText = visible ? formatCurrency(balanceIdr, "idr") : "â€¢â€¢â€¢â€¢â€¢â€¢";
-  const thbText = visible ? formatCurrency(balanceThb, "thb") : "â€¢â€¢â€¢â€¢â€¢â€¢";
+  const idrText = visible ? formatCurrency(balanceIdr, "idr") : HIDDEN_BALANCE_TEXT;
+  const thbText = visible ? formatCurrency(balanceThb, "thb") : HIDDEN_BALANCE_TEXT;
 
   return html`
     <div className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-2xl border border-brand-300/30 bg-brand-600 px-3 py-1.5 text-[11px] font-semibold uppercase text-white shadow-[0_12px_30px_rgba(16,185,129,0.22)] sm:flex-none sm:rounded-full sm:text-xs">
@@ -894,7 +894,7 @@ function PrimaryBalanceHero({
   dailyCurrency,
   visible,
 }) {
-  const focusState = focusCurrency === dailyCurrency ? "Daily" : "Focus";
+  const focusState = focusCurrency === dailyCurrency ? "Harian" : "Fokus";
   const amountLabel = visible
     ? formatMoney(focusBalance, focusCurrency)
     : "saldo disembunyikan";
@@ -917,7 +917,7 @@ function PrimaryBalanceHero({
           </span>
         </div>
         <span className="shrink-0 rounded-full border border-slate-300/70 bg-white/58 px-2.5 py-1.5 text-xs font-bold text-slate-600 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 lg:px-2 lg:py-0.5 lg:text-[11px]">
-          Base ${baseCurrency}
+          Utama ${baseCurrency}
         </span>
       </div>
 
@@ -987,19 +987,19 @@ function WalletBottomSheet({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h2 id="wallet-currency-sheet-title" className="text-base font-black">
-              Semua currency
+              Semua mata uang
             </h2>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-              Pilih fokus tampilan. Daily currency tetap diatur dari Settings.
+              Pilih saldo yang mau difokuskan. Mata uang harian tetap diatur dari Pengaturan.
             </p>
           </div>
           <button
             type="button"
             onClick=${onClose}
-            aria-label="Tutup bottom sheet currency"
+            aria-label="Tutup pilihan mata uang"
             className="inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-300/70 bg-white/70 text-sm font-black text-slate-700 transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/70 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
           >
-            Ã—
+            X
           </button>
         </div>
 
@@ -1028,13 +1028,13 @@ function WalletBottomSheet({
                   <span className="flex flex-wrap items-center gap-2">
                     <span className="text-sm font-black">${currency}</span>
                     ${selected
-                      ? html`<span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white">Focus</span>`
+                      ? html`<span className="rounded-full bg-emerald-500 px-2 py-0.5 text-[10px] font-bold text-white">Fokus</span>`
                       : null}
                     ${daily
-                      ? html`<span className="rounded-full bg-cyan-500/14 px-2 py-0.5 text-[10px] font-bold text-cyan-700 dark:text-cyan-200">Daily</span>`
+                      ? html`<span className="rounded-full bg-cyan-500/14 px-2 py-0.5 text-[10px] font-bold text-cyan-700 dark:text-cyan-200">Harian</span>`
                       : null}
                     ${base
-                      ? html`<span className="rounded-full bg-slate-900/6 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-white/10 dark:text-slate-300">Base</span>`
+                      ? html`<span className="rounded-full bg-slate-900/6 px-2 py-0.5 text-[10px] font-bold text-slate-600 dark:bg-white/10 dark:text-slate-300">Utama</span>`
                       : null}
                   </span>
                   <span className="mt-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">
@@ -1263,9 +1263,9 @@ function writeAppStorage(keyName, value) {
 }
 
 const THEME_MODE_OPTIONS = [
-  { key: "system", label: "System" },
-  { key: "light", label: "Light" },
-  { key: "dark", label: "Dark" },
+  { key: "system", label: "Sistem" },
+  { key: "light", label: "Terang" },
+  { key: "dark", label: "Gelap" },
 ];
 
 function normalizeThemeMode(value) {
@@ -1283,7 +1283,7 @@ function getProfileDisplayName(profile, user) {
     profile?.display_name ||
     user?.user_metadata?.full_name ||
     user?.email?.split("@")[0] ||
-    "User"
+    "Pengguna"
   );
 }
 
@@ -1325,7 +1325,7 @@ function normalizeProfile(row, user, fallback = {}) {
       fallback.displayName ||
       user?.user_metadata?.full_name ||
       user?.email?.split("@")[0] ||
-      "User",
+      "Pengguna",
     avatar_url:
       row?.avatar_url ||
       fallback.avatar_url ||
@@ -1807,10 +1807,10 @@ function getCurrentValuationRateForCurrency(
 }
 
 function getAssetAccountValuationLabel(account) {
-  if (account.currency === DEFAULT_BASE_CURRENCY) return "Base currency";
-  if (account.valuationIdr == null) return "Rate belum tersedia";
-  const suffix = account.rateSource === "global" ? " rate global" : "";
-  return `≈ ${formatCurrency(account.valuationIdr, "idr")}${suffix}`;
+  if (account.currency === DEFAULT_BASE_CURRENCY) return "Mata uang utama";
+  if (account.valuationIdr == null) return "Kurs belum tersedia";
+  const suffix = account.rateSource === "global" ? " kurs global" : "";
+  return `Sekitar ${formatCurrency(account.valuationIdr, "idr")}${suffix}`;
 }
 
 function buildAssetAccountInsights(accounts = [], globalRateSnapshot = null) {
@@ -2173,19 +2173,19 @@ function computeBudgetInsights(monthlyExpenses, budgets, monthKey) {
 
       if (usage > 1) {
         status = "over";
-        statusLabel = "Lewat Budget Bulanan";
+        statusLabel = "Lewat anggaran bulanan";
         tone =
           "border-rose-300/20 bg-rose-400/10 text-rose-900 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200";
         barClass = "from-rose-400 to-rose-500";
       } else if (todayRemainingSafe < 0) {
         status = "warning";
-        statusLabel = "Over Batas Harian";
+        statusLabel = "Lewat batas harian";
         tone =
           "border-rose-300/20 bg-rose-400/10 text-rose-900 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200";
         barClass = "from-rose-400 to-rose-500";
       } else if (usage >= 0.85) {
         status = "warning";
-        statusLabel = "Mendekati Limit";
+        statusLabel = "Mendekati batas";
         tone =
           "border-amber-300/20 bg-amber-400/10 text-amber-900 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200";
         barClass = "from-amber-300 to-orange-500";
@@ -2222,7 +2222,7 @@ function computeBudgetInsights(monthlyExpenses, budgets, monthKey) {
         tone,
         barClass,
         meta: {
-          label: `Budget ${currency}`,
+          label: `Anggaran ${currency}`,
           chip: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
         },
       };
@@ -2550,7 +2550,7 @@ function computeMetrics(
           : "safe";
   const budgetStatusLabel =
     budgetStatus === "none"
-      ? "Belum ada budget"
+      ? "Belum ada anggaran"
       : budgetStatus === "over"
         ? "Melewati batas"
         : budgetStatus === "warning"
@@ -2913,7 +2913,7 @@ function downloadMonthlyStatement(transactions, monthKey, fallbackRate = 0) {
     "Keluar",
     "Tukar keluar",
     "Tukar masuk",
-    "Rate",
+    "Kurs",
     "Valuasi IDR",
   ];
   const csvRows = [
@@ -3289,7 +3289,7 @@ function buildMonthlyReport(transactions, budgets, selectedMonthKey) {
           : "safe";
   const budgetStatusLabel =
     budgetStatus === "none"
-      ? "Belum ada budget"
+      ? "Belum ada anggaran"
       : budgetStatus === "over"
         ? "Melewati batas"
         : budgetStatus === "warning"
@@ -3476,7 +3476,7 @@ function OverviewHero({ metrics }) {
             ${formatCurrency(metrics.netWorthIdr, "idr")}
           </h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-700 dark:text-slate-300">
-            Gabungan saldo ${getBaseCurrency()} tersedia dan valuasi saldo mata uang aktif memakai rate global terbaru.
+            Gabungan saldo ${getBaseCurrency()} tersedia dan valuasi saldo mata uang aktif memakai kurs global terbaru.
             ${metrics.foreignBalanceItems?.length
               ? ` Valuasi mata uang asing saat ini ${formatCurrency(
                   metrics.foreignBalanceValuationIdr,
@@ -3520,7 +3520,7 @@ function OverviewStatGrid({ metrics }) {
             ? "Tersedia"
             : foreignItem?.rate
               ? formatRate(foreignItem.rate, DEFAULT_BASE_CURRENCY, currency)
-              : "Belum ada rate",
+              : "Belum ada kurs",
       };
     },
   );
@@ -3588,10 +3588,10 @@ function OverviewBudgetProgress({ metrics }) {
       <div className="relative flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-display text-xl font-bold text-slate-950 dark:text-white">
-            Budget Bulanan
+            Anggaran Bulanan
           </h3>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Ringkasan semua budget aktif dalam valuasi IDR.
+            Ringkasan semua anggaran aktif dalam valuasi IDR.
           </p>
         </div>
         <span className=${`rounded-full border px-3 py-1 text-xs font-semibold ${chipClass}`}>
@@ -3601,7 +3601,7 @@ function OverviewBudgetProgress({ metrics }) {
 
       <div className="relative mt-5 grid grid-cols-3 gap-3">
         ${[
-          ["Budget", formatCurrency(metrics.budgetLimitTotal, "idr")],
+          ["Anggaran", formatCurrency(metrics.budgetLimitTotal, "idr")],
           ["Terpakai", formatCurrency(metrics.budgetSpentTotal, "idr")],
           ["Sisa", formatCurrency(Math.max(metrics.budgetRemainingThb, 0), "idr")],
         ].map(
@@ -3626,8 +3626,8 @@ function OverviewBudgetProgress({ metrics }) {
       </div>
       <p className="relative mt-2 text-xs text-slate-600 dark:text-slate-300">
         ${metrics.budgetLimitTotal > 0
-          ? `${formatPercent(usage)} dari budget sudah terpakai.`
-          : "Belum ada budget aktif untuk bulan ini."}
+          ? `${formatPercent(usage)} dari anggaran sudah terpakai.`
+          : "Belum ada anggaran aktif untuk bulan ini."}
       </p>
     </section>
   `;
@@ -3650,7 +3650,7 @@ function OverviewCharts({ metrics }) {
       <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
         <div className="relative">
           <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
-            Cashflow Bulan Ini
+            Arus Kas Bulan Ini
           </h3>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
             Pemasukan vs pengeluaran dalam valuasi IDR.
@@ -3746,12 +3746,12 @@ function OverviewInsights({ metrics }) {
       helper: "Rata-rata pengeluaran per hari bulan ini.",
     },
     {
-      title: "Status budget",
+      title: "Status anggaran",
       value: metrics.budgetStatusLabel,
       helper:
         metrics.budgetLimitTotal > 0
           ? `${formatPercent(metrics.budgetUsageTotal)} terpakai`
-          : "Buat budget agar status aktif.",
+          : "Buat anggaran agar status aktif.",
     },
   ];
 
@@ -3834,10 +3834,10 @@ function OverviewEmptyState({ onNavigate }) {
         +
       </div>
       <h3 className="relative mt-4 font-display text-2xl font-bold text-slate-950 dark:text-white">
-        Overview siap diisi
+        Ringkasan siap diisi
       </h3>
       <p className="relative mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-slate-300">
-        Tambahkan transaksi pertama agar saldo, cashflow, budget, insight, dan riwayat mulai hidup.
+        Tambahkan transaksi pertama agar saldo, arus kas, anggaran, wawasan, dan riwayat mulai hidup.
       </p>
       <button
         type="button"
@@ -3935,20 +3935,20 @@ function buildControlCenter(metrics, selectedCurrency = getBaseCurrency()) {
   const alerts = [];
   if (!activeBudget) {
     alerts.push({
-      title: `Budget ${currency} belum aktif`,
-      body: `Buat limit ${currency} untuk menghitung sisa harian.`,
+      title: `Anggaran ${currency} belum aktif`,
+      body: `Buat batas ${currency} untuk menghitung sisa harian.`,
       tone: "amber",
     });
   } else if (activeBudget.status === "over") {
     alerts.push({
-      title: `Budget ${currency} melewati batas`,
-      body: `Pengeluaran ${currency} sudah ${formatPercent(activeBudget.usage)} dari budget bulan ini.`,
+      title: `Anggaran ${currency} melewati batas`,
+      body: `Pengeluaran ${currency} sudah ${formatPercent(activeBudget.usage)} dari anggaran bulan ini.`,
       tone: "rose",
     });
   } else if (activeBudget.status === "warning") {
     alerts.push({
-      title: `Budget ${currency} mendekati limit`,
-      body: `Sisa budget sekitar ${formatCurrency(Math.max(activeBudget.remainingAmount, 0), currency)}.`,
+      title: `Anggaran ${currency} mendekati batas`,
+      body: `Sisa anggaran sekitar ${formatCurrency(Math.max(activeBudget.remainingAmount, 0), currency)}.`,
       tone: "amber",
     });
   }
@@ -3963,7 +3963,7 @@ function buildControlCenter(metrics, selectedCurrency = getBaseCurrency()) {
 
   if (projectedNetIdr < 0) {
     alerts.push({
-      title: "Cashflow negatif",
+      title: "Arus kas negatif",
       body: `Jika ritme sama, bulan ini bisa ${formatCurrency(projectedNetIdr, "idr")}.`,
       tone: "rose",
     });
@@ -3980,7 +3980,7 @@ function buildControlCenter(metrics, selectedCurrency = getBaseCurrency()) {
   if (!alerts.length) {
     alerts.push({
       title: "Tidak ada risiko besar",
-      body: "Cashflow, budget, dan saldo masih terlihat terkendali untuk saat ini.",
+      body: "Arus kas, anggaran, dan saldo masih terlihat terkendali untuk saat ini.",
       tone: "emerald",
     });
   }
@@ -3988,7 +3988,7 @@ function buildControlCenter(metrics, selectedCurrency = getBaseCurrency()) {
   const nextActions = [];
   if (!activeBudget) {
     nextActions.push({
-      title: `Buat budget ${currency}`,
+      title: `Buat anggaran ${currency}`,
       body: "Agar sisa harian bisa dihitung.",
       target: "control-budget",
     });
@@ -4017,7 +4017,7 @@ function buildControlCenter(metrics, selectedCurrency = getBaseCurrency()) {
   if (!nextActions.length) {
     nextActions.push({
       title: "Catat transaksi",
-      body: "Jaga dashboard tetap akurat dengan input real-time.",
+      body: "Jaga ringkasan tetap akurat dengan pencatatan langsung.",
       target: "add",
     });
   }
@@ -4124,22 +4124,22 @@ function ControlCenterHero({
         <${ControlMetric}
           label="Total aset"
           value=${formatCurrency(metrics.netWorthIdr, "idr")}
-          helper="Rate global"
+          helper="Kurs global"
         />
         <${ControlMetric}
-          label=${`Runway ${control.currency}`}
+          label=${`Daya tahan ${control.currency}`}
           value=${control.currencyRunwayDays == null ? "Stabil" : `${Math.max(control.currencyRunwayDays, 0)} hari`}
           helper=${control.currencyDailyAverage > 0 ? `${formatCurrency(control.currencyDailyAverage, control.currency)}/hari` : "Belum ada ritme"}
         />
         <${ControlMetric}
-          label="Cashflow"
+          label="Arus kas"
           value=${formatCurrency(control.projectedNetIdr, "idr")}
           helper="Akhir bulan"
         />
         <${ControlMetric}
-          label="Sisa budget"
+          label="Sisa anggaran"
           value=${control.activeBudget ? formatCurrency(Math.max(control.activeBudget.remainingAmount, 0), control.currency) : "-"}
-          helper=${control.activeBudget ? control.activeBudget.statusLabel : `Belum ada budget ${control.currency}`}
+          helper=${control.activeBudget ? control.activeBudget.statusLabel : `Belum ada anggaran ${control.currency}`}
         />
       </div>
     </section>
@@ -4245,7 +4245,7 @@ function ControlBudgetHub({
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
-              Budget
+              Anggaran
             </p>
             <h3 className="mt-2 font-display text-xl font-black text-slate-950 dark:text-white">
               Batas ${selectedCurrency}
@@ -4258,7 +4258,7 @@ function ControlBudgetHub({
                   onClick=${() => onBudgetDelete(activeBudget)}
                   className="history-action-danger min-h-10 rounded-2xl px-3 py-2 text-xs font-black"
                 >
-                  Hapus budget
+                  Hapus anggaran
                 </button>
               `
             : null}
@@ -4286,7 +4286,7 @@ function ControlBudgetHub({
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
                   <${ControlMetric}
-                    label="Limit"
+                    label="Batas"
                     value=${formatCurrency(activeBudget.limitAmount, selectedCurrency)}
                     helper=${metrics.currentMonthLabel}
                   />
@@ -4298,7 +4298,7 @@ function ControlBudgetHub({
                   <${ControlMetric}
                     label="Hari ini"
                     value=${formatCurrency(Math.abs(activeBudget.todayRemainingSafe || 0), selectedCurrency)}
-                    helper=${activeBudget.todayRemainingSafe >= 0 ? "Sisa aman" : "Over"}
+                    helper=${activeBudget.todayRemainingSafe >= 0 ? "Sisa aman" : "Lewat batas"}
                   />
                   <${ControlMetric}
                     label="Besok"
@@ -4310,7 +4310,7 @@ function ControlBudgetHub({
             `
           : html`
               <div className="rounded-[22px] border border-dashed border-brand-300/25 bg-brand-400/10 p-4 text-sm font-semibold text-slate-600 dark:border-brand-400/20 dark:bg-brand-500/10 dark:text-slate-300">
-                Belum ada budget ${selectedCurrency}.
+                Belum ada anggaran ${selectedCurrency}.
               </div>
             `}
       </div>
@@ -4572,10 +4572,10 @@ function MonthlyBudgetPulse({ report }) {
       <div className="relative flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-display text-xl font-bold text-slate-950 dark:text-white">
-            Proteksi Budget
+            Proteksi Anggaran
           </h3>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Status semua budget aktif di ${report.meta.label}, mengikuti mata uang yang kamu pakai.
+            Status semua anggaran aktif di ${report.meta.label}, mengikuti mata uang yang kamu pakai.
           </p>
         </div>
         <span className=${`rounded-full px-3 py-1 text-xs font-black ${chipClass}`}>
@@ -4620,7 +4620,7 @@ function MonthlyBudgetPulse({ report }) {
                     </div>
                     <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">
                       Sisa ${formatCurrency(Math.max(budget.remainingAmount, 0), budget.currency)}
-                      Â· Batas hari ini ${formatCurrency(budget.dynamicDailyLimit, budget.currency)}
+                      - Batas hari ini ${formatCurrency(budget.dynamicDailyLimit, budget.currency)}
                     </p>
                   </div>
                 `;
@@ -4629,7 +4629,7 @@ function MonthlyBudgetPulse({ report }) {
             <div className="relative mt-4 grid grid-cols-3 gap-3 rounded-2xl border border-slate-200/70 bg-white/45 p-3 dark:border-white/10 dark:bg-slate-900/35">
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                  Limit IDR
+                  Batas IDR
                 </p>
                 <p className="mt-1 text-sm font-black text-slate-950 dark:text-white">
                   ${formatCurrency(report.budgetLimitBaseIdr, "idr")}
@@ -4655,7 +4655,7 @@ function MonthlyBudgetPulse({ report }) {
           `
         : html`
             <div className="relative mt-5 rounded-2xl border border-dashed border-slate-300/70 bg-white/45 p-5 text-sm text-slate-600 dark:border-white/10 dark:bg-slate-800/35 dark:text-slate-300">
-              Belum ada budget aktif untuk bulan ini. Buat budget di tab Kontrol agar laporan bisa membaca batas aman.
+              Belum ada anggaran aktif untuk bulan ini. Buat anggaran di tab Kontrol agar laporan bisa membaca batas aman.
             </div>
           `}
     </section>
@@ -4900,11 +4900,11 @@ function MonthlyReportInsights({ report }) {
   const topCategory = report.topCategory;
   const budgetHelper =
     report.budgetInsights.length
-      ? `${formatPercent(report.budgetUsage)} dari budget sudah terpakai. Total budget ${formatCurrency(
+      ? `${formatPercent(report.budgetUsage)} dari anggaran sudah terpakai. Total anggaran ${formatCurrency(
           report.budgetLimitBaseIdr,
           "idr",
         )}.`
-      : "Tambahkan budget agar laporan bisa memberi peringatan.";
+      : "Tambahkan anggaran agar laporan bisa memberi peringatan.";
   const rhythmHelper = report.meta.isCurrentMonth
     ? `Jika pola sama, akhir bulan sekitar ${formatCurrency(report.projectedExpenseIdr, "idr")}.`
     : "Rata-rata dari bulan yang sudah selesai.";
@@ -4926,7 +4926,7 @@ function MonthlyReportInsights({ report }) {
       helper: rhythmHelper,
     },
     {
-      title: "Budget",
+      title: "Anggaran",
       value: report.budgetStatusLabel,
       helper: budgetHelper,
     },
@@ -5058,7 +5058,7 @@ function MonthlyReportPage({
             Ringkasan Bulan Ini
           </h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-            Lihat uang masuk, uang keluar, budget, dan transaksi penting dalam satu tempat.
+            Lihat uang masuk, uang keluar, anggaran, dan transaksi penting dalam satu tempat.
           </p>
         </div>
         <${ReportMonthPicker}
@@ -5102,7 +5102,7 @@ function ExpenseChart({ data, monthLabel }) {
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.14),transparent_45%)] opacity-80"></div>
       <div className="flex items-start justify-between gap-4">
         <div className="relative">
-          <h3 className="font-display text-xl font-bold">Dashboard Interaktif</h3>
+          <h3 className="font-display text-xl font-bold">Ringkasan Interaktif</h3>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
             Grafik harian langsung berubah setiap kali angka transaksi diperbarui.
           </p>
@@ -5194,7 +5194,7 @@ function CategoryBreakdown({ categories, totalMonthlyThb }) {
           `
         : html`
             <div className="relative mt-5 rounded-2xl border border-dashed border-white/15 bg-white/5 p-5 text-sm text-slate-600 backdrop-blur-xl dark:bg-slate-900/25 dark:text-slate-300/80">
-              Belum ada pengeluaran bulan ini. Begitu kamu input expense, kategori akan langsung tampil di sini.
+              Belum ada pengeluaran bulan ini. Begitu kamu mencatat pengeluaran, kategori akan langsung tampil di sini.
             </div>
           `}
     </div>
@@ -5208,9 +5208,9 @@ function BudgetTracker({ budgets, monthLabel, onDelete }) {
       <div className="relative">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="font-display text-xl font-bold">Proteksi Budget</h3>
+            <h3 className="font-display text-xl font-bold">Proteksi Anggaran</h3>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-              Batas aman harian dihitung otomatis dari sisa budget dibagi sisa hari.
+              Batas aman harian dihitung otomatis dari sisa anggaran dibagi sisa hari.
             </p>
           </div>
           <div className="inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600 backdrop-blur-xl dark:bg-slate-900/40 dark:text-slate-300">
@@ -5243,7 +5243,7 @@ function BudgetTracker({ budgets, monthLabel, onDelete }) {
                       ? `+${formatCurrency(budget.dailyAdjustment, budget.currency)}`
                       : `-${formatCurrency(Math.abs(budget.dailyAdjustment), budget.currency)}`;
                   const todaySafeLabel =
-                    budget.todayRemainingSafe >= 0 ? "Sisa hari ini" : "Over hari ini";
+                    budget.todayRemainingSafe >= 0 ? "Sisa hari ini" : "Lewat hari ini";
                   const todaySafeTone =
                     budget.todayRemainingSafe >= 0
                       ? "text-emerald-700 dark:text-emerald-300"
@@ -5260,7 +5260,7 @@ function BudgetTracker({ budgets, monthLabel, onDelete }) {
                             ${budget.meta.label}
                           </div>
                           <p className="mt-3 text-xs font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                            Limit bulanan
+                            Batas bulanan
                           </p>
                           <p className="mt-1 text-2xl font-black tracking-[-0.02em] text-slate-950 dark:text-white">
                             ${formatCurrency(budget.limitAmount, budget.currency)}
@@ -5301,7 +5301,7 @@ function BudgetTracker({ budgets, monthLabel, onDelete }) {
                       <div className="mt-4 grid grid-cols-2 gap-2">
                         <div className="rounded-2xl border border-slate-200/65 bg-white/52 p-3 dark:border-white/10 dark:bg-slate-950/30">
                           <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                            Sisa budget
+                            Sisa anggaran
                           </p>
                           <p className="mt-1.5 truncate text-sm font-black text-slate-950 dark:text-white">
                             ${formatCurrency(remainingAmount, budget.currency)}
@@ -5351,10 +5351,10 @@ function BudgetTracker({ budgets, monthLabel, onDelete }) {
                       ${budget.status === "over"
                         ? html`
                             <p className="mt-3 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-700 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200">
-                              Over ${formatCurrency(
+                              Lewat ${formatCurrency(
                                 Math.abs(budget.remainingAmount),
                                 budget.currency,
-                              )} dari limit.
+                              )} dari batas.
                             </p>
                           `
                         : null}
@@ -5370,10 +5370,10 @@ function BudgetTracker({ budgets, monthLabel, onDelete }) {
                 0
               </div>
               <h4 className="mt-4 font-display text-lg font-bold text-slate-950 dark:text-white">
-                Budget belum aktif
+                Anggaran belum aktif
               </h4>
               <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-600 dark:text-slate-300/80">
-                Buat limit uang keluar bulanan agar indikator batas aman harian mulai bekerja.
+                Buat batas uang keluar bulanan agar indikator batas aman harian mulai bekerja.
               </p>
             </div>
           `}
@@ -5403,7 +5403,7 @@ function GoalTracker({ goals, onDelete, onContribute }) {
       <div className="relative">
         <h3 className="font-display text-xl font-bold">Target Keuangan</h3>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-          Daftar goal yang sedang kamu kejar, dibuat compact agar nyaman dipantau di mobile.
+          Daftar target yang sedang kamu kejar, dibuat ringkas agar nyaman dipantau di mobile.
         </p>
       </div>
 
@@ -5423,11 +5423,11 @@ function GoalTracker({ goals, onDelete, onContribute }) {
                         </p>
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                           ${goal.deadline
-                            ? `Deadline ${formatDateTime(`${goal.deadline}T00:00:00`)}`.replace(
+                            ? `Tenggat ${formatDateTime(`${goal.deadline}T00:00:00`)}`.replace(
                                 ", 00.00",
                                 "",
                               )
-                            : "Tanpa deadline tetap"}
+                            : "Tanpa tenggat tetap"}
                         </p>
                       </div>
                       <div className=${`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${goal.tone}`}>
@@ -5524,7 +5524,7 @@ function GoalTracker({ goals, onDelete, onContribute }) {
           `
         : html`
             <div className="relative mt-5 rounded-2xl border border-dashed border-white/15 bg-white/5 p-5 text-sm text-slate-600 backdrop-blur-xl dark:bg-slate-900/25 dark:text-slate-300/80">
-              Belum ada target keuangan. Tambahkan goal pertama agar CUANSYNC bisa menghitung progress dan sisa yang perlu dikejar.
+              Belum ada target keuangan. Tambahkan target pertama agar CUANSYNC bisa menghitung kemajuan dan sisa yang perlu dikejar.
             </div>
           `}
     </div>
@@ -5538,7 +5538,7 @@ function ExchangeSummaryPanel({ activeExchange, currentMonthLabel, monthlyExpens
       <div className="relative">
         <h3 className="font-display text-xl font-bold">Ringkasan Kurs & Modal</h3>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-          Exchange ber-rate menjadi fondasi valuasi base currency untuk pengeluaran multi-currency.
+          Exchange berkurs menjadi dasar valuasi mata uang laporan untuk pengeluaran multi-mata uang.
         </p>
       </div>
 
@@ -5546,7 +5546,7 @@ function ExchangeSummaryPanel({ activeExchange, currentMonthLabel, monthlyExpens
         ${activeExchange
           ? html`
               <div className="rounded-2xl border border-brand-300/25 bg-brand-400/10 p-4 backdrop-blur-xl dark:border-brand-300/20 dark:bg-brand-500/10">
-                <p className="text-sm font-semibold text-brand-800 dark:text-brand-200">Rate aktif terakhir</p>
+                <p className="text-sm font-semibold text-brand-800 dark:text-brand-200">Kurs aktif terakhir</p>
                 <p className="mt-2 text-lg font-bold text-brand-900 dark:text-white">
                   ${formatCurrency(activeExchange.from_amount, activeExchange.from_currency)} ->
                   ${formatCurrency(activeExchange.to_amount, activeExchange.to_currency)}
@@ -5558,7 +5558,7 @@ function ExchangeSummaryPanel({ activeExchange, currentMonthLabel, monthlyExpens
             `
           : html`
               <div className="rounded-2xl border border-dashed border-white/15 bg-white/5 p-4 text-sm text-slate-600 backdrop-blur-xl dark:bg-slate-900/25 dark:text-slate-300/80">
-                Belum ada exchange ber-rate. Tambahkan transaksi Tukar Mata Uang agar valuasi pengeluaran foreign currency bisa terkunci.
+                Belum ada exchange berkurs. Tambahkan transaksi Tukar Mata Uang agar valuasi pengeluaran mata uang asing bisa terkunci.
               </div>
             `}
 
@@ -5753,7 +5753,7 @@ function TransactionFilter({
             onClick=${onReset}
             className="cuan-secondary min-h-12 w-full rounded-2xl px-4 py-3 text-sm font-semibold transition hover:-translate-y-0.5"
           >
-            Reset filter
+            Reset penyaring
           </button>
         </div>
       </div>
@@ -6152,7 +6152,7 @@ function TransactionEditForm({
 
             <label className="block space-y-2">
               <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                Rate ${form.from_currency} / 1 ${form.to_currency}
+                Kurs ${form.from_currency} / 1 ${form.to_currency}
               </span>
               <input
                 type="text"
@@ -6406,17 +6406,17 @@ function TransactionDetailSheet({
         ["Ke", transaction.to_currency],
         ["Ditukar", formatCurrency(transaction.from_amount, transaction.from_currency)],
         ["Diterima", formatCurrency(transaction.to_amount, transaction.to_currency)],
-        ["Rate", rateText],
+        ["Kurs", rateText],
         ["Tanggal", formatShortDateTime(transaction.occurred_at)],
       ]
     : [
         ["Tanggal", formatShortDateTime(transaction.occurred_at)],
         ["Kategori", categoryLabel],
         ["Mata uang", currencyLabel],
-        ["Rate", rateText],
+        ["Kurs", rateText],
       ];
   const receiptHelper = isExchange
-    ? "Perpindahan aset, bukan income atau expense"
+    ? "Perpindahan aset, bukan pemasukan atau pengeluaran"
     : showValuation && currency !== DEFAULT_BASE_CURRENCY
       ? `Valuasi ${formatCurrency(valuationIdr, "idr")}`
       : getTransactionTypeLabel(transaction);
@@ -6740,7 +6740,7 @@ function TransactionList({
                 onClick=${() => setShowAdvancedFilters((current) => !current)}
                 className="cuan-secondary min-h-10 rounded-2xl px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
               >
-                ${showAdvancedFilters ? "Tutup filter" : "Filter lanjutan"}
+                ${showAdvancedFilters ? "Tutup penyaring" : "Penyaring lanjutan"}
               </button>
             </div>
           </div>
@@ -6809,7 +6809,7 @@ function TransactionList({
                         onClick=${resetFilters}
                         className="mt-5 min-h-12 rounded-2xl border border-white/10 bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(16,185,129,0.18)] transition hover:-translate-y-0.5 hover:bg-brand-700"
                       >
-                        Reset filter
+                        Reset penyaring
                       </button>
                     ` 
                   : null}
@@ -6904,7 +6904,7 @@ function DailyExpenseForm({
         ? "border-amber-300/20 bg-amber-400/10 text-amber-900 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200"
         : "border-emerald-300/20 bg-emerald-400/10 text-emerald-900 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-200";
   const statusLabel = !budget
-    ? "Belum ada budget"
+    ? "Belum ada anggaran"
     : budget.todayRemainingSafe < 0
       ? "Lewat batas"
       : budget.status === "warning"
@@ -6979,7 +6979,7 @@ function DailyExpenseForm({
           <div>
             <h3 className="font-display text-lg font-bold md:text-xl">Pengeluaran Hari Ini</h3>
             <p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300/80">
-              Catat pengeluaran cepat tanpa buka form lengkap.
+              Catat pengeluaran cepat tanpa buka formulir lengkap.
             </p>
           </div>
           <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -7003,7 +7003,7 @@ function DailyExpenseForm({
               Pengingat hari ini
             </p>
             <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
-              ${budget ? `Batas ${todayLimit}` : `Atur budget ${dailyCurrency} lewat Kontrol`}
+              ${budget ? `Batas ${todayLimit}` : `Atur anggaran ${dailyCurrency} lewat Kontrol`}
             </p>
           </div>
         </div>
@@ -7132,7 +7132,7 @@ function DailyBudgetGuard({
         : "border-emerald-300/20 bg-emerald-400/10 text-emerald-900 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-200";
 
   const statusLabel = !budget
-    ? "Belum ada budget"
+    ? "Belum ada anggaran"
     : budget.todayRemainingSafe < 0
       ? "Lewat batas hari ini"
       : budget.status === "warning"
@@ -7189,7 +7189,7 @@ function DailyBudgetGuard({
             <p className="mt-2 text-sm text-slate-600 dark:text-slate-300/80">
               ${budget
                 ? `Sisa aman ${safeRemaining}`
-                : "Atur budget bulanan supaya guard aktif."}
+                : "Atur anggaran bulanan supaya proteksi aktif."}
             </p>
           </div>
         </div>
@@ -7199,7 +7199,7 @@ function DailyBudgetGuard({
               <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40">
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span className="text-slate-600 dark:text-slate-300/80">
-                    Budget bulan ini
+                    Anggaran bulan ini
                   </span>
                   <span className="font-semibold text-slate-900 dark:text-slate-100">
                     ${formatCurrency(budget.spentAmount, budgetCurrency)} / ${formatCurrency(
@@ -7249,7 +7249,7 @@ function InvestmentSnapshot({
     },
     {
       label: "Tambah target",
-      helper: "Dana goals",
+      helper: "Dana target",
       onClick: onAddGoal,
       primary: false,
     },
@@ -7403,7 +7403,7 @@ function DailyCurrencySelector({
   value,
   onChange,
   title = "Mata uang harian",
-  helper = "Dipakai untuk input cepat Pengeluaran Hari Ini.",
+  helper = "Dipakai untuk pencatatan cepat Pengeluaran Hari Ini.",
   compact = false,
 }) {
   const options = getCurrencyOptions(normalizeCurrencyList(currencies));
@@ -7493,13 +7493,13 @@ function CurrencyOnboarding({ onSave }) {
               ${APP_NAME}
             </div>
             <p className="mt-6 text-[11px] font-black uppercase tracking-[0.18em] text-brand-700 dark:text-brand-300">
-              Setup pertama
+              Pengaturan awal
             </p>
             <h1 className="mt-2 font-display text-3xl font-black tracking-[-0.03em] text-slate-950 dark:text-white">
               Pilih mata uang yang kamu pakai
             </h1>
             <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300/80">
-              CUANSYNC hanya akan menampilkan saldo, form, filter, dan exchange untuk mata uang yang kamu aktifkan.
+              CUANSYNC hanya menampilkan saldo, formulir, penyaring, dan exchange untuk mata uang yang kamu aktifkan.
             </p>
 
             <div className="mt-5">
@@ -7515,7 +7515,7 @@ function CurrencyOnboarding({ onSave }) {
                 value=${selectedDailyCurrency}
                 onChange=${setDailyCurrency}
                 title="Mata uang harian"
-                helper="Pilih mata uang default untuk Pengeluaran Hari Ini. Bisa diubah lagi dari Pengaturan."
+                helper="Pilih mata uang bawaan untuk Pengeluaran Hari Ini. Bisa diubah lagi dari Pengaturan."
               />
             </div>
 
@@ -7560,7 +7560,7 @@ function SheetShell({ open, title, helper, onClose, children, labelledBy }) {
     >
       <button
         type="button"
-        aria-label="Tutup sheet"
+        aria-label="Tutup panel"
         onClick=${onClose}
         className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm"
       ></button>
@@ -7774,7 +7774,7 @@ function ProfileDetailSheet({ open, profile, user, avatarSrc, onClose, onSave })
       open=${open}
       onClose=${onClose}
       title="Detail profil"
-      helper="Kelola identitas akun tanpa memenuhi halaman utama Settings."
+      helper="Kelola identitas akun tanpa memenuhi halaman utama Pengaturan."
       labelledBy="profile-detail-sheet-title"
     >
       <div className="grid gap-4">
@@ -7782,7 +7782,7 @@ function ProfileDetailSheet({ open, profile, user, avatarSrc, onClose, onSave })
           <${AvatarBadge} src=${avatarUrl} initials=${initials} size="lg" />
           <div className="grid min-w-0 flex-1 gap-2">
             <label className="cuan-secondary flex min-h-11 cursor-pointer items-center justify-center rounded-2xl px-3 text-sm font-black transition hover:-translate-y-0.5">
-              Upload / ganti avatar
+              Unggah / ganti foto
               <input
                 type="file"
                 accept="image/*"
@@ -7796,14 +7796,14 @@ function ProfileDetailSheet({ open, profile, user, avatarSrc, onClose, onSave })
               disabled=${!avatarUrl}
               className="rounded-2xl border border-rose-300/25 bg-rose-500/8 px-3 py-2 text-sm font-black text-rose-600 transition hover:bg-rose-500/12 disabled:cursor-not-allowed disabled:opacity-50 dark:text-rose-300"
             >
-              Remove avatar
+              Hapus foto
             </button>
           </div>
         </div>
 
         <label className="block">
           <span className="mb-2 block text-sm font-black text-slate-700 dark:text-slate-200">
-            Display name
+            Nama tampilan
           </span>
           <input
             type="text"
@@ -7831,7 +7831,7 @@ function ProfileDetailSheet({ open, profile, user, avatarSrc, onClose, onSave })
           disabled=${saving}
           className="history-action-primary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          ${saving ? "Menyimpan..." : "Save changes"}
+          ${saving ? "Menyimpan..." : "Simpan perubahan"}
         </button>
       </div>
     <//>
@@ -7852,10 +7852,10 @@ function CurrencySetupChip({ currency, active, base, daily, onToggle }) {
     >
       <span>${currency}</span>
       ${base
-        ? html`<span className="rounded-full bg-white/18 px-1.5 py-0.5 text-[10px]">Base</span>`
+        ? html`<span className="rounded-full bg-white/18 px-1.5 py-0.5 text-[10px]">Utama</span>`
         : null}
       ${daily
-        ? html`<span className="rounded-full bg-white/18 px-1.5 py-0.5 text-[10px]">Daily</span>`
+        ? html`<span className="rounded-full bg-white/18 px-1.5 py-0.5 text-[10px]">Harian</span>`
         : null}
     </button>
   `;
@@ -7937,14 +7937,14 @@ function MoneySetupSheet({ open, settings, onClose, onSave }) {
     <${SheetShell}
       open=${open}
       onClose=${onClose}
-      title="Money setup"
-      helper="Atur mata uang aktif, base laporan, dan default pengeluaran harian."
+      title="Atur mata uang"
+      helper="Atur mata uang aktif, mata uang laporan, dan bawaan pengeluaran harian."
       labelledBy="money-setup-sheet-title"
     >
       <div className="grid gap-4">
         <label className="block">
           <span className="mb-2 block text-sm font-black text-slate-700 dark:text-slate-200">
-            Search / add currency
+            Cari / tambah mata uang
           </span>
           <input
             type="text"
@@ -7965,7 +7965,7 @@ function MoneySetupSheet({ open, settings, onClose, onSave }) {
 
         <div>
           <p className="mb-2 text-sm font-black text-slate-700 dark:text-slate-200">
-            Active currencies
+            Mata uang aktif
           </p>
           <div className="flex flex-wrap gap-2">
             ${filteredCurrencies.map((currency) => html`
@@ -7984,7 +7984,7 @@ function MoneySetupSheet({ open, settings, onClose, onSave }) {
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700 dark:text-slate-200">
-              Base currency
+              Mata uang laporan
             </span>
             <select
               value=${effectiveBaseCurrency}
@@ -7996,13 +7996,13 @@ function MoneySetupSheet({ open, settings, onClose, onSave }) {
               `)}
             </select>
             <span className="mt-2 block text-xs leading-5 text-slate-500 dark:text-slate-400">
-              Base currency dipakai untuk laporan dan valuasi.
+              Dipakai untuk laporan dan valuasi saldo.
             </span>
           </label>
 
           <label className="block">
             <span className="mb-2 block text-sm font-black text-slate-700 dark:text-slate-200">
-              Daily currency
+              Mata uang harian
             </span>
             <select
               value=${effectiveDailyCurrency}
@@ -8014,7 +8014,7 @@ function MoneySetupSheet({ open, settings, onClose, onSave }) {
               `)}
             </select>
             <span className="mt-2 block text-xs leading-5 text-slate-500 dark:text-slate-400">
-              Daily currency dipakai sebagai default pengeluaran harian.
+              Dipakai sebagai bawaan pengeluaran harian.
             </span>
           </label>
         </div>
@@ -8025,7 +8025,7 @@ function MoneySetupSheet({ open, settings, onClose, onSave }) {
           disabled=${saving}
           className="history-action-primary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          ${saving ? "Menyimpan..." : "Save money setup"}
+          ${saving ? "Menyimpan..." : "Simpan pengaturan uang"}
         </button>
       </div>
     <//>
@@ -8070,7 +8070,7 @@ function ConfirmLogoutSheet({ open, onClose, onConfirm }) {
           onClick=${onConfirm}
           className="min-h-12 rounded-2xl bg-rose-500 px-4 py-3 text-sm font-black text-white shadow-[0_16px_38px_rgba(244,63,94,0.22)] transition hover:-translate-y-0.5 hover:bg-rose-600"
         >
-          Ya, logout
+          Ya, keluar
         </button>
         <button
           type="button"
@@ -8114,7 +8114,7 @@ function SettingsPage({
           CUANSYNC
         </p>
         <h2 className="mt-1 font-display text-2xl font-black text-slate-950 dark:text-white">
-          Settings
+          Pengaturan
         </h2>
       </div>
 
@@ -8125,41 +8125,41 @@ function SettingsPage({
         onClick=${() => setProfileSheetOpen(true)}
       />
 
-      <${SettingsSection} title="Money setup">
+      <${SettingsSection} title="Pengaturan uang">
         <${SettingsRow}
-          label="Active currencies"
-          helper="Mata uang yang tampil di wallet dan form"
+          label="Mata uang aktif"
+          helper="Mata uang yang tampil di wallet dan formulir"
           value=${activeCurrencySummary}
           onClick=${() => setMoneySheetOpen(true)}
         />
         <${SettingsRow}
-          label="Daily currency"
-          helper="Default pengeluaran harian"
+          label="Mata uang harian"
+          helper="Bawaan untuk pengeluaran harian"
           value=${normalizedSettings.dailyCurrency}
           onClick=${() => setMoneySheetOpen(true)}
         />
         <${SettingsRow}
-          label="Base currency"
+          label="Mata uang laporan"
           helper="Laporan dan valuasi saldo"
           value=${normalizedSettings.baseCurrency}
           onClick=${() => setMoneySheetOpen(true)}
         />
         <${SettingsRow}
-          label="Hide balances"
+          label="Sembunyikan saldo"
           helper="Sembunyikan nominal sensitif"
           right=${html`
             <${SettingsSwitch}
               checked=${!balanceVisible}
-              label="Hide balances"
+              label="Sembunyikan saldo"
               onChange=${(checked) => onToggleBalanceVisibility(checked)}
             />
           `}
         />
       <//>
 
-      <${SettingsSection} title="Preferences">
+      <${SettingsSection} title="Preferensi">
         <${SettingsRow}
-          label="Theme mode"
+          label="Mode tema"
           helper="Simpan otomatis saat berubah"
           right=${html`
             <div className="w-[11.5rem] max-w-[48vw]">
@@ -8169,17 +8169,17 @@ function SettingsPage({
         />
       <//>
 
-      <${SettingsSection} title="Security & privacy">
+      <${SettingsSection} title="Keamanan & privasi">
         <${SettingsRow}
-          label="App lock"
-          helper="Biometric lock segera hadir"
-          value="Soon"
+          label="Kunci aplikasi"
+          helper="Kunci biometrik segera hadir"
+          value="Segera"
           disabled=${true}
         />
         <${SettingsRow}
-          label="Export / backup data"
-          helper="Backup transaksi dan budget"
-          value="Soon"
+          label="Ekspor / cadangkan data"
+          helper="Cadangan transaksi dan anggaran"
+          value="Segera"
           disabled=${true}
         />
       <//>
@@ -8190,7 +8190,7 @@ function SettingsPage({
           onClick=${() => setLogoutSheetOpen(true)}
           className="flex min-h-14 w-full items-center justify-between rounded-[22px] border border-rose-300/25 bg-rose-500/8 px-3 py-2 text-left text-sm font-black text-rose-600 transition hover:bg-rose-500/12 dark:border-rose-400/20 dark:text-rose-300"
         >
-          <span>Logout</span>
+          <span>Keluar</span>
           <span>></span>
         </button>
       </section>
@@ -8642,7 +8642,7 @@ function TransactionForm({
 
               <label className="block">
                 <span className="mb-2 block text-sm font-medium">
-                  Rate (${form.from_currency} / 1 ${form.to_currency})
+                  Kurs (${form.from_currency} / 1 ${form.to_currency})
                 </span>
                 <input
                   type="text"
@@ -8762,7 +8762,7 @@ function TransactionForm({
         ${isExpense && isIdr
           ? html`
               <div className="rounded-2xl border border-sky-300/30 bg-sky-400/10 px-4 py-3 text-sm text-sky-900 backdrop-blur-xl dark:border-sky-300/20 dark:bg-sky-500/10 dark:text-sky-200">
-                Belanja IDR akan langsung mengurangi saldo utama. Atur budget IDR di Kontrol jika ingin batas aman harian aktif.
+                Belanja IDR akan langsung mengurangi saldo utama. Atur anggaran IDR di Kontrol jika ingin batas aman harian aktif.
               </div>
             `
           : null}
@@ -8835,9 +8835,9 @@ function BudgetForm({
         : html`
             <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
             <div className="relative">
-              <h3 className="font-display text-xl font-bold">Budget Uang Keluar Bulanan</h3>
+              <h3 className="font-display text-xl font-bold">Anggaran Uang Keluar Bulanan</h3>
               <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-                Satu limit untuk mata uang yang sedang kamu kontrol.
+                Satu batas untuk mata uang yang sedang kamu kontrol.
               </p>
             </div>
           `}
@@ -8854,7 +8854,7 @@ function BudgetForm({
         </label>
 
         <label className="block">
-          <span className="mb-2 block text-sm font-medium">Mata uang budget</span>
+          <span className="mb-2 block text-sm font-medium">Mata uang anggaran</span>
           <select
             value=${currency}
             onChange=${(event) => handleCurrencyChange(event.target.value)}
@@ -8871,7 +8871,7 @@ function BudgetForm({
         </label>
 
         <label className="block">
-          <span className="mb-2 block text-sm font-medium">Limit Uang Keluar (${currency})</span>
+          <span className="mb-2 block text-sm font-medium">Batas Uang Keluar (${currency})</span>
           <input
             type="text"
             inputMode="decimal"
@@ -8890,7 +8890,7 @@ function BudgetForm({
           disabled=${loading}
           className="history-action-primary min-h-12 w-full rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Simpan budget
+          Simpan anggaran
         </button>
       </form>
     </div>
@@ -9085,7 +9085,7 @@ function FinancialMonthlyPreview({ metrics, onOpenReport }) {
       value: formatCurrency(expense, "idr"),
     },
     {
-      label: "Dana goals",
+      label: "Dana target",
       value: formatCurrency(savedGoals, "idr"),
     },
     {
@@ -9107,8 +9107,8 @@ function FinancialMonthlyPreview({ metrics, onOpenReport }) {
           </h3>
           <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300/80">
             ${netPositive
-              ? "Cashflow bulan ini masih bertumbuh."
-              : "Cashflow bulan ini sedang turun, cek detailnya pelan-pelan."}
+              ? "Arus kas bulan ini masih bertumbuh."
+              : "Arus kas bulan ini sedang turun, cek detailnya pelan-pelan."}
           </p>
         </div>
         <button
@@ -9192,7 +9192,7 @@ function AssetAccountsPanel({ metrics, onAddAccount, onDeleteAccount }) {
             ${formatCurrency(metrics.assetAccountTotalValueIdr || 0, "idr")}
           </p>
           <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-            Rate global harian. Rates by Exchange Rate API.
+            Kurs global harian dari Exchange Rate API.
           </p>
         </div>
         <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40">
@@ -9586,7 +9586,7 @@ const DESKTOP_NAV_TABS = [
   { key: "history", label: "Riwayat" },
   { key: "overview", label: "Keuangan" },
   { key: "investment", label: "Aset" },
-  { key: "settings", label: "Setting" },
+  { key: "settings", label: "Pengaturan" },
 ];
 
 function getDesktopActiveTab(activeTab) {
@@ -9702,7 +9702,7 @@ function DesktopRightPanel({
                 value=${safeRemaining}
               />
               <${DesktopPanelStat}
-                label="Budget"
+                label="Anggaran"
                 value=${budgetLimit}
               />
               <${DesktopPanelStat}
@@ -9746,7 +9746,7 @@ function DesktopRightPanel({
                       </div>
                       <p className="mt-2 truncate text-[11px] font-semibold text-slate-500 dark:text-slate-400">
                         ${account.valuationIdr == null
-                          ? "Rate belum tersedia"
+                          ? "Kurs belum tersedia"
                           : visible
                             ? formatCurrency(account.valuationIdr, normalizedBaseCurrency)
                             : HIDDEN_BALANCE_TEXT}
@@ -9766,7 +9766,7 @@ function DesktopRightPanel({
           <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.10),transparent_55%)] opacity-80"></div>
           <div className="relative">
             <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
-              Quick Actions
+              Aksi Cepat
             </h3>
             <div className="mt-4 grid grid-cols-2 gap-2">
               ${quickActions.map((action) => html`
@@ -10134,7 +10134,7 @@ function App() {
           tone: budgetResult.error.code === "42P01" ? "info" : "error",
           text:
             budgetResult.error.code === "42P01"
-              ? "Tabel budget belum ada. Jalankan schema.sql terbaru agar fitur proteksi budget aktif."
+              ? "Tabel anggaran belum ada. Jalankan schema.sql terbaru agar fitur proteksi anggaran aktif."
               : budgetResult.error.message,
         });
       } else {
@@ -10147,7 +10147,7 @@ function App() {
           tone: goalResult.error.code === "42P01" ? "info" : "error",
           text:
             goalResult.error.code === "42P01"
-              ? "Tabel goals belum ada. Jalankan schema.sql terbaru agar progress tracker aktif."
+              ? "Tabel target belum ada. Jalankan schema.sql terbaru agar pelacak kemajuan aktif."
               : goalResult.error.message,
         });
       } else {
@@ -10292,7 +10292,7 @@ function App() {
         notices.push({
           tone: "info",
           text:
-            "Schema profile terbaru belum aktif. Jalankan schema.sql agar Settings sinkron lintas device.",
+            "Schema profil terbaru belum aktif. Jalankan schema.sql agar Pengaturan sinkron lintas perangkat.",
         });
       }
 
@@ -10363,7 +10363,7 @@ function App() {
     setBalanceVisible(!localProfile.hide_balances);
     setCurrencySettings(localSettings);
     setRuntimeCurrencySettings(localSettings);
-    setMessage("Demo lokal aktif. Semua modul analytics, budget, dan goals berjalan di browser ini.");
+    setMessage("Demo lokal aktif. Semua modul analitik, anggaran, dan target berjalan di browser ini.");
     setMessageTone("success");
   }
 
@@ -10611,7 +10611,7 @@ function App() {
           throw new Error("Jumlah diterima harus lebih besar dari 0.");
         }
         if (!rate || rate <= 0) {
-          throw new Error("Rate exchange wajib lebih besar dari 0.");
+          throw new Error("Kurs exchange harus lebih besar dari 0.");
         }
         const balances = computeCurrencyBalances(transactions);
         const availableFromBalance =
@@ -10806,7 +10806,7 @@ function App() {
           throw new Error("Jumlah diterima harus lebih besar dari 0.");
         }
         if (!lockedRate || lockedRate <= 0) {
-          throw new Error("Rate exchange wajib diisi.");
+          throw new Error("Kurs exchange wajib diisi.");
         }
 
         record.from_currency = fromCurrency;
@@ -10972,7 +10972,7 @@ function App() {
       const limitAmount = Number(payload.limit_amount || payload.limit_thb);
       const groupKey = UNIVERSAL_BUDGET_GROUP;
       if (!limitAmount || limitAmount <= 0) {
-        throw new Error(`Limit budget ${budgetCurrency} harus lebih besar dari 0.`);
+        throw new Error(`Batas anggaran ${budgetCurrency} harus lebih besar dari 0.`);
       }
 
       const existing = budgets.find(
@@ -11024,11 +11024,11 @@ function App() {
         });
       }
 
-      setMessage("Budget berhasil disimpan.");
+      setMessage("Anggaran berhasil disimpan.");
       setMessageTone("success");
       return true;
     } catch (error) {
-      setMessage(error.message || "Gagal menyimpan budget.");
+      setMessage(error.message || "Gagal menyimpan anggaran.");
       setMessageTone("error");
       return false;
     } finally {
@@ -11038,7 +11038,7 @@ function App() {
 
   async function handleDeleteBudget(budget) {
     const confirmation = window.confirm(
-      `Hapus budget ${budget.currency || getBaseCurrency()} untuk ${formatMonthKey(budget.month_key)}?`,
+      `Hapus anggaran ${budget.currency || getBaseCurrency()} untuk ${formatMonthKey(budget.month_key)}?`,
     );
     if (!confirmation) return;
 
@@ -11058,10 +11058,10 @@ function App() {
         setBudgets((current) => current.filter((item) => item.id !== budget.id));
       }
 
-      setMessage("Budget dihapus.");
+      setMessage("Anggaran dihapus.");
       setMessageTone("info");
     } catch (error) {
-      setMessage(error.message || "Gagal menghapus budget.");
+      setMessage(error.message || "Gagal menghapus anggaran.");
       setMessageTone("error");
     } finally {
       setLoading(false);
@@ -11451,7 +11451,7 @@ function App() {
       const syncResult = await persistUserSettings(nextSettings);
       if (syncResult?.dailyCurrencyLocalOnly) {
         const infoMessage =
-          "Mata uang aktif tersimpan. Jalankan schema.sql terbaru agar mata uang harian ikut sinkron lintas device.";
+          "Mata uang aktif tersimpan. Jalankan schema.sql terbaru agar mata uang harian ikut sinkron lintas perangkat.";
         setToast({ message: "Mata uang tersimpan." });
         setMessage(infoMessage);
         setMessageTone("info");
@@ -11546,14 +11546,14 @@ function App() {
   const overspendingValue = !activeBudgetInsight
     ? "Belum ada"
     : activeBudgetInsight.remainingAmount < 0
-      ? "Over Bulanan"
+      ? "Lewat bulanan"
       : activeBudgetInsight.todayRemainingSafe < 0
-        ? "Over Harian"
+        ? "Lewat harian"
         : activeBudgetInsight.status === "warning"
           ? "Waspada"
           : "Aman";
   const overspendingHelper = !activeBudgetInsight
-    ? "Buat budget bulanan agar proteksi budget aktif."
+    ? "Buat anggaran bulanan agar proteksi anggaran aktif."
     : activeBudgetInsight.todayRemainingSafe < 0
       ? `Hari ini lewat ${formatCurrency(Math.abs(activeBudgetInsight.todayRemainingSafe), dailyExpenseCurrency)} dari batas aman. ${nextDayBudgetText}`
       : `Batas aman hari ini ${formatCurrency(activeBudgetInsight.dynamicDailyLimit, dailyExpenseCurrency)}. ${nextDayBudgetText}`;
@@ -11586,7 +11586,7 @@ function App() {
     { key: "add", label: "Tambah" },
     { key: "history", label: "Riwayat" },
     { key: "investment", label: "Keuangan" },
-    { key: "settings", label: "Setting" },
+    { key: "settings", label: "Pengaturan" },
   ];
   const historyTransactions = [...orderTransactions(transactions)].reverse();
   const walletBalances = {
@@ -11681,7 +11681,7 @@ function App() {
     } catch (error) {
       setMessage(
         error?.code === "42P01"
-          ? "Profil tersimpan lokal. Jalankan schema.sql terbaru agar sinkron lintas device."
+          ? "Profil tersimpan lokal. Jalankan schema.sql terbaru agar sinkron lintas perangkat."
           : error.message || "Gagal memperbarui profil.",
       );
       setMessageTone(error?.code === "42P01" ? "info" : "error");
@@ -12021,10 +12021,10 @@ class AppErrorBoundary extends React.Component {
         <main className="min-h-screen bg-mist p-6 text-ink dark:bg-slate-950 dark:text-slate-50">
           <div className="mx-auto max-w-3xl rounded-2xl border border-rose-300/40 bg-rose-50 p-5 dark:border-rose-500/30 dark:bg-rose-500/10">
             <h1 className="font-display text-xl font-bold text-rose-700 dark:text-rose-300">
-              ${APP_NAME} mengalami error runtime
+              ${APP_NAME} mengalami error saat berjalan
             </h1>
             <p className="mt-2 text-sm text-rose-700 dark:text-rose-200">
-              Ini biasanya bug frontend, bukan kerusakan database. Buka console browser (F12)
+              Ini biasanya bug frontend, bukan kerusakan database. Buka konsol browser (F12)
               untuk detail teknis.
             </p>
             <pre className="mt-4 overflow-x-auto rounded-xl bg-slate-900 p-3 text-xs text-slate-100">
@@ -12035,7 +12035,7 @@ ${String(this.state.error?.message || this.state.error)}
               onClick=${() => window.location.reload()}
               className="mt-4 rounded-xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white dark:bg-white dark:text-slate-900"
             >
-              Reload
+              Muat ulang
             </button>
           </div>
         </main>
