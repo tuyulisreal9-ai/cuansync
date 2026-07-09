@@ -14,12 +14,16 @@ Aplikasi web pengatur keuangan pribadi untuk alur multi-mata uang:
 - Overspending canggih: limit bulanan otomatis dipecah jadi batas aman harian dinamis (`sisa budget / sisa hari`)
 - Goal tracker untuk target seperti dana darurat (fokus IDR)
 - Dana investasi/tabungan terhubung dengan saldo utama (setor mengurangi, tarik menambah)
+- Bank & wallet tracker untuk mencatat beberapa akun seperti BCA IDR, Wise USD, Cash, atau bank luar negeri
+- Valuasi aset multi-currency memakai global current rate, bukan rate tukar historis
 
 ## Struktur
 
 - `index.html`: entry aplikasi
-- `src/main.js`: UI React, auth, logika transaksi, dashboard
+- `src/main.js`: UI React, auth, orchestration transaksi, dashboard
 - `src/config.js`: konfigurasi Supabase
+- `src/lib/currency.js`: metadata, formatter, dan helper currency
+- `src/lib/exchangeRates.js`: global current rate untuk valuasi saldo/aset
 - `src/styles.css`: tampilan modern + dark mode
 - `supabase/schema.sql`: tabel dan kebijakan RLS
 - `server.mjs`: server lokal ringan tanpa dependency tambahan
@@ -55,22 +59,26 @@ http://localhost:4173
 
 1. Tukar mata uang dicatat sebagai `type = exchange`, bukan income dan bukan expense.
 2. Struktur exchange menyimpan `from_currency`, `to_currency`, `from_amount`, `to_amount`, dan `rate`.
-3. Exchange hanya memindahkan aset antar wallet: saldo asal berkurang, saldo tujuan bertambah.
-4. Expense foreign currency mengambil `locked_rate` dari rate transaksi atau exchange terakhir yang relevan.
-5. Nilai ekuivalen base currency disimpan di `base_amount` agar histori tetap konsisten meski ada rate baru setelahnya.
+3. Pemasukan dan pengeluaran bisa dikaitkan ke bank/cash/e-wallet sehingga saldo akun ikut berubah.
+4. Exchange menyimpan riwayat kurs khusus transaksi tukar uang, bukan patokan total uang hari ini.
+5. Expense foreign currency mengambil `locked_rate` dari rate transaksi atau exchange terakhir yang relevan.
+6. Nilai ekuivalen base currency disimpan di `base_amount` agar histori tetap konsisten meski ada rate baru setelahnya.
+7. Total kekayaan dan aset foreign currency memakai global current rate dari Open Access ExchangeRate-API, dengan cache lokal.
 
 ## Modul baru
 
 - `Dashboard Interaktif`: chart harian dan insight kategori berubah otomatis setiap kali transaksi ditambah atau dihapus.
 - `Tab Operasional Harian`: transaksi + chart + budget universal uang keluar ada di tab utama.
 - `Overspending Guard`: satu limit uang keluar per bulan akan berubah jadi warning atau merah saat terlewati.
-- `Tab Aset & Goals`: target seperti dana darurat disimpan di tabel `goals` dan progress tetap di IDR.
+- `Tab Keuangan`: hub ringkas untuk bank, cash, e-wallet, target dana, dan laporan bulanan kecil dengan detail dibuka saat dibutuhkan.
 
 ## Tabel database
 
 - `transactions`: menyimpan pemasukan, exchange, dan expense harian.
 - `budgets`: limit budget bulanan universal untuk uang keluar.
 - `goals`: target tabungan/investasi dengan saldo saat ini dan deadline opsional.
+- `asset_accounts`: daftar bank, cash, e-wallet, dan akun investasi per mata uang.
+- `transactions.source_account_id` / `transactions.destination_account_id`: relasi opsional agar pengeluaran dan pemasukan bisa mengubah saldo akun.
 
 ## Catatan implementasi
 

@@ -3,6 +3,28 @@ import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 import htm from "https://esm.sh/htm@3.1.1";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.50.0";
 import { APP_NAME, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
+import {
+  DEFAULT_ACTIVE_CURRENCIES,
+  DEFAULT_BASE_CURRENCY,
+  DEFAULT_SELECTED_CURRENCIES,
+  HIDDEN_BALANCE_TEXT,
+  formatCurrency,
+  formatCurrencyCompact,
+  formatMoney,
+  formatMoneyCompact,
+  getCurrencyOptions as buildCurrencyOptions,
+  normalizeCurrencyCode,
+  normalizeCurrencyList as normalizeCurrencyListBase,
+  numberFormatter,
+} from "./lib/currency.js";
+import {
+  GLOBAL_EXCHANGE_RATES_STORAGE_KEY,
+  fetchGlobalCurrencyRates,
+  getGlobalRateForCurrency,
+  hasGlobalRatesForCurrencies,
+  isGlobalRateSnapshotFresh,
+  normalizeGlobalRateSnapshot,
+} from "./lib/exchangeRates.js";
 
 const html = htm.bind(React.createElement);
 
@@ -12,11 +34,13 @@ const STORAGE_KEYS = {
   demoTransactions: "monefy-demo-transactions",
   demoBudgets: "monefy-demo-budgets",
   demoGoals: "monefy-demo-goals",
+  demoAssetAccounts: "cuansync-demo-asset-accounts",
   profilePhotos: "monefy-profile-photos",
   profile: "cuansync-profile",
   balanceVisible: "monefy-balance-visible",
   hideBalances: "cuansync-hide-balances",
   currencySettings: "monefy-currency-settings",
+  globalExchangeRates: GLOBAL_EXCHANGE_RATES_STORAGE_KEY,
 };
 
 const LEGACY_STORAGE_KEYS = {
@@ -25,11 +49,13 @@ const LEGACY_STORAGE_KEYS = {
   demoTransactions: "kas-poipet-demo-transactions",
   demoBudgets: "kas-poipet-demo-budgets",
   demoGoals: "kas-poipet-demo-goals",
+  demoAssetAccounts: "kas-poipet-demo-asset-accounts",
   profilePhotos: "kas-poipet-profile-photos",
   profile: "kas-poipet-profile",
   balanceVisible: "kas-poipet-balance-visible",
   hideBalances: "kas-poipet-hide-balances",
   currencySettings: "kas-poipet-currency-settings",
+  globalExchangeRates: "kas-poipet-global-exchange-rates",
 };
 
 const DEMO_USER = {
@@ -100,20 +126,6 @@ const CATEGORY_LOOKUP = Object.fromEntries(
   CATEGORY_OPTIONS.map((item) => [item.value, item]),
 );
 
-const HISTORY_CATEGORY_EMOJI = {
-  Makan: "🍜",
-  "Makan Harian": "🍜",
-  Belanja: "🛒",
-  "Belanja Kebutuhan": "🛒",
-  Transport: "🚕",
-  Tagihan: "💡",
-  Kesehatan: "🩺",
-  Internet: "📶",
-  "Internet & Pulsa": "📶",
-  "Tempat Tinggal": "🏠",
-  Lainnya: "🧾",
-};
-
 const DEFAULT_CATEGORY = "Makan";
 const UNIVERSAL_BUDGET_GROUP = "needs";
 
@@ -134,42 +146,19 @@ const TYPE_META = {
   },
 };
 
-const DEFAULT_BASE_CURRENCY = "IDR";
-const DEFAULT_ACTIVE_CURRENCIES = [
-  "IDR",
-  "THB",
-  "USD",
-  "AUD",
-  "KRW",
-  "JPY",
-  "SGD",
-  "MYR",
-  "EUR",
-  "GBP",
+const ASSET_ACCOUNT_TYPES = [
+  { value: "bank", label: "Bank" },
+  { value: "cash", label: "Cash" },
+  { value: "ewallet", label: "E-wallet" },
+  { value: "investment", label: "Investasi" },
+  { value: "other", label: "Lainnya" },
 ];
-const DEFAULT_SELECTED_CURRENCIES = ["IDR"];
 
-const CURRENCY_META = {
-  IDR: { label: "IDR", locale: "id-ID", digits: 0 },
-  THB: { label: "THB", locale: "th-TH", digits: 0 },
-  USD: { label: "USD", locale: "en-US", digits: 0 },
-  AUD: { label: "AUD", locale: "en-AU", digits: 0 },
-  KRW: { label: "KRW", locale: "ko-KR", digits: 0 },
-  JPY: { label: "JPY", locale: "ja-JP", digits: 0 },
-  SGD: { label: "SGD", locale: "en-SG", digits: 0 },
-  MYR: { label: "MYR", locale: "ms-MY", digits: 0 },
-  EUR: { label: "EUR", locale: "de-DE", digits: 0 },
-  GBP: { label: "GBP", locale: "en-GB", digits: 0 },
-};
+const ASSET_ACCOUNT_TYPE_LOOKUP = Object.fromEntries(
+  ASSET_ACCOUNT_TYPES.map((item) => [item.value, item]),
+);
 
-const currencyFormatters = {};
-const moneyFormatters = {};
 let runtimeCurrencySettings = null;
-
-const numberFormatter = new Intl.NumberFormat("id-ID", {
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
 
 const percentFormatter = new Intl.NumberFormat("id-ID", {
   style: "percent",
@@ -247,90 +236,6 @@ const supabase =
       })
     : null;
 
-function normalizeCurrencyCode(currency, fallback = DEFAULT_BASE_CURRENCY) {
-  const code = String(currency || fallback || DEFAULT_BASE_CURRENCY)
-    .trim()
-    .toUpperCase();
-  return code || DEFAULT_BASE_CURRENCY;
-}
-
-function getCurrencyMeta(currency) {
-  const code = normalizeCurrencyCode(currency);
-  return CURRENCY_META[code] || { label: code, locale: "en-US", digits: 0 };
-}
-
-function formatCurrency(value, currency) {
-  const code = normalizeCurrencyCode(currency);
-  if (!currencyFormatters[code]) {
-    const meta = getCurrencyMeta(code);
-    currencyFormatters[code] = new Intl.NumberFormat(meta.locale, {
-      style: "currency",
-      currency: code,
-      minimumFractionDigits: meta.digits,
-      maximumFractionDigits: meta.digits,
-    });
-  }
-  return currencyFormatters[code].format(Number(value || 0));
-}
-
-function formatCurrencyCompact(value, currency) {
-  const code = normalizeCurrencyCode(currency);
-  const numeric = Number(value || 0);
-  const absolute = Math.abs(numeric);
-  if (absolute < 10000) return formatCurrency(numeric, code);
-
-  const meta = getCurrencyMeta(code);
-  return new Intl.NumberFormat(meta.locale, {
-    style: "currency",
-    currency: code,
-    notation: "compact",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: absolute >= 1000000 ? 1 : 0,
-  }).format(numeric);
-}
-
-function formatMoney(value, currency, options = {}) {
-  const code = normalizeCurrencyCode(currency);
-  const meta = getCurrencyMeta(code);
-  const numeric = Number(value || 0);
-  const formatOptions = {
-    style: "currency",
-    currency: code,
-    currencyDisplay: options.currencyDisplay || "narrowSymbol",
-  };
-
-  if (options.notation) formatOptions.notation = options.notation;
-  if (typeof options.minimumFractionDigits === "number") {
-    formatOptions.minimumFractionDigits = options.minimumFractionDigits;
-  }
-  if (typeof options.maximumFractionDigits === "number") {
-    formatOptions.maximumFractionDigits = options.maximumFractionDigits;
-  }
-
-  const cacheKey = JSON.stringify([meta.locale, code, formatOptions]);
-  try {
-    if (!moneyFormatters[cacheKey]) {
-      moneyFormatters[cacheKey] = new Intl.NumberFormat(meta.locale, formatOptions);
-    }
-    return moneyFormatters[cacheKey].format(numeric);
-  } catch {
-    return `${code} ${numberFormatter.format(numeric)}`;
-  }
-}
-
-function formatMoneyCompact(value, currency) {
-  const numeric = Number(value || 0);
-  const absolute = Math.abs(numeric);
-  if (absolute < 10000) return formatMoney(numeric, currency);
-
-  return formatMoney(numeric, currency, {
-    notation: "compact",
-    maximumFractionDigits: absolute >= 1000000 ? 1 : 0,
-  });
-}
-
-const HIDDEN_BALANCE_TEXT = "\u2022\u2022\u2022\u2022\u2022\u2022";
-
 function readBalanceVisiblePreference() {
   const hideBalances = readAppStorage("hideBalances", null);
   if (typeof hideBalances === "boolean") return !hideBalances;
@@ -357,31 +262,13 @@ function normalizeCurrencyList(
   currencies,
   { ensureBase = true, baseCurrency = null } = {},
 ) {
-  const source = Array.isArray(currencies) ? currencies : [];
-  const selected = [];
-  const seen = new Set();
   const requiredBase = normalizeCurrencyCode(
     baseCurrency || runtimeCurrencySettings?.baseCurrency || DEFAULT_BASE_CURRENCY,
   );
-
-  function addCurrency(currency) {
-    const code = normalizeCurrencyCode(currency);
-    if (!code || seen.has(code)) return;
-    seen.add(code);
-    selected.push(code);
-  }
-
-  if (ensureBase) addCurrency(requiredBase);
-  source.forEach(addCurrency);
-
-  const order = new Map(DEFAULT_ACTIVE_CURRENCIES.map((code, index) => [code, index]));
-  selected.sort((left, right) => {
-    const leftOrder = order.has(left) ? order.get(left) : Number.MAX_SAFE_INTEGER;
-    const rightOrder = order.has(right) ? order.get(right) : Number.MAX_SAFE_INTEGER;
-    return leftOrder - rightOrder || left.localeCompare(right);
+  return normalizeCurrencyListBase(currencies, {
+    ensureBase,
+    baseCurrency: requiredBase,
   });
-
-  return selected.length ? selected : [DEFAULT_BASE_CURRENCY];
 }
 
 function mergeCurrencyLists(...lists) {
@@ -488,10 +375,7 @@ function getActiveCurrencies() {
 }
 
 function getCurrencyOptions(currencies = getActiveCurrencies()) {
-  return currencies.map((currency) => {
-    const code = normalizeCurrencyCode(currency);
-    return { value: code, label: getCurrencyMeta(code).label };
-  });
+  return buildCurrencyOptions(currencies);
 }
 
 function getBaseCurrency() {
@@ -732,8 +616,8 @@ function EyeToggleIcon({ visible }) {
 }
 
 function BalancePrivacyPill({ balanceIdr, balanceThb, visible, onToggle }) {
-  const idrText = visible ? formatCurrency(balanceIdr, "idr") : "••••••";
-  const thbText = visible ? formatCurrency(balanceThb, "thb") : "••••••";
+  const idrText = visible ? formatCurrency(balanceIdr, "idr") : "â€¢â€¢â€¢â€¢â€¢â€¢";
+  const thbText = visible ? formatCurrency(balanceThb, "thb") : "â€¢â€¢â€¢â€¢â€¢â€¢";
 
   return html`
     <div className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-2xl border border-brand-300/30 bg-brand-600 px-3 py-1.5 text-[11px] font-semibold uppercase text-white shadow-[0_12px_30px_rgba(16,185,129,0.22)] sm:flex-none sm:rounded-full sm:text-xs">
@@ -1004,12 +888,12 @@ function PrimaryBalanceHero({
     : "saldo disembunyikan";
   const totalLabel = visible
     ? formatMoney(totalValueBase, baseCurrency)
-    : "total value disembunyikan";
+    : "total aset disembunyikan";
 
   return html`
     <section
       className="mt-4"
-      aria-label=${`${focusCurrency} ${focusState}. ${amountLabel}. Total value ${totalLabel}.`}
+      aria-label=${`${focusCurrency} ${focusState}. ${amountLabel}. Total aset ${totalLabel}.`}
     >
       <div className="flex min-w-0 items-center justify-between gap-3">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -1035,14 +919,13 @@ function PrimaryBalanceHero({
       </p>
 
       <p className="mt-2 flex min-h-6 min-w-0 flex-wrap items-center gap-1 text-sm font-semibold text-slate-600 dark:text-slate-300">
-        <span aria-hidden="true">≈</span>
         <${AmountFormatter}
           amount=${totalValueBase}
           currency=${baseCurrency}
           visible=${visible}
           className="min-w-[8ch]"
         />
-        <span>total value</span>
+        <span>total aset</span>
       </p>
     </section>
   `;
@@ -1104,7 +987,7 @@ function WalletBottomSheet({
             aria-label="Tutup bottom sheet currency"
             className="inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center rounded-full border border-slate-300/70 bg-white/70 text-sm font-black text-slate-700 transition hover:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/70 dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:bg-white/10"
           >
-            ×
+            Ã—
           </button>
         </div>
 
@@ -1143,7 +1026,6 @@ function WalletBottomSheet({
                       : null}
                   </span>
                   <span className="mt-1 block text-xs font-semibold text-slate-500 dark:text-slate-400">
-                    ≈
                     <${AmountFormatter}
                       amount=${valuationsByCurrency[currency] || 0}
                       currency=${baseCurrency}
@@ -1820,6 +1702,147 @@ function normalizeGoal(row, index = 0) {
   };
 }
 
+function createLegacyAssetAccountId(row, index = 0) {
+  const seed = [
+    row.created_at,
+    row.name,
+    row.account_type,
+    row.currency,
+    row.balance_amount,
+    index,
+  ]
+    .map((part) => String(part ?? ""))
+    .join("|");
+  let hash = 0;
+  for (let indexSeed = 0; indexSeed < seed.length; indexSeed += 1) {
+    hash = (hash * 31 + seed.charCodeAt(indexSeed)) >>> 0;
+  }
+  return `legacy-asset-account-${hash.toString(36)}-${index}`;
+}
+
+function normalizeAssetAccount(row, index = 0) {
+  const accountType = ASSET_ACCOUNT_TYPE_LOOKUP[row?.account_type]
+    ? row.account_type
+    : ASSET_ACCOUNT_TYPE_LOOKUP[row?.type]
+      ? row.type
+      : "bank";
+  const currency = normalizeCurrencyCode(row?.currency || row?.currency_code);
+  const defaultName = getDefaultAssetAccountName(accountType, currency);
+  const balanceAmount = Number(
+    row?.balance_amount ?? row?.balanceAmount ?? row?.opening_balance ?? 0,
+  );
+  return {
+    ...row,
+    id: row?.id || createLegacyAssetAccountId(row || {}, index),
+    name: String(row?.name || row?.account_name || defaultName).trim() || defaultName,
+    account_type: accountType,
+    currency,
+    balance_amount: Number.isFinite(balanceAmount) ? balanceAmount : 0,
+    note: row?.note || row?.description || "",
+    created_at: row?.created_at || new Date().toISOString(),
+  };
+}
+
+function normalizeAssetAccounts(rows = []) {
+  return rows.map(normalizeAssetAccount).sort((a, b) => {
+    const currencyDiff = a.currency.localeCompare(b.currency);
+    if (currencyDiff !== 0) return currencyDiff;
+    return a.name.localeCompare(b.name);
+  });
+}
+
+const SPENDABLE_ASSET_ACCOUNT_TYPES = new Set(["bank", "cash", "ewallet", "other"]);
+
+function isSpendableAssetAccount(account) {
+  return SPENDABLE_ASSET_ACCOUNT_TYPES.has(account?.account_type || "bank");
+}
+
+function getSelectableAssetAccounts(accounts = [], currency, options = {}) {
+  const normalizedCurrency = normalizeCurrencyCode(currency);
+  const includeInvestments = Boolean(options.includeInvestments);
+  return normalizeAssetAccounts(accounts).filter(
+    (account) =>
+      normalizeCurrencyCode(account.currency) === normalizedCurrency &&
+      (includeInvestments || isSpendableAssetAccount(account)),
+  );
+}
+
+function getAssetAccountDisplayName(account) {
+  const typeLabel = ASSET_ACCOUNT_TYPE_LOOKUP[account?.account_type]?.label || "Akun";
+  const currency = normalizeCurrencyCode(account?.currency);
+  const name = account?.name || getDefaultAssetAccountName(account?.account_type, currency);
+  return `${name} - ${currency} - ${typeLabel}`;
+}
+
+function getDefaultAssetAccountName(accountType = "bank", currency = DEFAULT_BASE_CURRENCY) {
+  const code = normalizeCurrencyCode(currency);
+  if (accountType === "cash") return `Cash ${code}`;
+  const typeLabel = ASSET_ACCOUNT_TYPE_LOOKUP[accountType]?.label || "Akun";
+  return `${typeLabel} ${code}`;
+}
+
+function getCurrentValuationRateForCurrency(
+  globalRateSnapshot,
+  currency,
+  baseCurrency = getBaseCurrency(),
+) {
+  const globalRate = getGlobalRateForCurrency(
+    globalRateSnapshot,
+    currency,
+    baseCurrency,
+  );
+  return globalRate.rate > 0 ? globalRate : { rate: 0, source: null };
+}
+
+function getAssetAccountValuationLabel(account) {
+  if (account.currency === DEFAULT_BASE_CURRENCY) return "Base currency";
+  if (account.valuationIdr == null) return "Rate belum tersedia";
+  const suffix = account.rateSource === "global" ? " rate global" : "";
+  return `≈ ${formatCurrency(account.valuationIdr, "idr")}${suffix}`;
+}
+
+function buildAssetAccountInsights(accounts = [], globalRateSnapshot = null) {
+  const accountInsights = normalizeAssetAccounts(accounts).map((account) => {
+    const currency = normalizeCurrencyCode(account.currency);
+    const balanceAmount = Number(account.balance_amount || 0);
+    const rateInfo = getCurrentValuationRateForCurrency(
+      globalRateSnapshot,
+      currency,
+    );
+    const rate = Number(rateInfo.rate || 0);
+    const valuationIdr =
+      currency === DEFAULT_BASE_CURRENCY
+        ? balanceAmount
+        : rate > 0
+          ? balanceAmount * rate
+          : null;
+    return {
+      ...account,
+      typeLabel: ASSET_ACCOUNT_TYPE_LOOKUP[account.account_type]?.label || "Akun",
+      balanceAmount,
+      valuationIdr,
+      rate,
+      rateSource: rateInfo.source,
+    };
+  });
+  const totalsByCurrency = accountInsights.reduce((totals, account) => {
+    totals[account.currency] =
+      Number(totals[account.currency] || 0) + Number(account.balanceAmount || 0);
+    return totals;
+  }, {});
+  const totalValueIdr = accountInsights.reduce(
+    (sum, account) => sum + Number(account.valuationIdr || 0),
+    0,
+  );
+
+  return {
+    accountInsights,
+    accountCount: accountInsights.length,
+    totalsByCurrency,
+    totalValueIdr,
+  };
+}
+
 function orderTransactions(rows) {
   return [...rows].sort((a, b) => {
     const timeDiff =
@@ -1916,6 +1939,31 @@ function resolveTransactionBaseValue(transaction, fallbackRate = 0) {
   if (legacyAmountIdr > 0) return legacyAmountIdr;
   if (currency === baseCurrency) return amount;
   return amount > 0 && rate > 0 ? amount * rate : 0;
+}
+
+function resolveTransactionCurrentBaseValue(transaction, globalRateSnapshot = null) {
+  const flow = getTransactionFlow(transaction);
+  if (flow === "exchange") {
+    const fromCurrency = normalizeCurrencyCode(transaction.from_currency);
+    const rateInfo = getCurrentValuationRateForCurrency(
+      globalRateSnapshot,
+      fromCurrency,
+    );
+    return getExchangeBaseVolume(transaction, rateInfo.rate);
+  }
+
+  const baseCurrency = getBaseCurrency();
+  const currency = getTransactionCurrency(transaction);
+  const amount = getTransactionAmountValue(transaction);
+  if (currency === baseCurrency) return amount;
+
+  const rateInfo = getCurrentValuationRateForCurrency(
+    globalRateSnapshot,
+    currency,
+  );
+  return rateInfo.rate > 0
+    ? amount * rateInfo.rate
+    : resolveTransactionBaseValue(transaction, 0);
 }
 
 function getTransactionAmountValue(transaction) {
@@ -2240,7 +2288,13 @@ function computeGoalInsights(goals) {
     });
 }
 
-function computeMetrics(transactions, budgets, goals) {
+function computeMetrics(
+  transactions,
+  budgets,
+  goals,
+  assetAccounts = [],
+  globalRateSnapshot = null,
+) {
   const ordered = orderTransactions(transactions);
   const currentMonthKey = getMonthKey(new Date());
   const currentMonthTransactions = ordered.filter(
@@ -2256,16 +2310,28 @@ function computeMetrics(transactions, budgets, goals) {
       getMonthKey(item.occurred_at) === currentMonthKey,
   );
 
-  const currencyBalances = computeCurrencyBalances(ordered);
-  const activeCurrencies = getActiveCurrencies();
-  const resolveIdrValue = (item) => {
-    const fallbackRate = getLatestRateForCurrencyUntil(
-      ordered,
-      getTransactionCurrency(item),
-      new Date(item.occurred_at || Date.now()),
-    );
-    return resolveTransactionBaseValue(item, fallbackRate);
-  };
+  const transactionCurrencyBalances = computeCurrencyBalances(ordered);
+  const assetAccountSummary = buildAssetAccountInsights(assetAccounts, globalRateSnapshot);
+  const activeCurrencies = normalizeCurrencyList([
+    ...getActiveCurrencies(),
+    ...Object.keys(transactionCurrencyBalances),
+    ...Object.keys(assetAccountSummary.totalsByCurrency),
+  ]);
+  const currencyBalanceDefaults = Object.fromEntries(
+    activeCurrencies.map((currency) => [currency, 0]),
+  );
+  const currencyBalances =
+    assetAccountSummary.accountCount > 0
+      ? {
+          ...currencyBalanceDefaults,
+          ...assetAccountSummary.totalsByCurrency,
+        }
+      : {
+          ...currencyBalanceDefaults,
+          ...transactionCurrencyBalances,
+        };
+  const resolveIdrValue = (item) =>
+    resolveTransactionCurrentBaseValue(item, globalRateSnapshot);
   const incomeIdr = ordered
     .filter((item) => item.type === "income")
     .reduce((sum, item) => sum + resolveIdrValue(item), 0);
@@ -2327,10 +2393,6 @@ function computeMetrics(transactions, budgets, goals) {
     monthlyExpenseBaseByCurrency[currency] =
       Number(monthlyExpenseBaseByCurrency[currency] || 0) + resolveIdrValue(item);
   });
-  const unvaluedForeignExpenseCount = currentMonthExpenses.filter((item) => {
-    const currency = getTransactionCurrency(item);
-    return currency !== DEFAULT_BASE_CURRENCY && resolveIdrValue(item) <= 0;
-  }).length;
   const monthlyCategoryIdr = Object.values(categoryAccumulator).reduce(
     (sum, data) => sum + Number(data.valueIdr || 0),
     0,
@@ -2357,11 +2419,10 @@ function computeMetrics(transactions, budgets, goals) {
   const overspentCount = budgetInsights.filter((item) => item.status === "over").length;
   const warningCount = budgetInsights.filter((item) => item.status === "warning").length;
   const budgetInsightsBase = budgetInsights.map((item) => {
-    const rate = getLatestRateForCurrencyUntil(
-      ordered,
+    const rate = getCurrentValuationRateForCurrency(
+      globalRateSnapshot,
       item.currency,
-      new Date(8640000000000000),
-    );
+    ).rate;
     return {
       limitBase:
         item.currency === DEFAULT_BASE_CURRENCY
@@ -2407,22 +2468,21 @@ function computeMetrics(transactions, budgets, goals) {
 
   const activeExchange =
     [...ordered].reverse().find((item) => item.type === "exchange") || null;
-  const latestRate = getLatestRateForCurrencyUntil(
-    ordered,
+  const latestRate = getCurrentValuationRateForCurrency(
+    globalRateSnapshot,
     "THB",
-    new Date(8640000000000000),
-  );
+  ).rate;
   const balanceThb = Number(currencyBalances.THB || 0);
   const balanceThbValuationIdr =
     latestRate > 0 ? balanceThb * latestRate : null;
   const netWorthBeforeGoalsIdr = Object.entries(currencyBalances).reduce(
     (sum, [currency, balance]) => {
       if (currency === DEFAULT_BASE_CURRENCY) return sum + Number(balance || 0);
-      const rate = getLatestRateForCurrencyUntil(
-        ordered,
+      const rateInfo = getCurrentValuationRateForCurrency(
+        globalRateSnapshot,
         currency,
-        new Date(8640000000000000),
       );
+      const rate = Number(rateInfo.rate || 0);
       return sum + (rate > 0 ? Number(balance || 0) * rate : 0);
     },
     0,
@@ -2432,15 +2492,16 @@ function computeMetrics(transactions, budgets, goals) {
     .filter((currency) => currency !== DEFAULT_BASE_CURRENCY)
     .map((currency) => {
       const balance = Number(currencyBalances[currency] || 0);
-      const rate = getLatestRateForCurrencyUntil(
-        ordered,
+      const rateInfo = getCurrentValuationRateForCurrency(
+        globalRateSnapshot,
         currency,
-        new Date(8640000000000000),
       );
+      const rate = Number(rateInfo.rate || 0);
       return {
         currency,
         balance,
         rate,
+        rateSource: rateInfo.source,
         valuationIdr: rate > 0 ? balance * rate : null,
       };
     });
@@ -2508,7 +2569,6 @@ function computeMetrics(transactions, budgets, goals) {
     monthlyThb,
     monthlyExpenseByCurrency,
     monthlyExpenseBaseByCurrency,
-    unvaluedForeignExpenseCount,
     activeCurrencies,
     activeExchange,
     recent: [...ordered].reverse().slice(0, 10),
@@ -2531,6 +2591,12 @@ function computeMetrics(transactions, budgets, goals) {
     totalGoalSaved,
     goalProgressTotal,
     nextGoal,
+    assetAccountInsights: assetAccountSummary.accountInsights,
+    assetAccountCount: assetAccountSummary.accountCount,
+    assetAccountTotalsByCurrency: assetAccountSummary.totalsByCurrency,
+    assetAccountTotalValueIdr: assetAccountSummary.totalValueIdr,
+    globalRateProvider: globalRateSnapshot?.provider || null,
+    globalRateSourceDate: globalRateSnapshot?.sourceDate || null,
   };
 }
 
@@ -3342,7 +3408,7 @@ function OverviewHero({ metrics }) {
             ${formatCurrency(metrics.netWorthIdr, "idr")}
           </h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-700 dark:text-slate-300">
-            Gabungan saldo ${getBaseCurrency()} tersedia dan valuasi saldo mata uang aktif ke IDR.
+            Gabungan saldo ${getBaseCurrency()} tersedia dan valuasi saldo mata uang aktif memakai rate global terbaru.
             ${metrics.foreignBalanceItems?.length
               ? ` Valuasi mata uang asing saat ini ${formatCurrency(
                   metrics.foreignBalanceValuationIdr,
@@ -3777,7 +3843,6 @@ function buildControlCenter(metrics, selectedCurrency = getBaseCurrency()) {
   if (activeBudget?.status === "over") score -= 30;
   if (metrics.monthlyNetChangeIdr < 0) score -= 14;
   if (projectedNetIdr < 0) score -= 12;
-  if (metrics.unvaluedForeignExpenseCount > 0) score -= 10;
   if (currency === DEFAULT_BASE_CURRENCY && currencyBalance < metrics.averageDailyExpenseIdr * 7) score -= 10;
   if (currencyRunwayDays != null && currencyRunwayDays < 3) score -= 18;
   else if (currencyRunwayDays != null && currencyRunwayDays < 7) score -= 10;
@@ -3803,7 +3868,7 @@ function buildControlCenter(metrics, selectedCurrency = getBaseCurrency()) {
   if (!activeBudget) {
     alerts.push({
       title: `Budget ${currency} belum aktif`,
-      body: `Buat limit bulanan ${currency} agar batas aman harian bisa dihitung.`,
+      body: `Buat limit ${currency} untuk menghitung sisa harian.`,
       tone: "amber",
     });
   } else if (activeBudget.status === "over") {
@@ -3828,18 +3893,10 @@ function buildControlCenter(metrics, selectedCurrency = getBaseCurrency()) {
     });
   }
 
-  if (metrics.unvaluedForeignExpenseCount > 0) {
-    alerts.push({
-      title: "Ada transaksi tanpa valuasi",
-      body: `${metrics.unvaluedForeignExpenseCount} pengeluaran mata uang asing belum punya rate IDR.`,
-      tone: "amber",
-    });
-  }
-
   if (projectedNetIdr < 0) {
     alerts.push({
-      title: "Forecast bulan ini negatif",
-      body: `Jika ritme sama, cashflow bulan ini bisa ${formatCurrency(projectedNetIdr, "idr")}.`,
+      title: "Cashflow negatif",
+      body: `Jika ritme sama, bulan ini bisa ${formatCurrency(projectedNetIdr, "idr")}.`,
       tone: "rose",
     });
   }
@@ -3864,7 +3921,7 @@ function buildControlCenter(metrics, selectedCurrency = getBaseCurrency()) {
   if (!activeBudget) {
     nextActions.push({
       title: `Buat budget ${currency}`,
-      body: `Aktifkan batas aman harian untuk pengeluaran ${currency}.`,
+      body: "Agar sisa harian bisa dihitung.",
       target: "control-budget",
     });
   }
@@ -3884,14 +3941,14 @@ function buildControlCenter(metrics, selectedCurrency = getBaseCurrency()) {
   }
   if (topCategory) {
     nextActions.push({
-      title: `Review ${topCategory.label}`,
-      body: "Cek transaksi kategori terbesar dan cari yang bisa dikurangi.",
+      title: `Cek ${topCategory.label}`,
+      body: "Kategori terbesar bulan ini.",
       target: "history",
     });
   }
   if (!nextActions.length) {
     nextActions.push({
-      title: "Catat transaksi berikutnya",
+      title: "Catat transaksi",
       body: "Jaga dashboard tetap akurat dengan input real-time.",
       target: "add",
     });
@@ -3932,36 +3989,14 @@ function ControlMetric({ label, value, helper }) {
   `;
 }
 
-function ControlCurrencyTabs({ currencies, value, onChange }) {
-  if (currencies.length <= 1) return null;
-
-  return html`
-    <section className=${`${PREMIUM_PANEL_SOFT} p-3`}>
-      <div className="cuan-segment flex flex-wrap gap-1 rounded-[22px] p-1">
-        ${currencies.map((currency) => {
-          const active = value === currency;
-          return html`
-            <button
-              key=${currency}
-              type="button"
-              onClick=${() => onChange(currency)}
-              className=${`min-h-11 min-w-[4rem] flex-1 rounded-2xl px-2 text-xs font-black transition duration-300 ${
-                active
-                  ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.22)] dark:bg-emerald-500"
-                  : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"
-              }`}
-            >
-              ${currency}
-            </button>
-          `;
-        })}
-      </div>
-    </section>
-  `;
-}
-
-function ControlCenterHero({ metrics, control }) {
+function ControlCenterHero({
+  metrics,
+  control,
+  currencies = [],
+  onCurrencyChange = null,
+}) {
   const scoreWidth = `${control.controlScore}%`;
+  const showCurrencyPicker = currencies.length > 1 && onCurrencyChange;
 
   return html`
     <section className=${`${PREMIUM_PANEL} control-center-card p-5 md:p-6`}>
@@ -3969,14 +4004,37 @@ function ControlCenterHero({ metrics, control }) {
       <div className="relative grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
         <div>
           <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
-            Financial Control Center
+            Kontrol
           </p>
           <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.04em] text-slate-950 dark:text-white md:text-4xl">
             ${control.controlLabel}
           </h2>
           <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-            Monitor risiko hari ini, budget ${control.currency}, dan keputusan yang perlu diambil.
+            Fokus ${control.currency}: saldo, batas, dan ritme bulan ini.
           </p>
+          ${showCurrencyPicker
+            ? html`
+                <div className="cuan-segment mt-4 flex flex-wrap gap-1 rounded-[20px] p-1 md:max-w-xl">
+                  ${currencies.map((currency) => {
+                    const active = control.currency === currency;
+                    return html`
+                      <button
+                        key=${currency}
+                        type="button"
+                        onClick=${() => onCurrencyChange(currency)}
+                        className=${`min-h-10 flex-1 rounded-2xl px-3 text-xs font-black transition duration-300 ${
+                          active
+                            ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.22)] dark:bg-emerald-500"
+                            : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"
+                        }`}
+                      >
+                        ${currency}
+                      </button>
+                    `;
+                  })}
+                </div>
+              `
+            : null}
         </div>
         <div className="rounded-[28px] border border-slate-200/70 bg-white/62 p-4 dark:border-white/10 dark:bg-slate-950/40 md:w-52">
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
@@ -3996,19 +4054,19 @@ function ControlCenterHero({ metrics, control }) {
 
       <div className="relative mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
         <${ControlMetric}
-          label="Net worth"
+          label="Total aset"
           value=${formatCurrency(metrics.netWorthIdr, "idr")}
-          helper="Semua saldo aktif"
+          helper="Rate global"
         />
         <${ControlMetric}
           label=${`Runway ${control.currency}`}
           value=${control.currencyRunwayDays == null ? "Stabil" : `${Math.max(control.currencyRunwayDays, 0)} hari`}
-          helper=${control.currencyDailyAverage > 0 ? `${formatCurrency(control.currencyDailyAverage, control.currency)}/hari` : `Belum ada ritme ${control.currency}`}
+          helper=${control.currencyDailyAverage > 0 ? `${formatCurrency(control.currencyDailyAverage, control.currency)}/hari` : "Belum ada ritme"}
         />
         <${ControlMetric}
-          label="Forecast net"
+          label="Cashflow"
           value=${formatCurrency(control.projectedNetIdr, "idr")}
-          helper="Estimasi akhir bulan"
+          helper="Akhir bulan"
         />
         <${ControlMetric}
           label="Sisa budget"
@@ -4020,7 +4078,7 @@ function ControlCenterHero({ metrics, control }) {
   `;
 }
 
-function ControlAlerts({ alerts }) {
+function ControlPriorityPanel({ alert, action, onNavigate }) {
   const toneClass = {
     emerald:
       "border-brand-300/25 bg-brand-500/10 text-brand-800 dark:border-brand-300/20 dark:text-brand-200",
@@ -4030,34 +4088,8 @@ function ControlAlerts({ alerts }) {
       "border-rose-300/30 bg-rose-400/10 text-rose-800 dark:border-rose-300/20 dark:text-rose-200",
   };
 
-  return html`
-    <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-      <div className="relative">
-        <h3 className="font-display text-xl font-black text-slate-950 dark:text-white">
-          Alert & Risiko
-        </h3>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-          Hal yang paling perlu diperhatikan sekarang.
-        </p>
-      </div>
-      <div className="relative mt-4 grid gap-3">
-        ${alerts.map(
-          (alert) => html`
-            <div key=${alert.title} className=${`rounded-[22px] border p-4 ${toneClass[alert.tone]}`}>
-              <p className="font-black">${alert.title}</p>
-              <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
-                ${alert.body}
-              </p>
-            </div>
-          `,
-        )}
-      </div>
-    </section>
-  `;
-}
-
-function ControlNextActions({ actions, onNavigate }) {
-  function handleAction(action) {
+  function handleAction() {
+    if (!action) return;
     if (action.target === "control-budget") {
       document
         .getElementById("control-budget-section")
@@ -4068,111 +4100,32 @@ function ControlNextActions({ actions, onNavigate }) {
   }
 
   return html`
-    <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-      <div className="relative">
-        <h3 className="font-display text-xl font-black text-slate-950 dark:text-white">
-          Aksi Berikutnya
-        </h3>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-          Langkah kecil yang paling berguna hari ini.
+    <section className="grid gap-3 md:grid-cols-2">
+      <div className=${`rounded-[24px] border p-4 ${toneClass[alert?.tone] || toneClass.emerald}`}>
+        <p className="text-[10px] font-black uppercase tracking-[0.18em] opacity-75">
+          Prioritas
+        </p>
+        <p className="mt-2 font-black">${alert?.title || "Aman"}</p>
+        <p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300">
+          ${alert?.body || "Tidak ada risiko besar saat ini."}
         </p>
       </div>
-      <div className="relative mt-4 grid gap-3">
-        ${actions.map(
-          (action) => html`
-            <button
-              key=${action.title}
-              type="button"
-              onClick=${() => handleAction(action)}
-              className="grid min-h-[76px] grid-cols-[1fr_auto] items-center gap-3 rounded-[22px] border border-slate-200/70 bg-white/58 p-4 text-left transition hover:-translate-y-0.5 hover:bg-white/82 dark:border-white/10 dark:bg-slate-900/44 dark:hover:bg-slate-900/70"
-            >
-              <span className="min-w-0">
-                <span className="block text-sm font-black text-slate-950 dark:text-white">
-                  ${action.title}
-                </span>
-                <span className="mt-1 block text-xs leading-5 text-slate-600 dark:text-slate-300">
-                  ${action.body}
-                </span>
-              </span>
-              <span className="rounded-full border border-brand-300/25 bg-brand-500/10 px-3 py-1 text-xs font-black text-brand-700 dark:border-brand-300/20 dark:text-brand-200">
-                Buka
-              </span>
-            </button>
-          `,
-        )}
-      </div>
-    </section>
-  `;
-}
 
-function ControlForecast({ metrics, control }) {
-  const budgetWidth =
-    control.activeBudget
-      ? `${Math.min(Math.max(control.activeBudget.usage * 100, 0), 100)}%`
-      : "0%";
-  const runwayLabel =
-    control.currencyRunwayDays == null
-      ? "Belum ada ritme"
-      : `${Math.max(control.currencyRunwayDays, 0)} hari`;
-
-  return html`
-    <section className="grid gap-4 lg:grid-cols-2">
-      <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-        <div className="relative">
-          <h3 className="font-display text-xl font-black text-slate-950 dark:text-white">
-            Forecast Bulan Ini
-          </h3>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Proyeksi jika ritme pengeluaran tidak berubah.
-          </p>
-        </div>
-        <div className="relative mt-5 grid gap-3">
-          <${ControlMetric}
-            label="Estimasi pengeluaran"
-            value=${formatCurrency(control.projectedExpenseIdr, "idr")}
-            helper="Sampai akhir bulan"
-          />
-          <${ControlMetric}
-            label="Estimasi cashflow"
-            value=${formatCurrency(control.projectedNetIdr, "idr")}
-            helper=${control.projectedNetIdr >= 0 ? "Masih surplus" : "Berpotensi defisit"}
-          />
-        </div>
-      </div>
-
-      <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-        <div className="relative">
-          <h3 className="font-display text-xl font-black text-slate-950 dark:text-white">
-            Runway ${control.currency}
-          </h3>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Daya tahan saldo ${control.currency} dan batas budget aktif.
-          </p>
-        </div>
-        <div className="relative mt-5 grid gap-4">
-          <div>
-            <div className="mb-2 flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
-              <span>Budget ${control.currency}</span>
-              <span>${control.activeBudget ? formatPercent(control.activeBudget.usage) : "-"}</span>
-            </div>
-            <div className="h-3 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
-              <div className="h-full rounded-full bg-gradient-to-r from-brand-600 to-emerald-300" style=${{ width: budgetWidth }}></div>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <${ControlMetric}
-              label="Runway"
-              value=${runwayLabel}
-              helper=${`Berdasarkan rata-rata ${control.currency}`}
-            />
-            <${ControlMetric}
-              label=${`Gap ${control.currency}`}
-              value=${formatCurrency(control.projectedCurrencyGap, control.currency)}
-              helper="Estimasi kebutuhan tambahan"
-            />
-          </div>
-        </div>
-      </div>
+      <button
+        type="button"
+        onClick=${handleAction}
+        className="rounded-[24px] border border-slate-200/70 bg-white/58 p-4 text-left transition hover:-translate-y-0.5 hover:bg-white/82 dark:border-white/10 dark:bg-slate-900/44 dark:hover:bg-slate-900/70"
+      >
+        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+          Aksi
+        </p>
+        <p className="mt-2 font-black text-slate-950 dark:text-white">
+          ${action?.title || "Catat transaksi"}
+        </p>
+        <p className="mt-1 text-sm leading-5 text-slate-600 dark:text-slate-300">
+          ${action?.body || "Jaga data tetap akurat."}
+        </p>
+      </button>
     </section>
   `;
 }
@@ -4184,10 +4137,10 @@ function ControlCenterEmptyState({ onNavigate }) {
         +
       </div>
       <h3 className="relative mt-4 font-display text-2xl font-bold text-slate-950 dark:text-white">
-        Control Center siap dipakai
+        Kontrol siap dipakai
       </h3>
       <p className="relative mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-slate-300">
-        Tambahkan transaksi pertama agar CUANSYNC bisa membaca risiko dan rekomendasi harian.
+        Tambahkan transaksi pertama agar CUANSYNC bisa membaca ritme harian.
       </p>
       <button
         type="button"
@@ -4212,23 +4165,37 @@ function ControlBudgetHub({
   const selectedBudgets = metrics.budgetInsights.filter(
     (item) => item.currency === selectedCurrency,
   );
+  const activeBudget = selectedBudgets[0] || null;
+  const budgetUsageWidth = activeBudget
+    ? `${Math.min(Math.max(activeBudget.usage * 100, activeBudget.spentAmount > 0 ? 8 : 0), 100)}%`
+    : "0%";
 
   return html`
-    <section id="control-budget-section" className="grid scroll-mt-6 gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-      <div className="grid gap-4">
-        <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-          <div className="relative">
+    <section id="control-budget-section" className=${`${PREMIUM_PANEL} scroll-mt-6 p-5 md:p-6`}>
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
+      <div className="relative flex flex-col gap-4">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div>
             <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
-              Kontrol budget
+              Budget
             </p>
             <h3 className="mt-2 font-display text-xl font-black text-slate-950 dark:text-white">
-              Atur batas aman ${selectedCurrency}
+              Batas ${selectedCurrency}
             </h3>
-            <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
-              Budget mengikuti mata uang aktif. IDR-only tetap sederhana, multi-currency bisa dipantau per wallet.
-            </p>
           </div>
-        </section>
+          ${activeBudget
+            ? html`
+                <button
+                  type="button"
+                  onClick=${() => onBudgetDelete(activeBudget)}
+                  className="history-action-danger min-h-10 rounded-2xl px-3 py-2 text-xs font-black"
+                >
+                  Hapus budget
+                </button>
+              `
+            : null}
+        </div>
+
         <${BudgetForm}
           onSubmit=${onBudgetSubmit}
           loading=${loading}
@@ -4236,14 +4203,49 @@ function ControlBudgetHub({
           currency=${selectedCurrency}
           activeCurrencies=${activeCurrencies}
           onCurrencyChange=${onCurrencyChange}
+          embedded=${true}
         />
-      </div>
 
-      <${BudgetTracker}
-        budgets=${selectedBudgets}
-        monthLabel=${metrics.currentMonthLabel}
-        onDelete=${onBudgetDelete}
-      />
+        ${activeBudget
+          ? html`
+              <div className="rounded-[22px] border border-slate-200/70 bg-white/52 p-4 dark:border-white/10 dark:bg-slate-950/30">
+                <div className="flex items-center justify-between gap-3 text-xs font-bold text-slate-600 dark:text-slate-300">
+                  <span>${formatCurrency(activeBudget.spentAmount, selectedCurrency)} terpakai</span>
+                  <span>${formatPercent(activeBudget.usage)}</span>
+                </div>
+                <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
+                  <div className=${`h-full rounded-full bg-gradient-to-r ${activeBudget.barClass}`} style=${{ width: budgetUsageWidth }}></div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+                  <${ControlMetric}
+                    label="Limit"
+                    value=${formatCurrency(activeBudget.limitAmount, selectedCurrency)}
+                    helper=${metrics.currentMonthLabel}
+                  />
+                  <${ControlMetric}
+                    label="Sisa"
+                    value=${formatCurrency(Math.max(activeBudget.remainingAmount, 0), selectedCurrency)}
+                    helper=${activeBudget.statusLabel}
+                  />
+                  <${ControlMetric}
+                    label="Hari ini"
+                    value=${formatCurrency(Math.abs(activeBudget.todayRemainingSafe || 0), selectedCurrency)}
+                    helper=${activeBudget.todayRemainingSafe >= 0 ? "Sisa aman" : "Over"}
+                  />
+                  <${ControlMetric}
+                    label="Besok"
+                    value=${activeBudget.remainingDaysAfterToday > 0 ? formatCurrency(activeBudget.projectedNextDailyLimit, selectedCurrency) : "-"}
+                    helper=${`${activeBudget.remainingDaysAfterToday} hari tersisa`}
+                  />
+                </div>
+              </div>
+            `
+          : html`
+              <div className="rounded-[22px] border border-dashed border-brand-300/25 bg-brand-400/10 p-4 text-sm font-semibold text-slate-600 dark:border-brand-400/20 dark:bg-brand-500/10 dark:text-slate-300">
+                Belum ada budget ${selectedCurrency}.
+              </div>
+            `}
+      </div>
     </section>
   `;
 }
@@ -4272,11 +4274,6 @@ function ControlCenterPage({
     return html`
       <div className="grid gap-4">
         <${ControlCenterEmptyState} onNavigate=${onNavigate} />
-        <${ControlCurrencyTabs}
-          currencies=${normalizedCurrencies}
-          value=${control.currency}
-          onChange=${setSelectedCurrency}
-        />
         <${ControlBudgetHub}
           metrics=${metrics}
           activeCurrencies=${normalizedCurrencies}
@@ -4292,17 +4289,17 @@ function ControlCenterPage({
 
   return html`
     <div className="grid gap-4">
-      <${ControlCurrencyTabs}
+      <${ControlCenterHero}
+        metrics=${metrics}
+        control=${control}
         currencies=${normalizedCurrencies}
-        value=${control.currency}
-        onChange=${setSelectedCurrency}
+        onCurrencyChange=${setSelectedCurrency}
       />
-      <${ControlCenterHero} metrics=${metrics} control=${control} />
-      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <${ControlAlerts} alerts=${control.alerts} />
-        <${ControlNextActions} actions=${control.nextActions} onNavigate=${onNavigate} />
-      </div>
-      <${ControlForecast} metrics=${metrics} control=${control} />
+      <${ControlPriorityPanel}
+        alert=${control.alerts[0]}
+        action=${control.nextActions[0]}
+        onNavigate=${onNavigate}
+      />
       <${ControlBudgetHub}
         metrics=${metrics}
         activeCurrencies=${normalizedCurrencies}
@@ -4555,7 +4552,7 @@ function MonthlyBudgetPulse({ report }) {
                     </div>
                     <p className="mt-2 text-xs text-slate-600 dark:text-slate-300">
                       Sisa ${formatCurrency(Math.max(budget.remainingAmount, 0), budget.currency)}
-                      · Batas hari ini ${formatCurrency(budget.dynamicDailyLimit, budget.currency)}
+                      Â· Batas hari ini ${formatCurrency(budget.dynamicDailyLimit, budget.currency)}
                     </p>
                   </div>
                 `;
@@ -5773,15 +5770,6 @@ function getTransactionIconLabel(transaction) {
     .toUpperCase();
 }
 
-function getHistoryTransactionEmoji(transaction) {
-  const flow = getTransactionFlow(transaction);
-  if (flow === "exchange") return "🔄";
-  if (flow === "income") return "💰";
-  const category = String(transaction.category || "");
-  const categoryLabel = getCategoryMeta(category).label;
-  return HISTORY_CATEGORY_EMOJI[category] || HISTORY_CATEGORY_EMOJI[categoryLabel] || "🧾";
-}
-
 function getTransactionTone(transaction) {
   const flow = getTransactionFlow(transaction);
   if (flow === "income") {
@@ -5858,8 +5846,8 @@ function TransactionItem({ transaction, onOpen, fallbackRate = 0 }) {
       className="history-transaction-item transaction-item group grid min-h-[76px] w-full grid-cols-[44px_1fr_auto] items-center gap-3 rounded-[22px] border border-slate-200/70 bg-white/60 px-3 py-2.5 text-left shadow-[0_10px_30px_rgba(15,23,42,0.06)] backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:border-brand-300/30 hover:bg-white/82 dark:border-white/10 dark:bg-slate-900/52 dark:shadow-black/20 dark:hover:bg-slate-900/75"
       aria-label=${`Buka detail ${title}`}
     >
-      <span className=${`history-icon-badge flex h-11 w-11 items-center justify-center rounded-2xl text-[21px] leading-none ring-1 transition duration-300 group-hover:scale-105 ${tone.historyIcon}`}>
-        ${getHistoryTransactionEmoji(transaction)}
+      <span className=${`history-icon-badge flex h-11 w-11 items-center justify-center rounded-2xl text-[11px] font-black uppercase tracking-[0.08em] leading-none ring-1 transition duration-300 group-hover:scale-105 ${tone.historyIcon}`}>
+        ${getTransactionIconLabel(transaction)}
       </span>
 
       <span className="min-w-0">
@@ -6117,19 +6105,6 @@ function TransactionEditForm({
               />
             </label>
 
-            ${isExpense && isForeign
-              ? html`
-                  <div className="rounded-2xl border border-sky-300/25 bg-sky-400/10 px-4 py-3 text-xs leading-5 text-sky-900 dark:border-sky-300/20 dark:bg-sky-500/10 dark:text-sky-200">
-                    ${lockedRate > 0
-                      ? `Valuasi memakai rate tersimpan ${formatRate(
-                          lockedRate,
-                          baseCurrency,
-                          transactionCurrency,
-                        )}.`
-                      : `Valuasi ${baseCurrency} akan mengikuti exchange terakhir yang relevan.`}
-                  </div>
-                `
-              : null}
           `
         : null}
 
@@ -6417,8 +6392,8 @@ function TransactionDetailSheet({
           : html`
               <div className="history-receipt-card mt-5 overflow-hidden rounded-[28px] p-4">
                 <div className="flex items-start gap-3">
-                  <span className=${`flex h-14 w-14 shrink-0 items-center justify-center rounded-[22px] text-2xl ring-1 ${tone.historyIcon}`}>
-                    ${getHistoryTransactionEmoji(transaction)}
+                  <span className=${`flex h-14 w-14 shrink-0 items-center justify-center rounded-[22px] text-xs font-black uppercase tracking-[0.08em] ring-1 ${tone.historyIcon}`}>
+                    ${getTransactionIconLabel(transaction)}
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-xl font-black text-slate-950 dark:text-white">
@@ -6753,13 +6728,17 @@ function DailyExpenseForm({
   todaySpentCurrency = todaySpentThb,
   expenseCurrency = DEFAULT_BASE_CURRENCY,
   baseCurrency = getBaseCurrency(),
+  accounts = [],
 }) {
+  const dailyCurrency = normalizeCurrencyCode(expenseCurrency);
+  const accountOptions = getSelectableAssetAccounts(accounts, dailyCurrency);
+  const accountOptionsKey = accountOptions.map((account) => account.id).join("|");
   const [form, setForm] = useState({
     description: "",
     category: DEFAULT_CATEGORY,
     amount_thb: "",
+    source_account_id: "",
   });
-  const dailyCurrency = normalizeCurrencyCode(expenseCurrency);
   const hasBudget = Boolean(budget);
 
   const statusTone = !budget
@@ -6785,7 +6764,25 @@ function DailyExpenseForm({
       : `- ${formatCurrency(Math.abs(budget.todayRemainingSafe), dailyCurrency)}`
     : "-";
   const parsedAmount = Number(normalizeNumericInput(form.amount_thb));
-  const submitDisabled = parsedAmount <= 0;
+  const submitDisabled =
+    parsedAmount <= 0 || (accountOptions.length > 0 && !form.source_account_id);
+
+  useEffect(() => {
+    setForm((current) => {
+      if (!accountOptions.length) {
+        return current.source_account_id
+          ? { ...current, source_account_id: "" }
+          : current;
+      }
+      if (accountOptions.some((account) => account.id === current.source_account_id)) {
+        return current;
+      }
+      return {
+        ...current,
+        source_account_id: accountOptions[0].id,
+      };
+    });
+  }, [dailyCurrency, accountOptionsKey]);
 
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -6806,6 +6803,7 @@ function DailyExpenseForm({
       amount_thb: dailyCurrency === "THB" ? normalizeNumericInput(form.amount_thb) : null,
       exchange_rate: null,
       expense_currency: dailyCurrency,
+      source_account_id: form.source_account_id || null,
     });
 
     if (succeeded) {
@@ -6813,6 +6811,7 @@ function DailyExpenseForm({
         description: "",
         category: DEFAULT_CATEGORY,
         amount_thb: "",
+        source_account_id: form.source_account_id,
       });
     }
   }
@@ -6915,6 +6914,27 @@ function DailyExpenseForm({
             )}
           </select>
         </label>
+
+        ${accountOptions.length
+          ? html`
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium">Keluar dari akun</span>
+                <select
+                  value=${form.source_account_id}
+                  onChange=${(event) => updateField("source_account_id", event.target.value)}
+                  className=${GLASS_INPUT}
+                >
+                  ${accountOptions.map(
+                    (account) => html`
+                      <option key=${account.id} value=${account.id}>
+                        ${getAssetAccountDisplayName(account)}
+                      </option>
+                    `,
+                  )}
+                </select>
+              </label>
+            `
+          : null}
 
         <label className="block">
           <span className="mb-2 block text-sm font-medium">Catatan</span>
@@ -7050,159 +7070,123 @@ function DailyBudgetGuard({
   `;
 }
 
-function InvestmentSnapshot({ metrics, onAddGoal }) {
-  const totalSaved = Number(metrics.totalGoalSaved || 0);
-  const totalTarget = Number(metrics.totalGoalTarget || 0);
-  const nextGoal = metrics.nextGoal;
-  const progress = totalTarget > 0 ? Math.min(totalSaved / totalTarget, 1) : 0;
+function InvestmentSnapshot({
+  metrics,
+  activeSection = "accounts",
+  onSelectSection,
+  onAddAccount,
+  onAddGoal,
+}) {
+  const accountCount = Number(metrics.assetAccountCount || 0);
   const activeGoalCount = metrics.goalInsights.filter(
     (goal) => goal.status !== "done",
   ).length;
-  const totalTrackedAssets =
-    Number(metrics.balanceIdr || 0) +
-    totalSaved +
-    Number(metrics.foreignBalanceValuationIdr || 0);
-  const nextGoalDailyNeed =
-    nextGoal?.daysLeft > 0 && nextGoal.remainingIdr > 0
-      ? nextGoal.remainingIdr / nextGoal.daysLeft
-      : 0;
-  const statItems = [
+  const currencyCount = Object.entries(metrics.assetAccountTotalsByCurrency || {})
+    .filter(([, amount]) => Number(amount || 0) !== 0).length;
+  const quickActions = [
     {
-      label: "Aset tercatat",
-      value: formatCurrency(totalTrackedAssets, "idr"),
-      helper: "Saldo tersedia + goals + valuasi mata uang aktif",
+      label: "Tambah aset",
+      helper: "Bank / cash",
+      onClick: onAddAccount,
+      primary: true,
     },
     {
-      label: "Dana goals",
-      value: formatCurrency(totalSaved, "idr"),
-      helper: `${formatPercent(progress)} dari target`,
+      label: "Tambah target",
+      helper: "Dana goals",
+      onClick: onAddGoal,
+      primary: false,
+    },
+  ];
+  const summaryItems = [
+    {
+      label: "Akun",
+      value: String(accountCount),
     },
     {
-      label: "Saldo tersedia",
-      value: formatCurrency(metrics.balanceIdr, "idr"),
-      helper: "Bisa dipakai atau dialokasikan",
-    },
-    {
-      label: "Target aktif",
+      label: "Target",
       value: String(activeGoalCount),
-      helper: activeGoalCount ? "Sedang dikejar" : "Belum ada target aktif",
     },
+    {
+      label: "Mata uang",
+      value: String(currencyCount),
+    },
+  ];
+  const sectionTabs = [
+    { key: "accounts", label: "Akun" },
+    { key: "goals", label: "Target" },
+    { key: "report", label: "Laporan" },
   ];
 
   return html`
-    <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
+    <section className=${`${PREMIUM_PANEL} p-4 md:p-6`}>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.14),transparent_46%)] opacity-80"></div>
-      <div className="relative">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-brand-700 dark:text-brand-200">
-              Aset & Goals
-            </p>
-            <h3 className="mt-2 font-display text-2xl font-black text-slate-950 dark:text-white">
-              Pusat pertumbuhan uangmu
-            </h3>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300/80">
-              Pantau uang yang tersedia, dana yang sudah dikunci untuk target, dan tujuan berikutnya dalam satu layar.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick=${onAddGoal}
-            className="history-action-primary hidden min-h-11 shrink-0 rounded-2xl px-4 py-2.5 text-sm font-black transition hover:-translate-y-0.5 sm:inline-flex sm:items-center"
-          >
-            Tambah target
-          </button>
-        </div>
-      </div>
-
-      <div className="relative mt-5 grid gap-3 sm:grid-cols-2">
-        ${statItems.map(
-          (item) => html`
-            <div
-              key=${item.label}
-              className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40"
-            >
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                ${item.label}
-              </p>
-              <p className="mt-2 text-xl font-black text-slate-950 dark:text-white">
-                ${item.value}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
-                ${item.helper}
-              </p>
-            </div>
-          `,
-        )}
-      </div>
-
-      <div className="relative mt-4 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40">
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-              Progress semua target
-            </p>
-            <p className="mt-2 text-2xl font-black text-slate-950 dark:text-white">
-              ${formatPercent(progress)}
-            </p>
-          </div>
-          <p className="text-right text-sm font-semibold text-slate-600 dark:text-slate-300">
-            ${formatCurrency(totalSaved, "idr")} / ${formatCurrency(totalTarget, "idr")}
+      <div className="relative flex flex-col gap-4">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-brand-700 dark:text-brand-200">
+            Keuangan
+          </p>
+          <h3 className="mt-2 font-display text-3xl font-black text-slate-950 dark:text-white">
+            Akun, target, laporan
+          </h3>
+          <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300/80">
+            Kelola tempat uang, target dana, dan ringkasan bulanan tanpa membuka semuanya sekaligus.
           </p>
         </div>
-        <div className="mt-4 h-2.5 rounded-full bg-slate-200/70 dark:bg-slate-800">
-          <div
-            className="report-bar-fill h-full rounded-full bg-gradient-to-r from-emerald-400 to-sky-500"
-            style=${{
-              width: `${Math.max(progress * 100, totalSaved > 0 ? 8 : 0)}%`,
-            }}
-          ></div>
+
+        <div className="grid grid-cols-2 gap-2">
+          ${quickActions.map(
+            (action) => html`
+              <button
+                key=${action.label}
+                type="button"
+                onClick=${action.onClick}
+                className=${`${action.primary ? "history-action-primary" : "history-action-secondary"} flex min-h-[4.75rem] min-w-0 flex-col items-center justify-center rounded-2xl px-2 py-3 text-center transition hover:-translate-y-0.5`}
+              >
+                <span className="text-xs font-black leading-4">${action.label}</span>
+                <span className="mt-1 text-[10px] font-bold opacity-75">${action.helper}</span>
+              </button>
+            `,
+          )}
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          ${summaryItems.map(
+            (item) => html`
+              <div
+                key=${item.label}
+                className="rounded-2xl border border-white/10 bg-white/10 px-3 py-3 backdrop-blur-xl dark:bg-slate-900/40"
+              >
+                <p className="truncate text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                  ${item.label}
+                </p>
+                <p className="mt-1 truncate text-sm font-black text-slate-950 dark:text-white md:text-base">
+                  ${item.value}
+                </p>
+              </div>
+            `,
+          )}
+        </div>
+
+        <div className="cuan-segment grid grid-cols-3 gap-1 rounded-2xl p-1">
+          ${sectionTabs.map(
+          (item) => html`
+            <button
+              key=${item.key}
+              type="button"
+              onClick=${() => onSelectSection(item.key)}
+              className=${`min-h-11 rounded-xl px-3 py-2 text-sm font-black transition ${
+                activeSection === item.key
+                  ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.20)] dark:bg-emerald-500"
+                  : "text-slate-600 hover:bg-white/70 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-white"
+              }`}
+            >
+              ${item.label}
+            </button>
+          `,
+        )}
         </div>
       </div>
-
-      <div className="relative mt-4 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40">
-        <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-          Target berikutnya
-        </p>
-        ${nextGoal
-          ? html`
-              <div className="mt-3 flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-lg font-black text-slate-950 dark:text-white">
-                    ${nextGoal.name}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-                    Sisa ${formatCurrency(nextGoal.remainingIdr, "idr")}
-                    ${nextGoal.daysLeft != null
-                      ? ` | ${nextGoal.daysLeft < 0 ? "deadline lewat" : `${nextGoal.daysLeft} hari lagi`}`
-                      : ""}
-                  </p>
-                </div>
-                <div className=${`shrink-0 rounded-full border px-3 py-1.5 text-xs font-black ${nextGoal.tone}`}>
-                  ${nextGoal.statusLabel}
-                </div>
-              </div>
-              <p className="mt-3 rounded-2xl border border-brand-300/20 bg-brand-400/10 px-4 py-3 text-sm font-semibold text-brand-800 dark:border-brand-400/20 dark:bg-brand-500/10 dark:text-brand-100">
-                ${nextGoalDailyNeed > 0
-                  ? `Butuh sekitar ${formatCurrency(nextGoalDailyNeed, "idr")} per hari agar tepat waktu.`
-                  : "Target ini siap dipantau dari tracker di bawah."}
-              </p>
-            `
-          : html`
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300/80">
-                Belum ada target keuangan. Mulai dari dana darurat, target saldo asing, atau pembelian besar.
-              </p>
-            `}
-      </div>
-
-      <button
-        type="button"
-        onClick=${onAddGoal}
-        className="history-action-primary relative mt-4 inline-flex min-h-12 w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 sm:hidden"
-      >
-        Tambah target
-      </button>
-    </div>
+    </section>
   `;
 }
 
@@ -8091,6 +8075,7 @@ function TransactionForm({
   activeCurrencies: activeCurrencySettings = getActiveCurrencies(),
   dailyCurrency: dailyCurrencySetting = getBaseCurrency(),
   baseCurrency: baseCurrencySetting = getBaseCurrency(),
+  assetAccounts = [],
 }) {
   const [entryType, setEntryType] = useState("income");
   const [incomeCurrency, setIncomeCurrency] = useState(() => getBaseCurrency());
@@ -8110,6 +8095,8 @@ function TransactionForm({
     from_amount: "",
     to_amount: "",
     exchange_rate: "",
+    source_account_id: "",
+    destination_account_id: "",
   });
 
   const parsedAmountThb = Number(normalizeNumericInput(form.amount_thb));
@@ -8140,6 +8127,11 @@ function TransactionForm({
   const parsedExchangeRate = Number(normalizeNumericInput(form.exchange_rate));
   const selectedCurrency = isIncome ? incomeCurrency : expenseCurrency;
   const selectedCurrencyCode = normalizeCurrencyCode(selectedCurrency);
+  const accountOptions = getSelectableAssetAccounts(assetAccounts, selectedCurrencyCode);
+  const accountOptionsKey = accountOptions.map((account) => account.id).join("|");
+  const selectedAccountField = isIncome
+    ? "destination_account_id"
+    : "source_account_id";
   const isThb = selectedCurrencyCode === "THB";
   const isIdr = selectedCurrencyCode === "IDR";
   const isForeign = selectedCurrencyCode !== baseCurrency;
@@ -8161,7 +8153,8 @@ function TransactionForm({
       parsedToAmount <= 0 ||
       parsedExchangeRate <= 0 ||
       form.from_currency === form.to_currency
-    : parsedSelectedAmount <= 0;
+    : parsedSelectedAmount <= 0 ||
+      (accountOptions.length > 0 && !form[selectedAccountField]);
   const typeOptions = [
     { value: "income", label: "Pemasukan" },
     { value: "expense", label: "Pengeluaran" },
@@ -8210,6 +8203,24 @@ function TransactionForm({
   useEffect(() => {
     setExpenseCurrency(preferredExpenseCurrency);
   }, [preferredExpenseCurrency]);
+
+  useEffect(() => {
+    if (isExchange) return;
+    setForm((current) => {
+      if (!accountOptions.length) {
+        return current[selectedAccountField]
+          ? { ...current, [selectedAccountField]: "" }
+          : current;
+      }
+      if (accountOptions.some((account) => account.id === current[selectedAccountField])) {
+        return current;
+      }
+      return {
+        ...current,
+        [selectedAccountField]: accountOptions[0].id,
+      };
+    });
+  }, [isExchange, selectedAccountField, selectedCurrencyCode, accountOptionsKey]);
 
   function updateField(field, value) {
     if (field === "from_amount") setExchangeAutoTarget("to_amount");
@@ -8261,6 +8272,8 @@ function TransactionForm({
       from_amount: isExchange ? normalizeNumericInput(finalForm.from_amount) : null,
       to_amount: isExchange ? normalizeNumericInput(finalForm.to_amount) : null,
       rate: isExchange ? normalizeNumericInput(finalForm.exchange_rate) : null,
+      source_account_id: isExpense ? finalForm.source_account_id || null : null,
+      destination_account_id: isIncome ? finalForm.destination_account_id || null : null,
     };
 
     const succeeded = await onSubmit(payload);
@@ -8277,6 +8290,8 @@ function TransactionForm({
         from_amount: "",
         to_amount: "",
         exchange_rate: "",
+        source_account_id: "",
+        destination_account_id: "",
       });
       setExchangeAutoTarget("to_amount");
     }
@@ -8369,6 +8384,30 @@ function TransactionForm({
             className=${GLASS_INPUT}
           />
         </label>
+
+        ${!isExchange && accountOptions.length
+          ? html`
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium">
+                  ${isIncome ? "Masuk ke akun" : "Keluar dari akun"}
+                </span>
+                <select
+                  value=${form[selectedAccountField] || ""}
+                  onChange=${(event) =>
+                    updateField(selectedAccountField, event.target.value)}
+                  className=${GLASS_INPUT}
+                >
+                  ${accountOptions.map(
+                    (account) => html`
+                      <option key=${account.id} value=${account.id}>
+                        ${getAssetAccountDisplayName(account)}
+                      </option>
+                    `,
+                  )}
+                </select>
+              </label>
+            `
+          : null}
 
         ${isExchange
           ? html`
@@ -8552,32 +8591,6 @@ function TransactionForm({
             `
           : null}
 
-        ${!isExchange && isExpense && isForeign
-          ? html`
-              <div className="rounded-2xl border border-sky-300/25 bg-sky-400/10 px-4 py-3 text-sm text-sky-900 backdrop-blur-xl dark:border-sky-300/20 dark:bg-sky-500/10 dark:text-sky-200">
-                ${latestExpenseRate > 0
-                  ? html`
-                      <p className="font-semibold">
-                        Valuasi otomatis ${formatRate(
-                          latestExpenseRate,
-                          baseCurrency,
-                          selectedCurrencyCode,
-                        )}
-                      </p>
-                      <p className="mt-1 text-sky-800/80 dark:text-sky-100/80">
-                        Diambil dari exchange terakhir pada ${formatDateTime(latestExpenseExchange.occurred_at)}.
-                      </p>
-                    `
-                  : html`
-                      <p className="font-semibold">Belum ada rate exchange tersimpan.</p>
-                      <p className="mt-1 text-sky-800/80 dark:text-sky-100/80">
-                        Pengeluaran tetap dicatat dalam ${selectedCurrencyCode}. Valuasi ${baseCurrency} akan otomatis terisi setelah ada transaksi Tukar Mata Uang yang relevan.
-                      </p>
-                    `}
-              </div>
-            `
-          : null}
-
         ${!isExchange && isIncome && isForeign
           ? html`
               <div className="rounded-2xl border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-900 backdrop-blur-xl dark:border-emerald-300/20 dark:bg-emerald-400/10 dark:text-emerald-200">
@@ -8618,6 +8631,7 @@ function BudgetForm({
   currency: initialCurrency = getBaseCurrency(),
   activeCurrencies = getActiveCurrencies(),
   onCurrencyChange = null,
+  embedded = false,
 }) {
   const [monthKey, setMonthKey] = useState(currentMonthKey);
   const [currency, setCurrency] = useState(normalizeCurrencyCode(initialCurrency));
@@ -8658,16 +8672,20 @@ function BudgetForm({
   }
 
   return html`
-    <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-      <div className="relative">
-        <h3 className="font-display text-xl font-bold">Budget Uang Keluar Bulanan</h3>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-          Satu limit untuk mata uang yang sedang kamu kontrol.
-        </p>
-      </div>
+    <div className=${embedded ? "relative" : `${PREMIUM_PANEL} p-5 md:p-6`}>
+      ${embedded
+        ? null
+        : html`
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
+            <div className="relative">
+              <h3 className="font-display text-xl font-bold">Budget Uang Keluar Bulanan</h3>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
+                Satu limit untuk mata uang yang sedang kamu kontrol.
+              </p>
+            </div>
+          `}
 
-      <form className="relative mt-5 space-y-4" onSubmit=${handleSubmit}>
+      <form className=${embedded ? "relative grid gap-3 md:grid-cols-4 md:items-end" : "relative mt-5 space-y-4"} onSubmit=${handleSubmit}>
         <label className="block">
           <span className="mb-2 block text-sm font-medium">Bulan</span>
           <input
@@ -8713,7 +8731,7 @@ function BudgetForm({
         <button
           type="submit"
           disabled=${loading}
-          className="history-action-primary w-full min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+          className="history-action-primary min-h-12 w-full rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
         >
           Simpan budget
         </button>
@@ -8722,7 +8740,399 @@ function BudgetForm({
   `;
 }
 
-function GoalForm({ onSubmit, loading, onCancel = null, onSuccess = null }) {
+function AssetAccountForm({
+  onSubmit,
+  loading,
+  activeCurrencies = getActiveCurrencies(),
+  onCancel = null,
+  onSuccess = null,
+  embedded = false,
+}) {
+  const currencyOptions = getCurrencyOptions(
+    normalizeCurrencyList([...activeCurrencies, ...DEFAULT_ACTIVE_CURRENCIES]),
+  );
+  const [form, setForm] = useState({
+    name: "",
+    account_type: "bank",
+    currency: currencyOptions[0]?.value || DEFAULT_BASE_CURRENCY,
+    balance_amount: "",
+    note: "",
+  });
+  const isCashAccount = form.account_type === "cash";
+  const defaultAccountName = getDefaultAssetAccountName(form.account_type, form.currency);
+
+  useEffect(() => {
+    const availableCurrencies = currencyOptions.map((option) => option.value);
+    if (!availableCurrencies.includes(form.currency)) {
+      setForm((current) => ({
+        ...current,
+        currency: availableCurrencies[0] || DEFAULT_BASE_CURRENCY,
+      }));
+    }
+  }, [currencyOptions.map((option) => option.value).join("|"), form.currency]);
+
+  function updateField(field, value) {
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    const ok = await onSubmit({
+      ...form,
+      balance_amount: normalizeNumericInput(form.balance_amount),
+    });
+    if (ok) {
+      setForm({
+        name: "",
+        account_type: "bank",
+        currency: currencyOptions[0]?.value || DEFAULT_BASE_CURRENCY,
+        balance_amount: "",
+        note: "",
+      });
+      if (onSuccess) onSuccess();
+    }
+  }
+
+  return html`
+    <div
+      id="asset-account-form"
+      className=${embedded ? "grid gap-4" : `${PREMIUM_PANEL} scroll-mt-6 p-5 md:p-6`}
+    >
+      ${embedded
+        ? null
+        : html`
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(59,130,246,0.12),transparent_50%)] opacity-80"></div>
+            <div className="relative">
+              <h3 className="font-display text-xl font-bold">Tambah Aset</h3>
+              <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300/80">
+                Catat tempat dana disimpan, seperti cash, rekening, wallet, atau akun investasi.
+              </p>
+            </div>
+          `}
+
+      <form className=${embedded ? "grid gap-4" : "relative mt-5 grid gap-4"} onSubmit=${handleSubmit}>
+        <label className="block">
+          <span className="mb-2 block text-sm font-medium">
+            ${isCashAccount ? "Nama akun (opsional)" : "Nama akun"}
+          </span>
+          <input
+            type="text"
+            required=${!isCashAccount}
+            value=${form.name}
+            onChange=${(event) => updateField("name", event.target.value)}
+            placeholder=${isCashAccount ? defaultAccountName : "BCA, Wise, Bangkok Bank"}
+            className=${GLASS_INPUT}
+          />
+        </label>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium">Jenis</span>
+            <select
+              value=${form.account_type}
+              onChange=${(event) => updateField("account_type", event.target.value)}
+              className=${GLASS_INPUT}
+            >
+              ${ASSET_ACCOUNT_TYPES.map(
+                (type) => html`
+                  <option key=${type.value} value=${type.value}>
+                    ${type.label}
+                  </option>
+                `,
+              )}
+            </select>
+          </label>
+
+          <label className="block">
+            <span className="mb-2 block text-sm font-medium">Mata uang</span>
+            <select
+              value=${form.currency}
+              onChange=${(event) => updateField("currency", event.target.value)}
+              className=${GLASS_INPUT}
+            >
+              ${currencyOptions.map(
+                (option) => html`
+                  <option key=${option.value} value=${option.value}>
+                    ${option.label}
+                  </option>
+                `,
+              )}
+            </select>
+          </label>
+        </div>
+
+        <label className="block">
+          <span className="mb-2 block text-sm font-medium">Saldo saat ini (${form.currency})</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            autoComplete="off"
+            value=${form.balance_amount}
+            onChange=${(event) =>
+              updateField("balance_amount", formatNumericInput(event.target.value))}
+            placeholder="0"
+            className=${GLASS_INPUT}
+          />
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-sm font-medium">Catatan</span>
+          <input
+            type="text"
+            value=${form.note}
+            onChange=${(event) => updateField("note", event.target.value)}
+            placeholder="Opsional"
+            className=${GLASS_INPUT}
+          />
+        </label>
+
+        <div className=${onCancel ? "grid gap-3 sm:grid-cols-[0.8fr_1fr]" : ""}>
+          ${onCancel
+            ? html`
+                <button
+                  type="button"
+                  onClick=${onCancel}
+                  className="history-action-secondary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+                >
+                  Batal
+                </button>
+              `
+            : null}
+          <button
+            type="submit"
+            disabled=${loading}
+            className="history-action-primary min-h-12 w-full rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Simpan akun
+          </button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+function FinancialMonthlyPreview({ metrics, onOpenReport }) {
+  const netCashflow = Number(metrics.monthlyNetChangeIdr || 0);
+  const netPositive = netCashflow >= 0;
+  const income = Number(metrics.monthlyIncomeIdr || 0);
+  const expense = Number(metrics.monthlyExpenseIdr || 0);
+  const savedGoals = Number(metrics.totalGoalSaved || 0);
+  const balance = Number(metrics.balanceIdr || 0);
+  const previewItems = [
+    {
+      label: "Uang masuk",
+      value: formatCurrency(income, "idr"),
+    },
+    {
+      label: "Uang keluar",
+      value: formatCurrency(expense, "idr"),
+    },
+    {
+      label: "Dana goals",
+      value: formatCurrency(savedGoals, "idr"),
+    },
+    {
+      label: "Saldo tersedia",
+      value: formatCurrency(balance, "idr"),
+    },
+  ];
+
+  return html`
+    <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(14,165,233,0.12),transparent_48%)] opacity-80"></div>
+      <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[0.22em] text-sky-700 dark:text-sky-200">
+            Ringkasan Bulan Ini
+          </p>
+          <h3 className="mt-2 font-display text-2xl font-black text-slate-950 dark:text-white">
+            ${netPositive ? "+" : "-"}${formatCurrency(Math.abs(netCashflow), "idr")}
+          </h3>
+          <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300/80">
+            ${netPositive
+              ? "Cashflow bulan ini masih bertumbuh."
+              : "Cashflow bulan ini sedang turun, cek detailnya pelan-pelan."}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick=${onOpenReport}
+          className="history-action-secondary inline-flex min-h-11 shrink-0 items-center justify-center rounded-2xl px-4 py-2.5 text-sm font-black transition hover:-translate-y-0.5"
+        >
+          Selengkapnya
+        </button>
+      </div>
+
+      <div className="relative mt-5 grid gap-3 sm:grid-cols-2">
+        ${previewItems.map(
+          (item) => html`
+            <div
+              key=${item.label}
+              className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40"
+            >
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                ${item.label}
+              </p>
+              <p className="mt-2 text-lg font-black text-slate-950 dark:text-white">
+                ${item.value}
+              </p>
+            </div>
+          `,
+        )}
+      </div>
+    </section>
+  `;
+}
+
+function AssetAccountsPanel({ metrics, onAddAccount, onDeleteAccount }) {
+  const accounts = metrics.assetAccountInsights || [];
+  const totals = Object.entries(metrics.assetAccountTotalsByCurrency || {}).filter(
+    ([, amount]) => Number(amount || 0) !== 0,
+  );
+  const hasAccounts = accounts.length > 0;
+
+  return html`
+    <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(14,165,233,0.12),transparent_46%)] opacity-80"></div>
+      <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[0.22em] text-sky-700 dark:text-sky-200">
+            Akun Aset
+          </p>
+          <h3 className="mt-2 font-display text-2xl font-black text-slate-950 dark:text-white">
+            Tempat Dana
+          </h3>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300/80">
+            Kelola saldo per mata uang dari cash, rekening, wallet, dan akun lain.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick=${onAddAccount}
+          className="history-action-primary inline-flex min-h-11 shrink-0 items-center justify-center rounded-2xl px-4 py-2.5 text-sm font-black transition hover:-translate-y-0.5"
+        >
+          Tambah Aset
+        </button>
+      </div>
+
+      <div className="relative mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+            Total akun
+          </p>
+          <p className="mt-2 text-2xl font-black text-slate-950 dark:text-white">
+            ${accounts.length}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+            Cash, rekening, wallet, dan investasi.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40 sm:col-span-1 lg:col-span-2">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+            Estimasi nilai
+          </p>
+          <p className="mt-2 text-2xl font-black text-slate-950 dark:text-white">
+            ${formatCurrency(metrics.assetAccountTotalValueIdr || 0, "idr")}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+            Rate global harian. Rates by Exchange Rate API.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40">
+          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+            Mata uang
+          </p>
+          <p className="mt-2 text-2xl font-black text-slate-950 dark:text-white">
+            ${totals.length || 0}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
+            ${totals.length ? totals.map(([currency]) => currency).join(" + ") : "Belum ada saldo"}
+          </p>
+        </div>
+      </div>
+
+      <div className="relative mt-5 grid gap-3">
+        ${hasAccounts
+          ? accounts.map(
+              (account) => html`
+                <div
+                  key=${account.id}
+                  className="cuan-item rounded-[24px] p-4"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate text-lg font-black text-slate-950 dark:text-white">
+                          ${account.name}
+                        </p>
+                        <span className="rounded-full bg-brand-600 px-3 py-1 text-[11px] font-black text-white shadow-[0_10px_24px_rgba(16,185,129,0.20)] dark:bg-emerald-500">
+                          ${account.currency}
+                        </span>
+                        <span className="rounded-full border border-sky-300/25 bg-sky-400/10 px-3 py-1 text-[11px] font-black text-sky-800 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-100">
+                          ${account.typeLabel}
+                        </span>
+                      </div>
+                      ${account.note
+                        ? html`
+                            <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                              ${account.note}
+                            </p>
+                          `
+                        : null}
+                    </div>
+                    <div className="flex shrink-0 items-end justify-between gap-3 sm:flex-col sm:text-right">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                          Saldo ${account.currency}
+                        </p>
+                        <p className="mt-1 text-xl font-black text-slate-950 dark:text-white">
+                          ${formatCurrency(account.balanceAmount, account.currency)}
+                        </p>
+                        <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                          ${getAssetAccountValuationLabel(account)}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick=${() => onDeleteAccount(account)}
+                        className="history-action-danger min-h-10 rounded-2xl px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
+                      >
+                        Hapus
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              `,
+            )
+          : html`
+              <div className="rounded-[24px] border border-dashed border-slate-300/80 bg-white/40 p-5 text-center dark:border-white/15 dark:bg-slate-900/30">
+                <p className="text-lg font-black text-slate-950 dark:text-white">
+                  Belum ada akun aset
+                </p>
+                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500 dark:text-slate-400">
+                  Tambahkan tempat dana pertama untuk mulai memantau saldo per mata uang.
+                </p>
+                <button
+                  type="button"
+                  onClick=${onAddAccount}
+                  className="history-action-primary mt-4 inline-flex min-h-11 items-center justify-center rounded-2xl px-4 py-2.5 text-sm font-black transition hover:-translate-y-0.5"
+                >
+                  Tambah Aset
+                </button>
+              </div>
+            `}
+      </div>
+    </div>
+  `;
+}
+
+function GoalForm({
+  onSubmit,
+  loading,
+  onCancel = null,
+  onSuccess = null,
+  embedded = false,
+}) {
   const [form, setForm] = useState({
     name: "",
     target_amount_idr: "",
@@ -8753,17 +9163,21 @@ function GoalForm({ onSubmit, loading, onCancel = null, onSuccess = null }) {
   }
 
   return html`
-    <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-      <div className="relative">
-        <h3 className="font-display text-xl font-bold">Tambah Target Finansial</h3>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-          Cocok untuk dana darurat, mudik, modal bisnis, atau target pembelian besar.
-          Saldo awal target akan langsung dipindahkan dari saldo utama IDR.
-        </p>
-      </div>
+    <div className=${embedded ? "grid gap-4" : `${PREMIUM_PANEL} p-5 md:p-6`}>
+      ${embedded
+        ? null
+        : html`
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
+            <div className="relative">
+              <h3 className="font-display text-xl font-bold">Tambah Target Finansial</h3>
+              <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
+                Cocok untuk dana darurat, mudik, modal bisnis, atau target pembelian besar.
+                Saldo awal target akan langsung dipindahkan dari saldo utama IDR.
+              </p>
+            </div>
+          `}
 
-      <form className="relative mt-5 space-y-4" onSubmit=${handleSubmit}>
+      <form className=${embedded ? "space-y-4" : "relative mt-5 space-y-4"} onSubmit=${handleSubmit}>
         <label className="block">
           <span className="mb-2 block text-sm font-medium">Nama target</span>
           <input
@@ -8851,53 +9265,107 @@ function GoalForm({ onSubmit, loading, onCancel = null, onSuccess = null }) {
 function WealthGoalsPage({
   metrics,
   loading,
+  activeCurrencies,
+  onCreateAssetAccount,
+  onDeleteAssetAccount,
   onCreateGoal,
   onDeleteGoal,
   onContribute,
+  onOpenReport,
 }) {
-  const [showGoalForm, setShowGoalForm] = useState(
-    metrics.goalInsights.length === 0,
-  );
-
-  useEffect(() => {
-    if (!metrics.goalInsights.length) {
-      setShowGoalForm(true);
-    }
-  }, [metrics.goalInsights.length]);
+  const [activeSection, setActiveSection] = useState("accounts");
+  const [showGoalForm, setShowGoalForm] = useState(false);
+  const [showAssetForm, setShowAssetForm] = useState(false);
 
   async function handleCreateGoal(payload) {
     const ok = await onCreateGoal(payload);
-    if (ok && metrics.goalInsights.length > 0) {
+    if (ok) {
       setShowGoalForm(false);
     }
     return ok;
+  }
+
+  function openAssetForm() {
+    setActiveSection("accounts");
+    setShowAssetForm(true);
+  }
+
+  function openGoalForm() {
+    setActiveSection("goals");
+    setShowGoalForm(true);
   }
 
   return html`
     <div className="grid gap-4">
       <${InvestmentSnapshot}
         metrics=${metrics}
-        onAddGoal=${() => setShowGoalForm(true)}
+        activeSection=${activeSection}
+        onSelectSection=${setActiveSection}
+        onAddAccount=${openAssetForm}
+        onAddGoal=${openGoalForm}
       />
 
-      ${showGoalForm
+      ${activeSection === "accounts"
         ? html`
-            <${GoalForm}
-              onSubmit=${handleCreateGoal}
-              loading=${loading}
-              onCancel=${metrics.goalInsights.length
-                ? () => setShowGoalForm(false)
-                : null}
-              onSuccess=${() => setShowGoalForm(false)}
+            <${AssetAccountsPanel}
+              metrics=${metrics}
+              onAddAccount=${openAssetForm}
+              onDeleteAccount=${onDeleteAssetAccount}
             />
           `
         : null}
 
-      <${GoalTracker}
-        goals=${metrics.goalInsights}
-        onDelete=${onDeleteGoal}
-        onContribute=${onContribute}
-      />
+      ${activeSection === "goals"
+        ? html`
+            <${GoalTracker}
+              goals=${metrics.goalInsights}
+              onDelete=${onDeleteGoal}
+              onContribute=${onContribute}
+            />
+          `
+        : null}
+
+      ${activeSection === "report"
+        ? html`
+            <${FinancialMonthlyPreview}
+              metrics=${metrics}
+              onOpenReport=${onOpenReport}
+            />
+          `
+        : null}
+
+      <${SheetShell}
+        open=${showAssetForm}
+        title="Tambah Aset"
+        helper="Isi tempat dana disimpan. Setelah tersimpan, saldonya ikut masuk ke Keuangan."
+        onClose=${() => setShowAssetForm(false)}
+        labelledBy="asset-account-sheet-title"
+      >
+        <${AssetAccountForm}
+          onSubmit=${onCreateAssetAccount}
+          loading=${loading}
+          activeCurrencies=${activeCurrencies}
+          onCancel=${() => setShowAssetForm(false)}
+          onSuccess=${() => setShowAssetForm(false)}
+          embedded=${true}
+        />
+      <//>
+
+      <${SheetShell}
+        open=${showGoalForm}
+        title="Tambah Target"
+        helper="Buat target dana darurat, mudik, atau tabungan lain tanpa memenuhi halaman utama."
+        onClose=${() => setShowGoalForm(false)}
+        labelledBy="goal-sheet-title"
+      >
+        <${GoalForm}
+          onSubmit=${handleCreateGoal}
+          loading=${loading}
+          onCancel=${() => setShowGoalForm(false)}
+          onSuccess=${() => setShowGoalForm(false)}
+          embedded=${true}
+        />
+      <//>
     </div>
   `;
 }
@@ -8962,7 +9430,7 @@ function MobileBottomNav({ activeTab, onChange }) {
     { key: "overview", label: "Kontrol" },
     { key: "add", label: "Tambah", featured: true },
     { key: "history", label: "Riwayat" },
-    { key: "report", label: "Laporan" },
+    { key: "investment", label: "Keuangan" },
   ];
 
   return html`
@@ -8974,7 +9442,9 @@ function MobileBottomNav({ activeTab, onChange }) {
         className=${`grid grid-cols-5 items-end gap-1 rounded-[26px] p-1.5 transition duration-300 ease-out ${navSurface}`}
       >
         ${items.map((item) => {
-          const active = activeTab === item.key;
+          const active =
+            activeTab === item.key ||
+            (activeTab === "report" && item.key === "investment");
           const featuredClass = item.featured
             ? active
               ? "-mt-5 min-h-[4rem] bg-brand-600 text-white shadow-[0_18px_42px_rgba(16,185,129,0.34)] dark:bg-emerald-500 dark:text-white"
@@ -8988,7 +9458,7 @@ function MobileBottomNav({ activeTab, onChange }) {
               type="button"
               aria-current=${active ? "page" : undefined}
               onClick=${() => onChange(item.key)}
-              className=${`flex min-h-[3.25rem] min-w-0 flex-col items-center justify-center rounded-[20px] px-1 text-[10px] font-bold transition duration-300 ease-out min-[390px]:text-[11px] ${featuredClass}`}
+              className=${`flex min-h-[3.25rem] min-w-0 flex-col items-center justify-center rounded-[20px] px-1 text-[9px] font-bold transition duration-300 ease-out min-[390px]:text-[10px] ${featuredClass}`}
             >
               ${item.featured
                 ? html`
@@ -9021,6 +9491,7 @@ function App() {
   const [transactions, setTransactions] = useState([]);
   const [budgets, setBudgets] = useState([]);
   const [goals, setGoals] = useState([]);
+  const [assetAccounts, setAssetAccounts] = useState([]);
   const [profilePhotos, setProfilePhotos] = useState(() =>
     readAppStorage("profilePhotos", {}),
   );
@@ -9036,6 +9507,12 @@ function App() {
   const [currencySettings, setCurrencySettings] = useState(() =>
     readCurrencySettings(),
   );
+  const [globalRateSnapshot, setGlobalRateSnapshot] = useState(() =>
+    normalizeGlobalRateSnapshot(
+      readAppStorage("globalExchangeRates", null),
+      getBaseCurrency(),
+    ),
+  );
   const [selectedWalletCurrency, setSelectedWalletCurrency] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -9047,9 +9524,21 @@ function App() {
   );
   const activeCurrencies = normalizedAppCurrencySettings.activeCurrencies;
   const currencySetupDone = Boolean(currencySettings?.configured);
+  const globalRateCurrencies = normalizeCurrencyList([
+    ...DEFAULT_ACTIVE_CURRENCIES,
+    ...activeCurrencies,
+    ...assetAccounts.map((account) => account.currency),
+    ...transactions.map((transaction) => getTransactionCurrency(transaction)),
+  ]);
   const metrics = useMemo(
-    () => computeMetrics(transactions, budgets, goals),
-    [transactions, budgets, goals, currencySettings],
+    () => computeMetrics(
+      transactions,
+      budgets,
+      goals,
+      assetAccounts,
+      globalRateSnapshot,
+    ),
+    [transactions, budgets, goals, assetAccounts, currencySettings, globalRateSnapshot],
   );
 
   useEffect(() => {
@@ -9066,6 +9555,39 @@ function App() {
     document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
     writeAppStorage("theme", normalizeThemeMode(theme));
   }, [theme, systemPrefersDark]);
+
+  useEffect(() => {
+    if (!currencySetupDone) return undefined;
+    const baseCurrency = normalizedAppCurrencySettings.baseCurrency;
+    const currentSnapshot = normalizeGlobalRateSnapshot(globalRateSnapshot, baseCurrency);
+    if (
+      currentSnapshot.baseCurrency === baseCurrency &&
+      isGlobalRateSnapshotFresh(currentSnapshot) &&
+      hasGlobalRatesForCurrencies(currentSnapshot, globalRateCurrencies, baseCurrency)
+    ) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    fetchGlobalCurrencyRates({
+      baseCurrency,
+      currencies: globalRateCurrencies,
+    })
+      .then((snapshot) => {
+        if (cancelled) return;
+        setGlobalRateSnapshot(snapshot);
+        writeAppStorage("globalExchangeRates", snapshot);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    currencySetupDone,
+    normalizedAppCurrencySettings.baseCurrency,
+    globalRateCurrencies.join("|"),
+  ]);
 
   useEffect(() => {
     if (!toast) return undefined;
@@ -9125,6 +9647,7 @@ function App() {
       setTransactions([]);
       setBudgets([]);
       setGoals([]);
+      setAssetAccounts([]);
       setProfile(null);
       return;
     }
@@ -9151,6 +9674,9 @@ function App() {
         setTransactions(normalizedDemoTransactions);
         setBudgets(readAppStorage("demoBudgets", []).map(normalizeBudget));
         setGoals(readAppStorage("demoGoals", []).map(normalizeGoal));
+        setAssetAccounts(
+          normalizeAssetAccounts(readAppStorage("demoAssetAccounts", [])),
+        );
         setProfile(localProfile);
         setTheme(localProfile.theme_mode);
         setBalanceVisible(!localProfile.hide_balances);
@@ -9164,6 +9690,7 @@ function App() {
         transactionResult,
         budgetResult,
         goalResult,
+        assetAccountResult,
         settingsResult,
         profileResult,
         currencyResult,
@@ -9182,6 +9709,11 @@ function App() {
           .order("group_key", { ascending: true }),
         supabase
           .from("goals")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("asset_accounts")
           .select("*")
           .eq("user_id", user.id)
           .order("created_at", { ascending: true }),
@@ -9242,6 +9774,19 @@ function App() {
         });
       } else {
         setGoals((goalResult.data || []).map(normalizeGoal));
+      }
+
+      if (assetAccountResult.error) {
+        setAssetAccounts([]);
+        notices.push({
+          tone: assetAccountResult.error.code === "42P01" ? "info" : "error",
+          text:
+            assetAccountResult.error.code === "42P01"
+              ? "Tabel akun/bank belum ada. Jalankan schema.sql terbaru agar fitur Aset aktif."
+              : assetAccountResult.error.message,
+        });
+      } else {
+        setAssetAccounts(normalizeAssetAccounts(assetAccountResult.data || []));
       }
 
       const legacySettings = settingsResult.error
@@ -9442,9 +9987,143 @@ function App() {
     writeAppStorage("demoGoals", nextGoals);
     setGoals(nextGoals.map(normalizeGoal));
   }
-function calculateTHBBalance(transactions) {
-  return Number(computeCurrencyBalances(transactions).THB || 0);
-}
+
+  async function persistDemoAssetAccounts(nextAccounts) {
+    const normalized = normalizeAssetAccounts(nextAccounts);
+    writeAppStorage("demoAssetAccounts", normalized);
+    setAssetAccounts(normalized);
+  }
+
+  function roundAccountBalance(value) {
+    return Math.max(Math.round((Number(value || 0) + Number.EPSILON) * 10000) / 10000, 0);
+  }
+
+  function getTransactionAccountMovements(transaction, options = {}) {
+    const reverse = Boolean(options.reverse);
+    const flow = getTransactionFlow(transaction);
+    const currency = getTransactionCurrency(transaction);
+    const amount = getTransactionAmountValue(transaction);
+
+    if (!amount || amount <= 0) return [];
+
+    if (flow === "income" && transaction.destination_account_id) {
+      return [
+        {
+          accountId: transaction.destination_account_id,
+          currency,
+          amount: reverse ? -amount : amount,
+          label: "akun tujuan",
+        },
+      ];
+    }
+
+    if (flow === "expense" && transaction.source_account_id) {
+      return [
+        {
+          accountId: transaction.source_account_id,
+          currency,
+          amount: reverse ? amount : -amount,
+          label: "akun sumber",
+        },
+      ];
+    }
+
+    return [];
+  }
+
+  function buildAssetAccountBalancePlan(movements, options = {}) {
+    const skipMissing = Boolean(options.skipMissing);
+    const movementMap = new Map();
+    movements
+      .filter((movement) => movement.accountId && Number(movement.amount || 0) !== 0)
+      .forEach((movement) => {
+        const currency = normalizeCurrencyCode(movement.currency);
+        const key = `${movement.accountId}|${currency}`;
+        const existing = movementMap.get(key) || {
+          accountId: movement.accountId,
+          currency,
+          amount: 0,
+          label: movement.label,
+        };
+        existing.amount += Number(movement.amount || 0);
+        movementMap.set(key, existing);
+      });
+    const normalizedMovements = [...movementMap.values()].filter(
+      (movement) => Math.abs(Number(movement.amount || 0)) > 0.0001,
+    );
+
+    if (!normalizedMovements.length) {
+      return {
+        changedAccounts: [],
+        nextAccounts: assetAccounts,
+      };
+    }
+
+    const accountMap = new Map(
+      assetAccounts.map((account) => [account.id, normalizeAssetAccount(account)]),
+    );
+    const changedAccountIds = new Set();
+    const updatedAt = new Date().toISOString();
+
+    normalizedMovements.forEach((movement) => {
+      const account = accountMap.get(movement.accountId);
+      if (!account) {
+        if (skipMissing) return;
+        throw new Error("Akun yang dipilih tidak ditemukan.");
+      }
+
+      const movementCurrency = normalizeCurrencyCode(movement.currency);
+      const accountCurrency = normalizeCurrencyCode(account.currency);
+      if (movementCurrency !== accountCurrency) {
+        throw new Error(
+          `Akun ${account.name} memakai ${accountCurrency}, bukan ${movementCurrency}.`,
+        );
+      }
+
+      const currentBalance = Number(account.balance_amount || 0);
+      const nextBalance = currentBalance + Number(movement.amount || 0);
+      if (nextBalance < -0.0001) {
+        throw new Error(`Saldo ${account.name} tidak mencukupi.`);
+      }
+
+      accountMap.set(account.id, {
+        ...account,
+        balance_amount: roundAccountBalance(nextBalance),
+        updated_at: updatedAt,
+      });
+      changedAccountIds.add(account.id);
+    });
+
+    const nextAccounts = normalizeAssetAccounts([...accountMap.values()]);
+    return {
+      changedAccounts: nextAccounts.filter((account) => changedAccountIds.has(account.id)),
+      nextAccounts,
+    };
+  }
+
+  async function persistAssetAccountBalancePlan(plan) {
+    if (!plan.changedAccounts.length) return;
+
+    if (mode === "demo") {
+      await persistDemoAssetAccounts(plan.nextAccounts);
+      return;
+    }
+
+    for (const account of plan.changedAccounts) {
+      const { error } = await supabase
+        .from("asset_accounts")
+        .update({
+          balance_amount: account.balance_amount,
+          updated_at: account.updated_at || new Date().toISOString(),
+        })
+        .eq("id", account.id)
+        .eq("user_id", user.id);
+      if (error) throw error;
+    }
+
+    setAssetAccounts(plan.nextAccounts);
+  }
+
   async function handleCreateTransaction(payload) {
     try {
       setLoading(true);
@@ -9471,6 +10150,8 @@ function calculateTHBBalance(transactions) {
         from_amount: null,
         to_amount: null,
         rate: null,
+        source_account_id: null,
+        destination_account_id: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -9490,6 +10171,7 @@ function calculateTHBBalance(transactions) {
         record.amount_thb = currency === "THB" ? amount : null;
         record.category = null;
         record.category_group = null;
+        record.destination_account_id = payload.destination_account_id || null;
       }
 
       if (payload.type === "exchange") {
@@ -9546,17 +10228,20 @@ function calculateTHBBalance(transactions) {
       if (payload.type === "expense") {
         const expenseCurrency = normalizeCurrencyCode(payload.expense_currency || payload.currency);
         const amount = Number(payload.amount || payload.amount_idr || payload.amount_thb);
+        const sourceAccountId = payload.source_account_id || null;
 
         if (!amount || amount <= 0) {
           throw new Error(`Jumlah pengeluaran ${expenseCurrency} harus lebih besar dari 0.`);
         }
-        const balances = computeCurrencyBalances(transactions);
-        const availableExpenseBalance =
-          expenseCurrency === getBaseCurrency()
-            ? metrics.balanceIdr
-            : Number(balances[expenseCurrency] || 0);
-        if (availableExpenseBalance < amount) {
-          throw new Error(`Saldo ${expenseCurrency} tidak mencukupi.`);
+        if (!sourceAccountId) {
+          const balances = computeCurrencyBalances(transactions);
+          const availableExpenseBalance =
+            expenseCurrency === getBaseCurrency()
+              ? metrics.balanceIdr
+              : Number(balances[expenseCurrency] || 0);
+          if (availableExpenseBalance < amount) {
+            throw new Error(`Saldo ${expenseCurrency} tidak mencukupi.`);
+          }
         }
 
         const fallbackRate =
@@ -9585,10 +10270,16 @@ function calculateTHBBalance(transactions) {
         record.amount_thb = expenseCurrency === "THB" ? amount : null;
         record.category = payload.category;
         record.category_group = UNIVERSAL_BUDGET_GROUP;
+        record.source_account_id = sourceAccountId;
       }
+
+      const accountBalancePlan = buildAssetAccountBalancePlan(
+        getTransactionAccountMovements(record),
+      );
 
       if (mode === "demo") {
         await persistDemoTransactions([...transactions, record]);
+        await persistAssetAccountBalancePlan(accountBalancePlan);
       } else {
         const { data, error } = await supabase
           .from("transactions")
@@ -9596,6 +10287,7 @@ function calculateTHBBalance(transactions) {
           .select()
           .single();
         if (error) throw error;
+        await persistAssetAccountBalancePlan(accountBalancePlan);
         setTransactions((current) =>
           orderTransactions([...current, normalizeTransaction(data)]),
         );
@@ -9655,6 +10347,8 @@ function calculateTHBBalance(transactions) {
         from_amount: null,
         to_amount: null,
         rate: null,
+        source_account_id: null,
+        destination_account_id: null,
         updated_at: new Date().toISOString(),
       };
 
@@ -9675,6 +10369,7 @@ function calculateTHBBalance(transactions) {
         record.base_amount = currency === getBaseCurrency() ? nextAmount : null;
         record.amount_idr = currency === getBaseCurrency() ? nextAmount : null;
         record.amount_thb = currency === "THB" ? nextAmount : null;
+        record.destination_account_id = transaction.destination_account_id || null;
       }
 
       if (nextType === "exchange") {
@@ -9750,7 +10445,20 @@ function calculateTHBBalance(transactions) {
               : null;
         record.amount_idr = record.base_amount;
         record.amount_thb = expenseCurrency === "THB" ? nextAmount : null;
+        record.source_account_id = transaction.source_account_id || null;
       }
+
+      const updatedTransactionForMovement = normalizeTransaction({
+        ...transaction,
+        ...record,
+      });
+      const accountBalancePlan = buildAssetAccountBalancePlan(
+        [
+          ...getTransactionAccountMovements(transaction, { reverse: true }),
+          ...getTransactionAccountMovements(updatedTransactionForMovement),
+        ],
+        { skipMissing: true },
+      );
 
       if (mode === "demo") {
         const transactionId = transaction.id || createLegacyTransactionId(transaction);
@@ -9759,6 +10467,7 @@ function calculateTHBBalance(transactions) {
             item.id === transactionId ? { ...item, ...record } : item,
           ),
         );
+        await persistAssetAccountBalancePlan(accountBalancePlan);
       } else {
         const { data, error } = await supabase
           .from("transactions")
@@ -9768,6 +10477,7 @@ function calculateTHBBalance(transactions) {
           .select()
           .single();
         if (error) throw error;
+        await persistAssetAccountBalancePlan(accountBalancePlan);
         setTransactions((current) =>
           orderTransactions(
             current.map((item) =>
@@ -9796,11 +10506,16 @@ function calculateTHBBalance(transactions) {
       setMessage("");
       setToast(null);
       const transactionId = transaction.id || createLegacyTransactionId(transaction);
+      const accountBalancePlan = buildAssetAccountBalancePlan(
+        getTransactionAccountMovements(transaction, { reverse: true }),
+        { skipMissing: true },
+      );
 
       if (mode === "demo") {
         await persistDemoTransactions(
           transactions.filter((item) => item.id !== transactionId),
         );
+        await persistAssetAccountBalancePlan(accountBalancePlan);
       } else {
         const { error } = await supabase
           .from("transactions")
@@ -9808,6 +10523,7 @@ function calculateTHBBalance(transactions) {
           .eq("id", transactionId)
           .eq("user_id", user.id);
         if (error) throw error;
+        await persistAssetAccountBalancePlan(accountBalancePlan);
         setTransactions((current) =>
           current.filter((item) => item.id !== transactionId),
         );
@@ -9925,6 +10641,97 @@ function calculateTHBBalance(transactions) {
       setMessageTone("info");
     } catch (error) {
       setMessage(error.message || "Gagal menghapus budget.");
+      setMessageTone("error");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCreateAssetAccount(payload) {
+    try {
+      setLoading(true);
+      setMessage("");
+
+      const rawName = String(payload.name || "").trim();
+      const balanceAmount = Number(payload.balance_amount || 0);
+      const accountType = ASSET_ACCOUNT_TYPE_LOOKUP[payload.account_type]
+        ? payload.account_type
+        : "bank";
+      const currency = normalizeCurrencyCode(payload.currency);
+      const name = rawName || getDefaultAssetAccountName(accountType, currency);
+
+      if (accountType !== "cash" && !rawName) {
+        throw new Error("Nama bank atau akun wajib diisi.");
+      }
+      if (balanceAmount < 0) {
+        throw new Error("Saldo akun tidak boleh negatif.");
+      }
+
+      const record = {
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        name,
+        account_type: accountType,
+        currency,
+        balance_amount: balanceAmount,
+        note: String(payload.note || "").trim(),
+        created_at: new Date().toISOString(),
+      };
+
+      if (mode === "demo") {
+        await persistDemoAssetAccounts([...assetAccounts, record]);
+      } else {
+        const { data, error } = await supabase
+          .from("asset_accounts")
+          .insert(record)
+          .select()
+          .single();
+        if (error) throw error;
+        setAssetAccounts((current) =>
+          normalizeAssetAccounts([...current, normalizeAssetAccount(data)]),
+        );
+      }
+
+      setMessage(`${name} ditambahkan ke Aset.`);
+      setMessageTone("success");
+      return true;
+    } catch (error) {
+      setMessage(error.message || "Gagal menyimpan akun aset.");
+      setMessageTone("error");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleDeleteAssetAccount(account) {
+    const confirmation = window.confirm(`Hapus akun "${account.name}" dari daftar aset?`);
+    if (!confirmation) return;
+
+    try {
+      setLoading(true);
+      setMessage("");
+
+      if (mode === "demo") {
+        await persistDemoAssetAccounts(
+          assetAccounts.filter((item) => item.id !== account.id),
+        );
+      } else {
+        const { error } = await supabase
+          .from("asset_accounts")
+          .delete()
+          .eq("id", account.id)
+          .eq("user_id", user.id);
+        if (error) throw error;
+        setAssetAccounts((current) =>
+          current.filter((item) => item.id !== account.id),
+        );
+      }
+
+      setMessage("Akun aset dihapus.");
+      setMessageTone("info");
+    } catch (error) {
+      setMessage(error.message || "Gagal menghapus akun aset.");
       setMessageTone("error");
     } finally {
       setLoading(false);
@@ -10281,10 +11088,11 @@ function calculateTHBBalance(transactions) {
   }
 
   const dashboardCurrencySettings = normalizeCurrencySettings({
-    activeCurrencies,
+    activeCurrencies: metrics.activeCurrencies || activeCurrencies,
     baseCurrency: currencySettings?.baseCurrency,
     dailyCurrency: currencySettings?.dailyCurrency,
   });
+  const dashboardActiveCurrencies = dashboardCurrencySettings.activeCurrencies;
   const dailyExpenseCurrency = dashboardCurrencySettings.dailyCurrency;
   const walletBaseCurrency = dashboardCurrencySettings.baseCurrency;
   const activeBudgetInsight =
@@ -10353,8 +11161,7 @@ function calculateTHBBalance(transactions) {
     { key: "overview", label: "Kontrol" },
     { key: "add", label: "Tambah" },
     { key: "history", label: "Riwayat" },
-    { key: "report", label: "Laporan" },
-    { key: "investment", label: "Aset & Goals" },
+    { key: "investment", label: "Keuangan" },
     { key: "settings", label: "Setting" },
   ];
   const historyTransactions = [...orderTransactions(transactions)].reverse();
@@ -10362,23 +11169,22 @@ function calculateTHBBalance(transactions) {
     ...metrics.currencyBalances,
     [DEFAULT_BASE_CURRENCY]: metrics.balanceIdr,
   };
-  const walletRateEndDate = new Date(8640000000000000);
   const walletValuationsByCurrency = Object.fromEntries(
-    activeCurrencies.map((currency) => {
+    dashboardActiveCurrencies.map((currency) => {
       const balance = Number(walletBalances[currency] || 0);
-      const rate = getLatestRateForCurrencyUntil(
-        transactions,
+      const rateInfo = getCurrentValuationRateForCurrency(
+        globalRateSnapshot,
         currency,
-        walletRateEndDate,
         walletBaseCurrency,
       );
+      const rate = Number(rateInfo.rate || 0);
       return [
         currency,
         currency === walletBaseCurrency ? balance : rate > 0 ? balance * rate : 0,
       ];
     }),
   );
-  const walletTotalValueBase = activeCurrencies.reduce(
+  const walletTotalValueBase = dashboardActiveCurrencies.reduce(
     (sum, currency) => sum + Number(walletValuationsByCurrency[currency] || 0),
     0,
   );
@@ -10539,7 +11345,7 @@ function calculateTHBBalance(transactions) {
           balances=${walletBalances}
           valuationsByCurrency=${walletValuationsByCurrency}
           totalValueBase=${walletTotalValueBase}
-          activeCurrencies=${activeCurrencies}
+          activeCurrencies=${dashboardActiveCurrencies}
           selectedCurrency=${selectedWalletCurrency}
           dailyCurrency=${dailyExpenseCurrency}
           baseCurrency=${walletBaseCurrency}
@@ -10618,6 +11424,7 @@ function calculateTHBBalance(transactions) {
                   todaySpentCurrency=${todaySpentCurrency}
                   expenseCurrency=${dailyExpenseCurrency}
                   baseCurrency=${walletBaseCurrency}
+                  accounts=${assetAccounts}
                 />
               </section>
             `
@@ -10643,9 +11450,10 @@ function calculateTHBBalance(transactions) {
                         transactions=${transactions}
                         onSubmit=${handleCreateTransaction}
                         loading=${loading}
-                        activeCurrencies=${activeCurrencies}
+                        activeCurrencies=${dashboardActiveCurrencies}
                         dailyCurrency=${dailyExpenseCurrency}
                         baseCurrency=${walletBaseCurrency}
+                        assetAccounts=${assetAccounts}
                       />
                   </section>
                 `
@@ -10657,7 +11465,7 @@ function calculateTHBBalance(transactions) {
                         onDelete=${handleDeleteTransaction}
                         onUpdate=${handleUpdateTransaction}
                         loading=${loading}
-                        activeCurrencies=${activeCurrencies}
+                        activeCurrencies=${dashboardActiveCurrencies}
                         emptyMessage="Belum ada transaksi."
                       />
                     </section>
@@ -10668,7 +11476,7 @@ function calculateTHBBalance(transactions) {
                         <${ControlCenterPage}
                           metrics=${metrics}
                           transactions=${transactions}
-                          activeCurrencies=${activeCurrencies}
+                          activeCurrencies=${dashboardActiveCurrencies}
                           loading=${loading}
                           onBudgetDelete=${handleDeleteBudget}
                           onBudgetSubmit=${handleSaveBudget}
@@ -10718,9 +11526,13 @@ function calculateTHBBalance(transactions) {
                           <${WealthGoalsPage}
                             metrics=${metrics}
                             loading=${loading}
+                            activeCurrencies=${dashboardActiveCurrencies}
+                            onCreateAssetAccount=${handleCreateAssetAccount}
+                            onDeleteAssetAccount=${handleDeleteAssetAccount}
                             onCreateGoal=${handleCreateGoal}
                             onDeleteGoal=${handleDeleteGoal}
                             onContribute=${handleAddGoalProgress}
+                            onOpenReport=${() => setActiveTab("report")}
                           />
                         </section>
                       `
@@ -10729,9 +11541,13 @@ function calculateTHBBalance(transactions) {
                         <${WealthGoalsPage}
                           metrics=${metrics}
                           loading=${loading}
+                          activeCurrencies=${dashboardActiveCurrencies}
+                          onCreateAssetAccount=${handleCreateAssetAccount}
+                          onDeleteAssetAccount=${handleDeleteAssetAccount}
                           onCreateGoal=${handleCreateGoal}
                           onDeleteGoal=${handleDeleteGoal}
                           onContribute=${handleAddGoalProgress}
+                          onOpenReport=${() => setActiveTab("report")}
                         />
                       </section>
                     `}
