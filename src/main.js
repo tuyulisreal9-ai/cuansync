@@ -343,15 +343,27 @@ function getSettingsSyncErrorMessage(error) {
   return error?.message || "Setting tersimpan lokal, tapi gagal sinkron ke database.";
 }
 
-function readCurrencySettings() {
-  const stored = readAppStorage("currencySettings", null);
-  return stored ? normalizeCurrencySettings(stored) : null;
+function getCurrencySettingsOwnerId(user) {
+  return user ? getUserStorageId(user) : null;
 }
 
-function saveCurrencySettings(settings) {
+function readCurrencySettings(ownerId = null) {
+  const stored = readAppStorage("currencySettings", null);
+  if (!stored) return null;
+
+  const storedOwnerId =
+    stored.ownerId || stored.userId || stored.user_id || stored.profileId || null;
+  if (ownerId && storedOwnerId !== ownerId) return null;
+
+  const normalized = normalizeCurrencySettings(stored);
+  return storedOwnerId ? { ...normalized, ownerId: storedOwnerId } : normalized;
+}
+
+function saveCurrencySettings(settings, ownerId = null) {
   const normalized = normalizeCurrencySettings(settings, { configured: true });
-  writeAppStorage("currencySettings", normalized);
-  return normalized;
+  const scoped = ownerId ? { ...normalized, ownerId } : normalized;
+  writeAppStorage("currencySettings", scoped);
+  return scoped;
 }
 
 function setRuntimeCurrencySettings(settings) {
@@ -9975,6 +9987,10 @@ function App() {
     supabase.auth.getSession().then(({ data }) => {
       if (!active) return;
       const sessionUser = data.session?.user || null;
+      if (sessionUser) {
+        setCurrencySettings(null);
+        setRuntimeCurrencySettings(null);
+      }
       setUser(sessionUser);
       setMode(sessionUser ? "supabase" : "signed-out");
     });
@@ -9983,8 +9999,13 @@ function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
-      setUser(session?.user || null);
-      setMode(session?.user ? "supabase" : "signed-out");
+      const sessionUser = session?.user || null;
+      if (sessionUser) {
+        setCurrencySettings(null);
+        setRuntimeCurrencySettings(null);
+      }
+      setUser(sessionUser);
+      setMode(sessionUser ? "supabase" : "signed-out");
     });
 
     return () => {
@@ -10000,6 +10021,8 @@ function App() {
       setGoals([]);
       setAssetAccounts([]);
       setProfile(null);
+      setCurrencySettings(null);
+      setRuntimeCurrencySettings(null);
       return;
     }
 
@@ -10013,13 +10036,14 @@ function App() {
         const inferredDemoCurrencies = inferCurrenciesFromTransactions(
           normalizedDemoTransactions,
         );
+        const demoOwnerId = getCurrencySettingsOwnerId(DEMO_USER);
         const localSettings =
-          readCurrencySettings() ||
+          readCurrencySettings(demoOwnerId) ||
           saveCurrencySettings({
             activeCurrencies: inferredDemoCurrencies,
             baseCurrency: DEFAULT_BASE_CURRENCY,
             dailyCurrency: inferredDemoCurrencies[0] || DEFAULT_BASE_CURRENCY,
-          });
+          }, demoOwnerId);
         const localProfile = readLocalProfile(user, localSettings);
         writeAppStorage("demoTransactions", normalizedDemoTransactions);
         setTransactions(normalizedDemoTransactions);
@@ -10036,6 +10060,9 @@ function App() {
         return;
       }
 
+      const ownerId = getCurrencySettingsOwnerId(user);
+      setCurrencySettings(null);
+      setRuntimeCurrencySettings(null);
       setLoading(true);
       const [
         transactionResult,
@@ -10143,9 +10170,41 @@ function App() {
       const legacySettings = settingsResult.error
         ? null
         : normalizeUserSettingsRow(settingsResult.data);
-      const localSettings = readCurrencySettings();
+      const localSettings = readCurrencySettings(ownerId);
+      const remoteTransactions = transactionResult.error ? [] : transactionResult.data || [];
+      const remoteBudgets = budgetResult.error ? [] : budgetResult.data || [];
+      const remoteGoals = goalResult.error ? [] : goalResult.data || [];
+      const remoteAssetAccounts = assetAccountResult.error
+        ? []
+        : assetAccountResult.data || [];
+      const currencyRows =
+        !currencyResult.error && Array.isArray(currencyResult.data)
+          ? currencyResult.data
+          : [];
       const inferredCurrencies = inferCurrenciesFromTransactions(
-        transactionResult.data || [],
+        remoteTransactions,
+      );
+      const hasFinancialHistory =
+        remoteTransactions.length > 0 ||
+        remoteBudgets.length > 0 ||
+        remoteGoals.length > 0 ||
+        remoteAssetAccounts.length > 0;
+      const hasCustomCurrencyRows =
+        currencyRows.length > 1 ||
+        currencyRows.some(
+          (row) => normalizeCurrencyCode(row.currency_code) !== DEFAULT_BASE_CURRENCY,
+        );
+      const hasProfileCustomCurrency =
+        !profileResult.error &&
+        Boolean(profileResult.data) &&
+        (normalizeCurrencyCode(profileResult.data.base_currency) !== DEFAULT_BASE_CURRENCY ||
+          normalizeCurrencyCode(profileResult.data.daily_currency) !== DEFAULT_BASE_CURRENCY);
+      const setupConfigured = Boolean(
+        legacySettings ||
+          localSettings?.configured ||
+          hasCustomCurrencyRows ||
+          hasProfileCustomCurrency ||
+          hasFinancialHistory,
       );
       const fallbackSettings =
         legacySettings ||
@@ -10155,8 +10214,9 @@ function App() {
             activeCurrencies: inferredCurrencies,
             baseCurrency: DEFAULT_BASE_CURRENCY,
             dailyCurrency: inferredCurrencies[0] || DEFAULT_BASE_CURRENCY,
+            configured: setupConfigured,
           },
-          { configured: true },
+          { configured: setupConfigured },
         );
 
       const modernProfile =
@@ -10171,9 +10231,11 @@ function App() {
             })
           : null;
       const modernSettings =
-        !currencyResult.error && Array.isArray(currencyResult.data)
+        setupConfigured &&
+        !currencyResult.error &&
+        (currencyRows.length > 0 || hasProfileCustomCurrency)
           ? normalizeUserCurrencyRows(
-              currencyResult.data,
+              currencyRows,
               modernProfile || profileResult.data,
               fallbackSettings,
               inferredCurrencies,
@@ -10181,7 +10243,7 @@ function App() {
           : null;
       const nextSettings = normalizeCurrencySettings(
         modernSettings || fallbackSettings,
-        { configured: true },
+        { configured: setupConfigured },
       );
       const nextProfile = normalizeProfile(modernProfile || profileResult.data, user, {
         ...nextSettings,
@@ -10194,15 +10256,17 @@ function App() {
 
       setCurrencySettings(nextSettings);
       setRuntimeCurrencySettings(nextSettings);
-      saveCurrencySettings(nextSettings);
+      if (nextSettings.configured) {
+        saveCurrencySettings(nextSettings, ownerId);
+      }
       setProfile(nextProfile);
       setTheme(nextProfile.theme_mode);
       writeBalanceVisiblePreference(!nextProfile.hide_balances);
       setBalanceVisible(!nextProfile.hide_balances);
 
       const modernTablesReady = !profileResult.error && !currencyResult.error;
-      if (modernTablesReady) {
-        const existingCodes = (currencyResult.data || []).map((row) => row.currency_code);
+      if (modernTablesReady && nextSettings.configured) {
+        const existingCodes = currencyRows.map((row) => row.currency_code);
         Promise.all([
           supabase.from("profiles").upsert(
             {
@@ -10279,13 +10343,14 @@ function App() {
     const inferredDemoCurrencies = inferCurrenciesFromTransactions(
       normalizedDemoTransactions,
     );
+    const demoOwnerId = getCurrencySettingsOwnerId(DEMO_USER);
     const localSettings =
-      readCurrencySettings() ||
+      readCurrencySettings(demoOwnerId) ||
       saveCurrencySettings({
         activeCurrencies: inferredDemoCurrencies,
         baseCurrency: DEFAULT_BASE_CURRENCY,
         dailyCurrency: inferredDemoCurrencies[0] || DEFAULT_BASE_CURRENCY,
-      });
+      }, demoOwnerId);
     const localProfile = readLocalProfile(DEMO_USER, localSettings);
     writeAppStorage("demoTransactions", normalizedDemoTransactions);
     setUser(DEMO_USER);
@@ -10313,6 +10378,8 @@ function App() {
       setBudgets([]);
       setGoals([]);
       setProfile(null);
+      setCurrencySettings(null);
+      setRuntimeCurrencySettings(null);
       return;
     }
 
@@ -10320,7 +10387,10 @@ function App() {
     if (error) {
       setMessage(error.message);
       setMessageTone("error");
+      return;
     }
+    setCurrencySettings(null);
+    setRuntimeCurrencySettings(null);
   }
 
   async function persistDemoTransactions(nextTransactions) {
@@ -11354,11 +11424,14 @@ function App() {
         currencySettings?.dailyCurrency ||
         activeCurrencyList[0],
     });
-    const nextSettings = saveCurrencySettings({
-      baseCurrency: currentSettings.baseCurrency,
-      activeCurrencies: activeCurrencyList,
-      dailyCurrency: currentSettings.dailyCurrency,
-    });
+    const nextSettings = saveCurrencySettings(
+      {
+        baseCurrency: currentSettings.baseCurrency,
+        activeCurrencies: activeCurrencyList,
+        dailyCurrency: currentSettings.dailyCurrency,
+      },
+      getCurrencySettingsOwnerId(user),
+    );
     setRuntimeCurrencySettings(nextSettings);
     setCurrencySettings(nextSettings);
     setProfile((current) => {
