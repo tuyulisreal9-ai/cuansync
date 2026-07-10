@@ -9910,11 +9910,11 @@ function FloatingTransactionButton({ visible = true, showHint = false, onClick, 
   if (!visible) return null;
 
   return html`
-    <div className="fixed inset-x-0 z-50 flex justify-center px-4 lg:justify-end lg:px-8" style=${{ bottom: "calc(5.9rem + env(safe-area-inset-bottom))" }}>
-      <div className="relative flex flex-col items-center lg:items-end">
+    <div className="fixed right-5 z-50 flex justify-end md:right-7 lg:right-8" style=${{ bottom: "calc(5.35rem + env(safe-area-inset-bottom))" }}>
+      <div className="relative flex flex-col items-end">
         ${showHint
           ? html`
-              <div className="mb-3 w-[min(18rem,calc(100vw-2rem))] rounded-[22px] border border-brand-300/30 bg-white/94 p-3 text-slate-950 shadow-[0_24px_70px_rgba(15,23,42,0.18)] backdrop-blur-2xl dark:border-emerald-300/20 dark:bg-slate-950/94 dark:text-white dark:shadow-black/40">
+              <div className="mb-2 w-[min(17rem,calc(100vw-2rem))] rounded-[18px] border border-brand-300/30 bg-white/94 p-3 text-slate-950 shadow-[0_20px_58px_rgba(15,23,42,0.16)] backdrop-blur-2xl dark:border-emerald-300/20 dark:bg-slate-950/94 dark:text-white dark:shadow-black/40">
                 <p className="text-sm font-black">Catat transaksi di sini</p>
                 <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
                   Tekan tombol + untuk menambah pemasukan, pengeluaran, atau exchange.
@@ -9933,7 +9933,7 @@ function FloatingTransactionButton({ visible = true, showHint = false, onClick, 
           type="button"
           aria-label="Catat transaksi"
           onClick=${onClick}
-          className="flex h-16 min-h-16 w-16 items-center justify-center rounded-full bg-brand-600 text-4xl font-black leading-none text-white shadow-[0_22px_54px_rgba(16,185,129,0.34)] transition duration-300 hover:-translate-y-0.5 hover:bg-brand-700 focus:outline-none focus:ring-4 focus:ring-emerald-300/45 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+          className="flex h-12 min-h-12 w-12 items-center justify-center rounded-full bg-brand-600 text-3xl font-black leading-none text-white shadow-[0_16px_38px_rgba(16,185,129,0.30)] transition duration-300 hover:-translate-y-0.5 hover:bg-brand-700 focus:outline-none focus:ring-4 focus:ring-emerald-300/45 dark:bg-emerald-500 dark:hover:bg-emerald-400"
         >
           +
         </button>
