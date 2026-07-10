@@ -4473,22 +4473,22 @@ function BudgetWorkspacePage({
   }, [normalizedCurrencies.join("|"), selectedCurrency]);
 
   return html`
-    <div className="grid gap-4">
-      <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
+    <div className="grid gap-4 pb-[calc(8rem+env(safe-area-inset-bottom))] lg:pb-0">
+      <section className=${`${PREMIUM_PANEL} p-4 md:p-5`}>
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-        <div className="relative grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
+        <div className="relative grid gap-4">
           <div>
             <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
               Anggaran
             </p>
-            <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.04em] text-slate-950 dark:text-white md:text-4xl">
+            <h2 className="mt-2 font-display text-2xl font-black tracking-[-0.02em] text-slate-950 dark:text-white md:text-3xl">
               Atur kategori bulan ini
             </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
-              Mulai dari kategori penting. Nanti kamu bisa tambah kebutuhan lain sesuai pola hidupmu.
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300/85">
+              Mulai dari kategori penting. Tambahkan kebutuhan lain nanti kalau sudah perlu.
             </p>
           </div>
-          <div className="grid grid-cols-3 gap-2 md:min-w-[24rem]">
+          <div className="grid gap-2 sm:grid-cols-3">
             <${ControlMetric}
               label="Target"
               value=${targetTotal > 0 ? formatCurrency(targetTotal, selectedCurrency) : "-"}
@@ -4552,7 +4552,7 @@ function ControlBudgetHub({
   const attentionCount = selectedBudgets.filter((item) => item.status === "over").length;
 
   return html`
-    <section id="control-budget-section" className=${`${PREMIUM_PANEL} scroll-mt-6 p-5 md:p-6`}>
+    <section id="control-budget-section" className=${`${PREMIUM_PANEL} scroll-mt-6 p-4 md:p-5`}>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
       <div className="relative flex flex-col gap-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -4590,11 +4590,11 @@ function ControlBudgetHub({
 
         ${starterCategories.length
           ? html`
-              <div className="rounded-[22px] border border-slate-200/70 bg-white/50 p-3 dark:border-white/10 dark:bg-slate-950/28">
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+              <div className="rounded-[20px] border border-brand-300/15 bg-brand-500/8 p-3 dark:border-brand-300/15 dark:bg-brand-500/8">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-brand-700 dark:text-brand-200">
                   Kategori awal
                 </p>
-                <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                <div className="mt-2 flex flex-wrap gap-2">
                   ${starterCategories.map((item) => {
                     const active = starterCategory === item.value;
                     return html`
@@ -4602,10 +4602,10 @@ function ControlBudgetHub({
                         key=${item.value}
                         type="button"
                         onClick=${() => setStarterCategory(item.value)}
-                        className=${`shrink-0 rounded-full border px-3 py-2 text-xs font-black transition ${
+                        className=${`inline-flex min-h-9 items-center rounded-full border px-3 py-1.5 text-xs font-black leading-none transition ${
                           active
-                            ? "border-brand-400/40 bg-brand-600 text-white shadow-[0_12px_28px_rgba(16,185,129,0.20)]"
-                            : "border-slate-200/70 bg-white/60 text-slate-700 hover:bg-white dark:border-white/10 dark:bg-slate-900/40 dark:text-slate-200 dark:hover:bg-white/10"
+                            ? "border-brand-300/50 bg-brand-600 text-white shadow-[0_12px_28px_rgba(16,185,129,0.22)]"
+                            : "border-brand-300/15 bg-slate-950/5 text-slate-700 hover:bg-brand-500/12 dark:border-white/10 dark:bg-white/7 dark:text-slate-200 dark:hover:bg-white/12"
                         }`}
                       >
                         ${item.label}
@@ -9305,7 +9305,7 @@ function BudgetForm({
             </div>
           `}
 
-      <form className=${embedded ? "relative grid gap-3 md:grid-cols-5 md:items-end" : "relative mt-5 space-y-4"} onSubmit=${handleSubmit}>
+      <form className=${embedded ? "relative grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.15fr_1fr_auto] xl:items-end" : "relative mt-5 space-y-4"} onSubmit=${handleSubmit}>
         <label className="block">
           <span className="mb-2 block text-sm font-medium">Bulan</span>
           <input
@@ -9368,9 +9368,9 @@ function BudgetForm({
         <button
           type="submit"
           disabled=${loading}
-          className="history-action-primary min-h-12 w-full rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+          className="history-action-primary min-h-12 w-full rounded-2xl px-5 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 xl:w-auto"
         >
-          Simpan anggaran
+          Simpan
         </button>
       </form>
     </div>
@@ -12578,8 +12578,8 @@ function App() {
         </div>
       </div>
       <${FloatingTransactionButton}
-        visible=${activeTab !== "add"}
-        showHint=${!transactionFabHintDismissed && activeTab !== "add"}
+        visible=${activeTab !== "add" && activeTab !== "budget"}
+        showHint=${!transactionFabHintDismissed && activeTab !== "add" && activeTab !== "budget"}
         onClick=${openTransactionForm}
         onDismissHint=${dismissTransactionFabHint}
       />
