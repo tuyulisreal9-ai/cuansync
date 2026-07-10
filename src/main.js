@@ -1485,6 +1485,74 @@ function getCategoryMeta(category) {
   );
 }
 
+function normalizeBudgetCategory(category, groupKey = UNIVERSAL_BUDGET_GROUP) {
+  const raw = String(category || groupKey || UNIVERSAL_BUDGET_GROUP).trim();
+  return raw || UNIVERSAL_BUDGET_GROUP;
+}
+
+function getBudgetCategoryKey(category, groupKey = UNIVERSAL_BUDGET_GROUP) {
+  return normalizeBudgetCategory(category, groupKey).toLowerCase();
+}
+
+function getBudgetCategoryLabel(category, groupKey = UNIVERSAL_BUDGET_GROUP) {
+  const normalized = normalizeBudgetCategory(category, groupKey);
+  const groupLabels = {
+    needs: "Kebutuhan",
+    wants: "Gaya hidup",
+    invest: "Investasi",
+  };
+  return groupLabels[normalized] || getCategoryMeta(normalized).label;
+}
+
+function getBudgetCategoryMeta(category, groupKey = UNIVERSAL_BUDGET_GROUP) {
+  const normalized = normalizeBudgetCategory(category, groupKey);
+  const groupMeta = {
+    needs: {
+      label: "Kebutuhan",
+      chip: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+      bar: "from-emerald-400 to-emerald-500",
+    },
+    wants: {
+      label: "Gaya hidup",
+      chip: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+      bar: "from-sky-300 to-indigo-500",
+    },
+    invest: {
+      label: "Investasi",
+      chip: "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
+      bar: "from-violet-300 to-fuchsia-500",
+    },
+  };
+  return groupMeta[normalized] || getCategoryMeta(normalized);
+}
+
+function getDefaultGroupForCategory(category) {
+  const value = normalizeBudgetCategory(category);
+  if (["Hiburan", "Belanja", "Ngopi", "Hadiah", "Travel"].includes(value)) return "wants";
+  if (["Dana Darurat", "Tabungan", "Reksa Dana", "Emas", "Bisnis"].includes(value)) {
+    return "invest";
+  }
+  return UNIVERSAL_BUDGET_GROUP;
+}
+
+function resolveBudgetActivityAmount(transaction, budgetCurrency, baseCurrency = getBaseCurrency()) {
+  if (transaction?.type !== "expense") return null;
+  const code = normalizeCurrencyCode(budgetCurrency);
+  const transactionCurrency = getTransactionCurrency(transaction);
+  if (code === transactionCurrency) {
+    const amount = getTransactionAmountValue(transaction);
+    return amount > 0 ? amount : null;
+  }
+
+  const base = normalizeCurrencyCode(baseCurrency);
+  if (code === base) {
+    const baseAmount = Number(transaction.base_amount || 0);
+    return baseAmount > 0 ? baseAmount : null;
+  }
+
+  return null;
+}
+
 const LEGACY_EXCHANGE_KEYWORDS = [
   "beli thb",
   "beli baht",
@@ -1678,9 +1746,15 @@ function normalizeTransactions(rows) {
 function normalizeBudget(row) {
   const currency = normalizeCurrencyCode(row.currency || (row.limit_thb != null ? "THB" : getBaseCurrency()));
   const limitAmount = Number(row.limit_amount ?? row.limitAmount ?? row.limit_thb ?? 0);
+  const groupKey = row.group_key || getDefaultGroupForCategory(row.category);
+  const category = normalizeBudgetCategory(row.category, groupKey);
+  const categoryKey = getBudgetCategoryKey(category, groupKey);
   return {
     ...row,
-    group_key: row.group_key || UNIVERSAL_BUDGET_GROUP,
+    group_key: groupKey,
+    category,
+    categoryKey,
+    categoryLabel: getBudgetCategoryLabel(category, groupKey),
     currency,
     limit_amount: limitAmount,
     limitAmount,
@@ -2103,7 +2177,7 @@ function buildOverviewDailyExpenses(transactions, monthKey) {
   return days;
 }
 
-function computeBudgetInsights(monthlyExpenses, budgets, monthKey) {
+function computeBudgetInsights(monthlyExpenses, budgets, monthKey, baseCurrency = getBaseCurrency()) {
   const now = new Date();
   const [year, month] = String(monthKey).split("-").map(Number);
   const daysInMonth = new Date(year, month, 0).getDate();
@@ -2121,26 +2195,30 @@ function computeBudgetInsights(monthlyExpenses, budgets, monthKey) {
     healthy: 2,
   };
 
+  const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
+
   return budgets
-    .filter(
-      (item) =>
-        item.month_key === monthKey &&
-        (item.group_key || UNIVERSAL_BUDGET_GROUP) === UNIVERSAL_BUDGET_GROUP,
-    )
+    .filter((item) => item.month_key === monthKey)
     .map(normalizeBudget)
     .map((budget) => {
       const currency = normalizeCurrencyCode(budget.currency);
+      const budgetCategoryKey = getBudgetCategoryKey(budget.category, budget.group_key);
       const currencyExpenses = monthlyExpenses.filter(
-        (item) => getTransactionCurrency(item) === currency,
+        (item) =>
+          item.type === "expense" &&
+          Boolean(item.category) &&
+          getBudgetCategoryKey(item.category, item.category_group) === budgetCategoryKey &&
+          resolveBudgetActivityAmount(item, currency, normalizedBaseCurrency) != null,
       );
       const spentAmount = currencyExpenses.reduce(
-        (sum, item) => sum + getTransactionAmountValue(item),
+        (sum, item) =>
+          sum + Number(resolveBudgetActivityAmount(item, currency, normalizedBaseCurrency) || 0),
         0,
       );
       let spentBeforeToday = 0;
       let spentToday = 0;
       currencyExpenses.forEach((item) => {
-        const amount = getTransactionAmountValue(item);
+        const amount = Number(resolveBudgetActivityAmount(item, currency, normalizedBaseCurrency) || 0);
         const dayKey = getLocalDayKey(item.occurred_at);
         if (dayKey < todayKey) {
           spentBeforeToday += amount;
@@ -2194,7 +2272,10 @@ function computeBudgetInsights(monthlyExpenses, budgets, monthKey) {
 
       return {
         ...budget,
-        group_key: UNIVERSAL_BUDGET_GROUP,
+        group_key: budget.group_key || getDefaultGroupForCategory(budget.category),
+        category: budget.category,
+        categoryKey: budgetCategoryKey,
+        categoryLabel: getBudgetCategoryLabel(budget.category, budget.group_key),
         currency,
         limitAmount,
         spentAmount,
@@ -2222,13 +2303,47 @@ function computeBudgetInsights(monthlyExpenses, budgets, monthKey) {
         statusLabel,
         tone,
         barClass,
-        meta: {
-          label: `Anggaran ${currency}`,
-          chip: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-        },
+        meta: getBudgetCategoryMeta(budget.category, budget.group_key),
       };
     })
-    .sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
+    .sort(
+      (a, b) =>
+        statusOrder[a.status] - statusOrder[b.status] ||
+        a.categoryLabel.localeCompare(b.categoryLabel) ||
+        a.currency.localeCompare(b.currency),
+    );
+}
+
+function buildBudgetOverspendWarning(transaction, transactionsForBudget, budgets, baseCurrency = getBaseCurrency()) {
+  if (transaction?.type !== "expense" || !transaction.category) return null;
+  const monthKey = getMonthKey(transaction.occurred_at);
+  const categoryKey = getBudgetCategoryKey(transaction.category, transaction.category_group);
+  const currency = getTransactionCurrency(transaction);
+  const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
+  const insights = computeBudgetInsights(
+    transactionsForBudget.filter(
+      (item) => item.type === "expense" && getMonthKey(item.occurred_at) === monthKey,
+    ),
+    budgets,
+    monthKey,
+    normalizedBaseCurrency,
+  );
+  const budget = insights.find(
+    (item) =>
+      item.categoryKey === categoryKey &&
+      (item.currency === currency || item.currency === normalizedBaseCurrency) &&
+      item.remainingAmount < 0,
+  );
+  if (!budget) return null;
+  return {
+    categoryLabel: budget.categoryLabel,
+    amount: Math.abs(budget.remainingAmount),
+    currency: budget.currency,
+    message: `Transaksi ini melewati anggaran ${budget.categoryLabel} sebesar ${formatCurrency(
+      Math.abs(budget.remainingAmount),
+      budget.currency,
+    )}.`,
+  };
 }
 
 function computeGoalInsights(goals) {
@@ -2428,23 +2543,30 @@ function computeMetrics(
     }))
     .sort((a, b) => b.valueIdr - a.valueIdr || b.valueThb - a.valueThb);
 
-  const budgetInsights = computeBudgetInsights(currentMonthExpenses, budgets, currentMonthKey);
+  const budgetInsights = computeBudgetInsights(
+    currentMonthExpenses,
+    budgets,
+    currentMonthKey,
+    getBaseCurrency(),
+  );
   const overspentCount = budgetInsights.filter((item) => item.status === "over").length;
   const warningCount = budgetInsights.filter((item) => item.status === "warning").length;
+  const budgetBaseCurrency = getBaseCurrency();
   const budgetInsightsBase = budgetInsights.map((item) => {
     const rate = getCurrentValuationRateForCurrency(
       globalRateSnapshot,
       item.currency,
+      budgetBaseCurrency,
     ).rate;
     return {
       limitBase:
-        item.currency === DEFAULT_BASE_CURRENCY
+        item.currency === budgetBaseCurrency
           ? item.limitAmount
           : rate > 0
             ? item.limitAmount * rate
             : 0,
       spentBase:
-        item.currency === DEFAULT_BASE_CURRENCY
+        item.currency === budgetBaseCurrency
           ? item.spentAmount
           : rate > 0
             ? item.spentAmount * rate
@@ -3243,7 +3365,12 @@ function buildMonthlyReport(transactions, budgets, selectedMonthKey) {
     }))
     .sort((a, b) => b.valueIdr - a.valueIdr);
 
-  const budgetInsights = computeBudgetInsights(expenseTransactions, budgets, monthKey);
+  const budgetInsights = computeBudgetInsights(
+    expenseTransactions,
+    budgets,
+    monthKey,
+    getBaseCurrency(),
+  );
   const budgetBaseValues = budgetInsights.map((budget) => {
     const rate = getLatestRateForCurrencyUntil(transactions, budget.currency, meta.end);
     return {
@@ -4265,10 +4392,16 @@ function ControlBudgetHub({
   const selectedBudgets = metrics.budgetInsights.filter(
     (item) => item.currency === selectedCurrency,
   );
-  const activeBudget = selectedBudgets[0] || null;
-  const budgetUsageWidth = activeBudget
-    ? `${Math.min(Math.max(activeBudget.usage * 100, activeBudget.spentAmount > 0 ? 8 : 0), 100)}%`
-    : "0%";
+  const budgetTargetTotal = selectedBudgets.reduce(
+    (sum, item) => sum + Number(item.limitAmount || 0),
+    0,
+  );
+  const budgetSpentTotal = selectedBudgets.reduce(
+    (sum, item) => sum + Number(item.spentAmount || 0),
+    0,
+  );
+  const budgetRemainingTotal = budgetTargetTotal - budgetSpentTotal;
+  const attentionCount = selectedBudgets.filter((item) => item.status === "over").length;
 
   return html`
     <section id="control-budget-section" className=${`${PREMIUM_PANEL} scroll-mt-6 p-5 md:p-6`}>
@@ -4280,18 +4413,29 @@ function ControlBudgetHub({
               Anggaran
             </p>
             <h3 className="mt-2 font-display text-xl font-black text-slate-950 dark:text-white">
-              Batas ${selectedCurrency}
+              Anggaran kategori ${selectedCurrency}
             </h3>
+            <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300/80">
+              Atur target bulanan per kategori. Transaksi pengeluaran otomatis masuk sesuai kategori.
+            </p>
           </div>
-          ${activeBudget
+          ${selectedBudgets.length
             ? html`
-                <button
-                  type="button"
-                  onClick=${() => onBudgetDelete(activeBudget)}
-                  className="history-action-danger min-h-10 rounded-2xl px-3 py-2 text-xs font-black"
-                >
-                  Hapus anggaran
-                </button>
+                <div className="grid grid-cols-3 gap-2 md:min-w-[21rem]">
+                  <${ControlMetric}
+                    label="Target"
+                    value=${formatCurrency(budgetTargetTotal, selectedCurrency)}
+                  />
+                  <${ControlMetric}
+                    label="Terpakai"
+                    value=${formatCurrency(budgetSpentTotal, selectedCurrency)}
+                  />
+                  <${ControlMetric}
+                    label="Sisa"
+                    value=${formatCurrency(Math.max(budgetRemainingTotal, 0), selectedCurrency)}
+                    helper=${attentionCount ? `${attentionCount} lewat` : "Aman"}
+                  />
+                </div>
               `
             : null}
         </div>
@@ -4306,43 +4450,73 @@ function ControlBudgetHub({
           embedded=${true}
         />
 
-        ${activeBudget
+        ${selectedBudgets.length
           ? html`
-              <div className="rounded-[22px] border border-slate-200/70 bg-white/52 p-4 dark:border-white/10 dark:bg-slate-950/30">
-                <div className="flex items-center justify-between gap-3 text-xs font-bold text-slate-600 dark:text-slate-300">
-                  <span>${formatCurrency(activeBudget.spentAmount, selectedCurrency)} terpakai</span>
-                  <span>${formatPercent(activeBudget.usage)}</span>
-                </div>
-                <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
-                  <div className=${`h-full rounded-full bg-gradient-to-r ${activeBudget.barClass}`} style=${{ width: budgetUsageWidth }}></div>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
-                  <${ControlMetric}
-                    label="Batas"
-                    value=${formatCurrency(activeBudget.limitAmount, selectedCurrency)}
-                    helper=${metrics.currentMonthLabel}
-                  />
-                  <${ControlMetric}
-                    label="Sisa"
-                    value=${formatCurrency(Math.max(activeBudget.remainingAmount, 0), selectedCurrency)}
-                    helper=${activeBudget.statusLabel}
-                  />
-                  <${ControlMetric}
-                    label="Hari ini"
-                    value=${formatCurrency(Math.abs(activeBudget.todayRemainingSafe || 0), selectedCurrency)}
-                    helper=${activeBudget.todayRemainingSafe >= 0 ? "Sisa aman" : "Lewat batas"}
-                  />
-                  <${ControlMetric}
-                    label="Besok"
-                    value=${activeBudget.remainingDaysAfterToday > 0 ? formatCurrency(activeBudget.projectedNextDailyLimit, selectedCurrency) : "-"}
-                    helper=${`${activeBudget.remainingDaysAfterToday} hari tersisa`}
-                  />
-                </div>
+              <div className="grid gap-3">
+                ${selectedBudgets.map((budget) => {
+                  const width = `${Math.min(
+                    Math.max(budget.usage * 100, budget.spentAmount > 0 ? 8 : 0),
+                    100,
+                  )}%`;
+                  const remaining = budget.remainingAmount;
+                  return html`
+                    <div
+                      key=${budget.id || `${budget.month_key}-${budget.currency}-${budget.categoryKey}`}
+                      className="rounded-[22px] border border-slate-200/70 bg-white/52 p-4 dark:border-white/10 dark:bg-slate-950/30"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className=${`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${budget.meta.chip}`}>
+                            ${budget.categoryLabel}
+                          </div>
+                          <p className="mt-2 truncate text-sm font-black text-slate-950 dark:text-white">
+                            ${formatCurrency(budget.limitAmount, selectedCurrency)} target bulan ini
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className=${`rounded-full border px-2.5 py-1 text-[11px] font-black ${budget.tone}`}>
+                            ${budget.statusLabel}
+                          </span>
+                          <button
+                            type="button"
+                            onClick=${() => onBudgetDelete(budget)}
+                            className="rounded-full px-2 py-1 text-[11px] font-black text-rose-600 transition hover:bg-rose-500/10 dark:text-rose-300"
+                          >
+                            Hapus
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 flex items-center justify-between gap-3 text-xs font-bold text-slate-600 dark:text-slate-300">
+                        <span>Terpakai ${formatCurrency(budget.spentAmount, selectedCurrency)}</span>
+                        <span>${formatPercent(budget.usage)}</span>
+                      </div>
+                      <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
+                        <div className=${`h-full rounded-full bg-gradient-to-r ${budget.barClass}`} style=${{ width }}></div>
+                      </div>
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <${ControlMetric}
+                          label="Target"
+                          value=${formatCurrency(budget.limitAmount, selectedCurrency)}
+                        />
+                        <${ControlMetric}
+                          label="Terpakai"
+                          value=${formatCurrency(budget.spentAmount, selectedCurrency)}
+                        />
+                        <${ControlMetric}
+                          label=${remaining < 0 ? "Lewat" : "Sisa"}
+                          value=${formatCurrency(Math.abs(remaining), selectedCurrency)}
+                          helper=${remaining < 0 ? "Tetap bisa disimpan" : "Tersedia"}
+                        />
+                      </div>
+                    </div>
+                  `;
+                })}
               </div>
             `
           : html`
               <div className="rounded-[22px] border border-dashed border-brand-300/25 bg-brand-400/10 p-4 text-sm font-semibold text-slate-600 dark:border-brand-400/20 dark:bg-brand-500/10 dark:text-slate-300">
-                Belum ada anggaran ${selectedCurrency}.
+                Belum ada anggaran kategori ${selectedCurrency}. Tambahkan satu kategori dulu, misalnya Makan Harian atau Transport.
               </div>
             `}
       </div>
@@ -4625,13 +4799,13 @@ function MonthlyBudgetPulse({ report }) {
                 )}%`;
                 return html`
                   <div
-                    key=${budget.id || `${budget.month_key}-${budget.currency}`}
+                    key=${budget.id || `${budget.month_key}-${budget.currency}-${budget.categoryKey}`}
                     className="rounded-2xl border border-slate-200/70 bg-white/50 p-3 dark:border-white/10 dark:bg-slate-800/45"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                          ${budget.currency}
+                          ${budget.categoryLabel}
                         </p>
                         <p className="mt-1 text-sm font-black text-slate-950 dark:text-white">
                           ${formatCurrency(budget.spentAmount, budget.currency)} / ${formatCurrency(
@@ -8308,6 +8482,7 @@ function TransactionForm({
   dailyCurrency: dailyCurrencySetting = getBaseCurrency(),
   baseCurrency: baseCurrencySetting = getBaseCurrency(),
   assetAccounts = [],
+  budgetInsights = [],
 }) {
   const [entryType, setEntryType] = useState("income");
   const [incomeCurrency, setIncomeCurrency] = useState(() => getBaseCurrency());
@@ -8395,6 +8570,27 @@ function TransactionForm({
       : []),
   ];
   const currencyOptions = getCurrencyOptions(activeCurrencies);
+  const selectedBudgetInsight = isExpense
+    ? budgetInsights.find(
+        (item) =>
+          item.categoryKey === getBudgetCategoryKey(form.category, UNIVERSAL_BUDGET_GROUP) &&
+          (item.currency === selectedCurrencyCode || item.currency === baseCurrency),
+      )
+    : null;
+  const selectedBudgetActivity =
+    selectedBudgetInsight && isExpense
+      ? selectedBudgetInsight.currency === selectedCurrencyCode
+        ? parsedSelectedAmount
+        : selectedBudgetInsight.currency === baseCurrency && selectedCurrencyCode === baseCurrency
+          ? parsedSelectedAmount
+          : selectedBudgetInsight.currency === baseCurrency && latestExpenseRate > 0
+            ? parsedSelectedAmount * latestExpenseRate
+            : null
+      : null;
+  const selectedBudgetOverAmount =
+    selectedBudgetInsight && selectedBudgetActivity != null
+      ? Math.max(selectedBudgetActivity - Math.max(selectedBudgetInsight.remainingAmount, 0), 0)
+      : 0;
 
   useEffect(() => {
     if (!activeCurrencies.includes(incomeCurrency)) {
@@ -8823,6 +9019,17 @@ function TransactionForm({
             `
           : null}
 
+        ${isExpense && selectedBudgetOverAmount > 0
+          ? html`
+              <div className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-4 py-3 text-sm font-semibold text-amber-900 backdrop-blur-xl dark:border-amber-300/20 dark:bg-amber-500/10 dark:text-amber-100">
+                Transaksi ini melewati anggaran ${selectedBudgetInsight.categoryLabel} sebesar ${formatCurrency(
+                  selectedBudgetOverAmount,
+                  selectedBudgetInsight.currency,
+                )}. Kamu tetap bisa simpan.
+              </div>
+            `
+          : null}
+
         ${!isExchange && isIncome && isForeign
           ? html`
               <div className="rounded-2xl border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-900 backdrop-blur-xl dark:border-emerald-300/20 dark:bg-emerald-400/10 dark:text-emerald-200">
@@ -8867,9 +9074,14 @@ function BudgetForm({
 }) {
   const [monthKey, setMonthKey] = useState(currentMonthKey);
   const [currency, setCurrency] = useState(normalizeCurrencyCode(initialCurrency));
+  const [category, setCategory] = useState(DEFAULT_CATEGORY);
   const [limitAmount, setLimitAmount] = useState("");
   const normalizedActiveCurrencies = normalizeCurrencyList(activeCurrencies);
   const currencyOptions = getCurrencyOptions(normalizedActiveCurrencies);
+  const budgetCategoryOptions = CATEGORY_OPTIONS.map((item) => ({
+    value: item.value,
+    label: item.label,
+  }));
 
   useEffect(() => {
     setMonthKey(currentMonthKey);
@@ -8894,7 +9106,8 @@ function BudgetForm({
     event.preventDefault();
     const ok = await onSubmit({
       month_key: monthKey,
-      group_key: UNIVERSAL_BUDGET_GROUP,
+      group_key: getDefaultGroupForCategory(category),
+      category,
       currency,
       limit_amount: normalizeNumericInput(limitAmount),
     });
@@ -8917,7 +9130,7 @@ function BudgetForm({
             </div>
           `}
 
-      <form className=${embedded ? "relative grid gap-3 md:grid-cols-4 md:items-end" : "relative mt-5 space-y-4"} onSubmit=${handleSubmit}>
+      <form className=${embedded ? "relative grid gap-3 md:grid-cols-5 md:items-end" : "relative mt-5 space-y-4"} onSubmit=${handleSubmit}>
         <label className="block">
           <span className="mb-2 block text-sm font-medium">Bulan</span>
           <input
@@ -8946,7 +9159,24 @@ function BudgetForm({
         </label>
 
         <label className="block">
-          <span className="mb-2 block text-sm font-medium">Batas Uang Keluar (${currency})</span>
+          <span className="mb-2 block text-sm font-medium">Kategori</span>
+          <select
+            value=${category}
+            onChange=${(event) => setCategory(event.target.value)}
+            className=${GLASS_INPUT}
+          >
+            ${budgetCategoryOptions.map(
+              (option) => html`
+                <option key=${option.value} value=${option.value}>
+                  ${option.label}
+                </option>
+              `,
+            )}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="mb-2 block text-sm font-medium">Target (${currency})</span>
           <input
             type="text"
             inputMode="decimal"
@@ -9628,12 +9858,15 @@ function ToastMessage({ toast, onDismiss }) {
       "border-emerald-300/25 bg-emerald-500/14 text-emerald-900 shadow-[0_22px_60px_rgba(16,185,129,0.22)] dark:border-emerald-400/20 dark:bg-emerald-500/16 dark:text-emerald-100",
     info:
       "border-sky-300/25 bg-sky-500/14 text-sky-900 shadow-[0_22px_60px_rgba(14,165,233,0.20)] dark:border-sky-400/20 dark:bg-sky-500/16 dark:text-sky-100",
+    warning:
+      "border-amber-300/30 bg-amber-500/14 text-amber-900 shadow-[0_22px_60px_rgba(245,158,11,0.18)] dark:border-amber-400/20 dark:bg-amber-500/16 dark:text-amber-100",
     error:
       "border-rose-300/25 bg-rose-500/14 text-rose-900 shadow-[0_22px_60px_rgba(244,63,94,0.20)] dark:border-rose-400/20 dark:bg-rose-500/16 dark:text-rose-100",
   };
   const closeTone = {
     success: "text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-200",
     info: "text-sky-700 hover:bg-sky-500/10 dark:text-sky-200",
+    warning: "text-amber-700 hover:bg-amber-500/10 dark:text-amber-200",
     error: "text-rose-700 hover:bg-rose-500/10 dark:text-rose-200",
   };
 
@@ -10796,13 +11029,14 @@ function App() {
         record.amount_idr = record.base_amount;
         record.amount_thb = expenseCurrency === "THB" ? amount : null;
         record.category = payload.category;
-        record.category_group = UNIVERSAL_BUDGET_GROUP;
+        record.category_group = getDefaultGroupForCategory(payload.category);
         record.source_account_id = sourceAccountId;
       }
 
       const accountBalancePlan = buildAssetAccountBalancePlan(
         getTransactionAccountMovements(record),
       );
+      let savedTransaction = normalizeTransaction(record);
 
       if (mode === "demo") {
         await persistDemoTransactions([...transactions, record]);
@@ -10815,15 +11049,23 @@ function App() {
           .single();
         if (error) throw error;
         await persistAssetAccountBalancePlan(accountBalancePlan);
+        savedTransaction = normalizeTransaction(data);
         setTransactions((current) =>
-          orderTransactions([...current, normalizeTransaction(data)]),
+          orderTransactions([...current, savedTransaction]),
         );
       }
 
+      const budgetWarning = buildBudgetOverspendWarning(
+        savedTransaction,
+        [...transactions, savedTransaction],
+        budgets,
+        getBaseCurrency(),
+      );
       setMessage("Transaksi berhasil disimpan dan dashboard sudah diperbarui.");
       setMessageTone("success");
       setToast({
-        message: "Transaksi berhasil disimpan.",
+        message: budgetWarning?.message || "Transaksi berhasil disimpan.",
+        tone: budgetWarning ? "warning" : "success",
       });
       return true;
     } catch (error) {
@@ -10942,7 +11184,7 @@ function App() {
         const expenseCurrency = normalizeCurrencyCode(payload.expense_currency || payload.currency);
         const nextAmount = amount || amountIdr || amountThb;
         record.category = payload.category || DEFAULT_CATEGORY;
-        record.category_group = UNIVERSAL_BUDGET_GROUP;
+        record.category_group = getDefaultGroupForCategory(record.category);
 
         if (!nextAmount || nextAmount <= 0) {
           throw new Error(`Jumlah pengeluaran ${expenseCurrency} harus lebih besar dari 0.`);
@@ -10979,6 +11221,10 @@ function App() {
         ...transaction,
         ...record,
       });
+      const updatedTransaction = normalizeTransaction({
+        ...transaction,
+        ...record,
+      });
       const accountBalancePlan = buildAssetAccountBalancePlan(
         [
           ...getTransactionAccountMovements(transaction, { reverse: true }),
@@ -11005,18 +11251,31 @@ function App() {
           .single();
         if (error) throw error;
         await persistAssetAccountBalancePlan(accountBalancePlan);
+        const normalizedUpdated = normalizeTransaction(data);
         setTransactions((current) =>
           orderTransactions(
             current.map((item) =>
-              item.id === transaction.id ? normalizeTransaction(data) : item,
+              item.id === transaction.id ? normalizedUpdated : item,
             ),
           ),
         );
       }
 
+      const nextTransactionsForBudget = transactions.map((item) =>
+        item.id === transaction.id ? updatedTransaction : item,
+      );
+      const budgetWarning = buildBudgetOverspendWarning(
+        updatedTransaction,
+        nextTransactionsForBudget,
+        budgets,
+        getBaseCurrency(),
+      );
       setMessage("Transaksi berhasil diperbarui.");
       setMessageTone("success");
-      setToast({ message: "Transaksi diperbarui" });
+      setToast({
+        message: budgetWarning?.message || "Transaksi diperbarui",
+        tone: budgetWarning ? "warning" : "success",
+      });
       return true;
     } catch (error) {
       setMessage(error.message || "Gagal memperbarui transaksi.");
@@ -11076,16 +11335,18 @@ function App() {
 
       const budgetCurrency = normalizeCurrencyCode(payload.currency || getBaseCurrency());
       const limitAmount = Number(payload.limit_amount || payload.limit_thb);
-      const groupKey = UNIVERSAL_BUDGET_GROUP;
+      const category = normalizeBudgetCategory(payload.category, payload.group_key);
+      const groupKey = payload.group_key || getDefaultGroupForCategory(category);
+      const categoryKey = getBudgetCategoryKey(category, groupKey);
       if (!limitAmount || limitAmount <= 0) {
         throw new Error(`Batas anggaran ${budgetCurrency} harus lebih besar dari 0.`);
       }
 
       const existing = budgets.find(
         (item) =>
-            item.month_key === payload.month_key &&
-            item.group_key === groupKey &&
-            normalizeCurrencyCode(item.currency || getBaseCurrency()) === budgetCurrency,
+          item.month_key === payload.month_key &&
+          normalizeCurrencyCode(item.currency || getBaseCurrency()) === budgetCurrency &&
+          getBudgetCategoryKey(item.category, item.group_key) === categoryKey,
       );
 
       const record = {
@@ -11093,6 +11354,7 @@ function App() {
         user_id: user.id,
         month_key: payload.month_key,
         group_key: groupKey,
+        category,
         currency: budgetCurrency,
         limit_amount: limitAmount,
         created_at: existing?.created_at || new Date().toISOString(),
@@ -11104,21 +11366,28 @@ function App() {
             (item) =>
               !(
                 item.month_key === payload.month_key &&
-                item.group_key === groupKey &&
-                normalizeCurrencyCode(item.currency || getBaseCurrency()) === budgetCurrency
+                normalizeCurrencyCode(item.currency || getBaseCurrency()) === budgetCurrency &&
+                getBudgetCategoryKey(item.category, item.group_key) === categoryKey
               ),
           ),
           record,
         ];
         await persistDemoBudgets(next);
       } else {
-        const { data, error } = await supabase
-          .from("budgets")
-          .upsert(record, {
-            onConflict: "user_id,month_key,group_key,currency",
-          })
-          .select()
-          .single();
+        const query = existing?.id
+          ? supabase
+              .from("budgets")
+              .update({
+                month_key: record.month_key,
+                group_key: record.group_key,
+                category: record.category,
+                currency: record.currency,
+                limit_amount: record.limit_amount,
+              })
+              .eq("id", existing.id)
+              .eq("user_id", user.id)
+          : supabase.from("budgets").insert(record);
+        const { data, error } = await query.select().single();
         if (error) throw error;
 
         setBudgets((current) => {
@@ -11130,7 +11399,7 @@ function App() {
         });
       }
 
-      setMessage("Anggaran berhasil disimpan.");
+      setMessage(`Anggaran ${getBudgetCategoryLabel(category, groupKey)} berhasil disimpan.`);
       setMessageTone("success");
       return true;
     } catch (error) {
@@ -11144,7 +11413,7 @@ function App() {
 
   async function handleDeleteBudget(budget) {
     const confirmation = window.confirm(
-      `Hapus anggaran ${budget.currency || getBaseCurrency()} untuk ${formatMonthKey(budget.month_key)}?`,
+      `Hapus anggaran ${budget.categoryLabel || getBudgetCategoryLabel(budget.category, budget.group_key)} untuk ${formatMonthKey(budget.month_key)}?`,
     );
     if (!confirmation) return;
 
@@ -11942,6 +12211,7 @@ function App() {
                 dailyCurrency=${dailyExpenseCurrency}
                 baseCurrency=${walletBaseCurrency}
                 assetAccounts=${assetAccounts}
+                budgetInsights=${metrics.budgetInsights}
               />
             </section>
           `

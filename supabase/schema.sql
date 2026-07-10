@@ -116,6 +116,10 @@ create index if not exists transactions_user_time_idx
 create index if not exists transactions_user_group_idx
   on public.transactions (user_id, category_group, occurred_at desc);
 
+create index if not exists transactions_user_category_time_idx
+  on public.transactions (user_id, category, occurred_at desc)
+  where type = 'expense';
+
 create index if not exists transactions_user_type_currency_time_idx
   on public.transactions (user_id, type, currency, occurred_at desc);
 
@@ -170,6 +174,7 @@ create table if not exists public.budgets (
   user_id uuid not null references auth.users (id) on delete cascade,
   month_key text not null,
   group_key text not null check (group_key in ('needs', 'wants', 'invest')),
+  category text,
   currency text not null default 'IDR',
   limit_amount numeric(18, 4) not null check (limit_amount >= 0),
 
@@ -179,6 +184,7 @@ create table if not exists public.budgets (
 );
 
 alter table public.budgets
+  add column if not exists category text,
   add column if not exists currency text,
   add column if not exists limit_amount numeric(18, 4);
 
@@ -187,6 +193,10 @@ set
   currency = coalesce(currency, 'THB'),
   limit_amount = coalesce(limit_amount, limit_thb, 0)
 where currency is null or limit_amount is null;
+
+update public.budgets
+set category = coalesce(nullif(trim(category), ''), group_key)
+where category is null or trim(category) = '';
 
 alter table public.budgets
   alter column currency set default 'IDR',
@@ -198,12 +208,25 @@ alter table public.budgets
   alter column limit_amount set not null;
 
 drop index if exists budgets_user_month_group_idx;
+drop index if exists budgets_user_month_group_currency_idx;
 
-create unique index if not exists budgets_user_month_group_currency_idx
-  on public.budgets (user_id, month_key, group_key, currency);
+create unique index if not exists budgets_user_month_category_currency_idx
+  on public.budgets (
+    user_id,
+    month_key,
+    currency,
+    lower(trim(coalesce(category, group_key)))
+  );
 
 create index if not exists budgets_user_currency_month_idx
   on public.budgets (user_id, currency, month_key desc);
+
+create index if not exists budgets_user_category_month_idx
+  on public.budgets (
+    user_id,
+    lower(trim(coalesce(category, group_key))),
+    month_key desc
+  );
 
 do $$
 begin
