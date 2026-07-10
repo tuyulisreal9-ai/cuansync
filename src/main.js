@@ -40,6 +40,7 @@ const STORAGE_KEYS = {
   balanceVisible: "monefy-balance-visible",
   hideBalances: "cuansync-hide-balances",
   currencySettings: "monefy-currency-settings",
+  transactionFabHintDismissed: "cuansync-transaction-fab-hint-dismissed",
   globalExchangeRates: GLOBAL_EXCHANGE_RATES_STORAGE_KEY,
 };
 
@@ -9656,9 +9657,8 @@ function ToastMessage({ toast, onDismiss }) {
 }
 
 const DESKTOP_NAV_TABS = [
-  { key: "today", label: "Hari Ini" },
-  { key: "history", label: "Riwayat" },
   { key: "overview", label: "Keuangan" },
+  { key: "history", label: "Riwayat" },
   { key: "investment", label: "Aset" },
   { key: "settings", label: "Pengaturan" },
 ];
@@ -9666,7 +9666,7 @@ const DESKTOP_NAV_TABS = [
 function getDesktopActiveTab(activeTab) {
   if (activeTab === "report") return "investment";
   if (activeTab === "budget") return "overview";
-  if (activeTab === "add") return "today";
+  if (activeTab === "add" || activeTab === "today") return "overview";
   return activeTab;
 }
 
@@ -9675,7 +9675,7 @@ function DesktopTopTabs({ activeTab, onChange }) {
 
   return html`
     <nav className="mt-4 hidden items-center justify-center rounded-[28px] border border-slate-200/70 bg-white/64 p-1.5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/58 dark:shadow-black/22 lg:flex">
-      <div className="grid w-full grid-cols-5 gap-1">
+      <div className="grid w-full grid-cols-4 gap-1">
         ${DESKTOP_NAV_TABS.map((tab) => {
           const active = activeKey === tab.key;
           return html`
@@ -9751,8 +9751,7 @@ function DesktopRightPanel({
     : "-";
   const walletRows = assetAccounts.slice(0, 5);
   const quickActions = [
-    { label: "Pengeluaran", target: "today" },
-    { label: "Pemasukan", target: "add" },
+    { label: "Transaksi", target: "add" },
     { label: "Exchange", target: "add" },
     { label: "Wallet", target: "investment" },
   ];
@@ -9870,9 +9869,7 @@ function DesktopRightPanel({
 
 function MobileBottomNav({ activeTab, onChange }) {
   const items = [
-    { key: "today", label: "Hari Ini" },
     { key: "overview", label: "Kontrol" },
-    { key: "add", label: "Tambah", featured: true },
     { key: "history", label: "Riwayat" },
     { key: "investment", label: "Keuangan" },
   ];
@@ -9883,40 +9880,65 @@ function MobileBottomNav({ activeTab, onChange }) {
       style=${{ bottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
     >
       <div
-        className=${`grid grid-cols-5 items-end gap-1 rounded-[26px] p-1.5 transition duration-300 ease-out ${navSurface}`}
+        className=${`grid grid-cols-3 items-end gap-1 rounded-[26px] p-1.5 transition duration-300 ease-out ${navSurface}`}
       >
         ${items.map((item) => {
           const active =
             activeTab === item.key ||
             (activeTab === "report" && item.key === "investment");
-          const featuredClass = item.featured
-            ? active
-              ? "-mt-5 min-h-[4rem] bg-brand-600 text-white shadow-[0_18px_42px_rgba(16,185,129,0.34)] dark:bg-emerald-500 dark:text-white"
-              : "-mt-5 min-h-[4rem] bg-brand-600 text-white shadow-[0_18px_42px_rgba(16,185,129,0.28)] hover:bg-brand-700 dark:bg-emerald-500 dark:text-white dark:hover:bg-emerald-400"
-            : active
-              ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.26)] dark:bg-emerald-500 dark:text-white"
-              : "text-slate-500 hover:bg-slate-900/[0.05] hover:text-slate-950 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-white";
+          const tabClass = active
+            ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.26)] dark:bg-emerald-500 dark:text-white"
+            : "text-slate-500 hover:bg-slate-900/[0.05] hover:text-slate-950 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-white";
           return html`
             <button
               key=${item.key}
               type="button"
               aria-current=${active ? "page" : undefined}
               onClick=${() => onChange(item.key)}
-              className=${`flex min-h-[3.25rem] min-w-0 flex-col items-center justify-center rounded-[20px] px-1 text-[9px] font-bold transition duration-300 ease-out min-[390px]:text-[10px] ${featuredClass}`}
+              className=${`flex min-h-[3.25rem] min-w-0 flex-col items-center justify-center rounded-[20px] px-1 text-[9px] font-bold transition duration-300 ease-out min-[390px]:text-[10px] ${tabClass}`}
             >
-              ${item.featured
-                ? html`
-                    <span className="mb-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-white/18 text-lg leading-none">
-                      +
-                    </span>
-                  `
-                : null}
               <span className="truncate">${item.label}</span>
             </button>
           `;
         })}
       </div>
     </nav>
+  `;
+}
+
+function FloatingTransactionButton({ visible = true, showHint = false, onClick, onDismissHint }) {
+  if (!visible) return null;
+
+  return html`
+    <div className="fixed inset-x-0 z-50 flex justify-center px-4 lg:justify-end lg:px-8" style=${{ bottom: "calc(5.9rem + env(safe-area-inset-bottom))" }}>
+      <div className="relative flex flex-col items-center lg:items-end">
+        ${showHint
+          ? html`
+              <div className="mb-3 w-[min(18rem,calc(100vw-2rem))] rounded-[22px] border border-brand-300/30 bg-white/94 p-3 text-slate-950 shadow-[0_24px_70px_rgba(15,23,42,0.18)] backdrop-blur-2xl dark:border-emerald-300/20 dark:bg-slate-950/94 dark:text-white dark:shadow-black/40">
+                <p className="text-sm font-black">Catat transaksi di sini</p>
+                <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
+                  Tekan tombol + untuk menambah pemasukan, pengeluaran, atau exchange.
+                </p>
+                <button
+                  type="button"
+                  onClick=${onDismissHint}
+                  className="mt-2 min-h-8 rounded-xl bg-brand-600 px-3 text-xs font-black text-white transition hover:bg-brand-700 dark:bg-emerald-500"
+                >
+                  Oke
+                </button>
+              </div>
+            `
+          : null}
+        <button
+          type="button"
+          aria-label="Catat transaksi"
+          onClick=${onClick}
+          className="flex h-16 min-h-16 w-16 items-center justify-center rounded-full bg-brand-600 text-4xl font-black leading-none text-white shadow-[0_22px_54px_rgba(16,185,129,0.34)] transition duration-300 hover:-translate-y-0.5 hover:bg-brand-700 focus:outline-none focus:ring-4 focus:ring-emerald-300/45 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+        >
+          +
+        </button>
+      </div>
+    </div>
   `;
 }
 
@@ -9943,7 +9965,7 @@ function App() {
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState("info");
   const [toast, setToast] = useState(null);
-  const [activeTab, setActiveTab] = useState("today");
+  const [activeTab, setActiveTab] = useState("overview");
   const [reportMonthKey, setReportMonthKey] = useState(getMonthKey(new Date()));
   const [balanceVisible, setBalanceVisible] = useState(() =>
     readBalanceVisiblePreference(),
@@ -9959,6 +9981,9 @@ function App() {
   );
   const [selectedWalletCurrency, setSelectedWalletCurrency] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [transactionFabHintDismissed, setTransactionFabHintDismissed] = useState(() =>
+    Boolean(readAppStorage("transactionFabHintDismissed", false)),
+  );
 
   const supabaseReady = Boolean(supabase);
   setRuntimeCurrencySettings(currencySettings);
@@ -11666,9 +11691,7 @@ function App() {
   const menuProfileCardClass =
     "cuan-menu-card flex items-center gap-3 rounded-2xl p-3";
   const navigationTabs = [
-    { key: "today", label: "Hari Ini" },
     { key: "overview", label: "Kontrol" },
-    { key: "add", label: "Tambah" },
     { key: "history", label: "Riwayat" },
     { key: "investment", label: "Keuangan" },
     { key: "settings", label: "Pengaturan" },
@@ -11845,8 +11868,22 @@ function App() {
   }
 
   function navigateAppTab(tab) {
+    if (tab === "add") {
+      setTransactionFabHintDismissed(true);
+      writeAppStorage("transactionFabHintDismissed", true);
+    }
     setActiveTab(tab);
     setMenuOpen(false);
+  }
+
+  function dismissTransactionFabHint() {
+    setTransactionFabHintDismissed(true);
+    writeAppStorage("transactionFabHintDismissed", true);
+  }
+
+  function openTransactionForm() {
+    dismissTransactionFabHint();
+    navigateAppTab("add");
   }
 
   const recentTodayTransactions = orderTransactions(transactions)
@@ -12082,6 +12119,12 @@ function App() {
           />
         </div>
       </div>
+      <${FloatingTransactionButton}
+        visible=${activeTab !== "add"}
+        showHint=${!transactionFabHintDismissed && activeTab !== "add"}
+        onClick=${openTransactionForm}
+        onDismissHint=${dismissTransactionFabHint}
+      />
       <${MobileBottomNav}
         activeTab=${activeTab}
         onChange=${navigateAppTab}
