@@ -10143,7 +10143,7 @@ function FloatingTransactionButton({ visible = true, showHint = false, onClick, 
   if (!visible) return null;
 
   return html`
-    <div className="fixed right-5 z-50 flex justify-end md:right-7 lg:right-8" style=${{ bottom: "calc(5.35rem + env(safe-area-inset-bottom))" }}>
+    <div className="fixed right-5 z-50 flex justify-end md:right-7 lg:hidden" style=${{ bottom: "calc(5.35rem + env(safe-area-inset-bottom))" }}>
       <div className="relative flex flex-col items-end">
         ${showHint
           ? html`
