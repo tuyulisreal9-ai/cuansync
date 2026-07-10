@@ -4590,28 +4590,30 @@ function ControlBudgetHub({
 
         ${starterCategories.length
           ? html`
-              <div className="rounded-[20px] border border-brand-300/15 bg-brand-500/8 p-3 dark:border-brand-300/15 dark:bg-brand-500/8">
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-brand-700 dark:text-brand-200">
-                  Kategori awal
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  ${starterCategories.map((item) => {
-                    const active = starterCategory === item.value;
-                    return html`
-                      <button
-                        key=${item.value}
-                        type="button"
-                        onClick=${() => setStarterCategory(item.value)}
-                        className=${`inline-flex min-h-9 items-center rounded-full border px-3 py-1.5 text-xs font-black leading-none transition ${
-                          active
-                            ? "border-brand-300/50 bg-brand-600 text-white shadow-[0_12px_28px_rgba(16,185,129,0.22)]"
-                            : "border-brand-300/15 bg-slate-950/5 text-slate-700 hover:bg-brand-500/12 dark:border-white/10 dark:bg-white/7 dark:text-slate-200 dark:hover:bg-white/12"
-                        }`}
-                      >
-                        ${item.label}
-                      </button>
-                    `;
-                  })}
+              <div className="border-y border-slate-200/65 py-3 dark:border-white/10">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <p className="shrink-0 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                    Kategori awal
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    ${starterCategories.map((item) => {
+                      const active = starterCategory === item.value;
+                      return html`
+                        <button
+                          key=${item.value}
+                          type="button"
+                          onClick=${() => setStarterCategory(item.value)}
+                          className=${`inline-flex min-h-9 items-center rounded-full border px-3 py-1.5 text-xs font-black leading-none transition ${
+                            active
+                              ? "border-brand-300/55 bg-brand-500/18 text-brand-800 shadow-[0_10px_24px_rgba(16,185,129,0.14)] dark:bg-brand-400/16 dark:text-brand-100"
+                              : "border-slate-200/70 bg-white/48 text-slate-700 hover:border-brand-300/35 hover:bg-brand-500/10 dark:border-white/10 dark:bg-white/6 dark:text-slate-300 dark:hover:bg-white/10"
+                          }`}
+                        >
+                          ${item.label}
+                        </button>
+                      `;
+                    })}
+                  </div>
                 </div>
               </div>
             `
