@@ -199,12 +199,7 @@ export function shouldAutoStartOnboarding(state, checklistItems) {
     return false;
   }
   if (state.status === "active") return true;
-  if (state.startedAt) return false;
-
-  const hasCoreProgress = checklistItems.some(
-    (item) => item.id !== "base_currency" && item.completed,
-  );
-  return !hasCoreProgress;
+  return !state.startedAt;
 }
 
 export function isChecklistComplete(items) {
