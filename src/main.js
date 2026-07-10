@@ -10166,9 +10166,12 @@ function FloatingTransactionButton({ visible = true, showHint = false, onClick, 
           type="button"
           aria-label="Catat transaksi"
           onClick=${onClick}
-          className="flex h-12 min-h-12 w-12 items-center justify-center rounded-full bg-brand-600 text-3xl font-black leading-none text-white shadow-[0_16px_38px_rgba(16,185,129,0.30)] transition duration-300 hover:-translate-y-0.5 hover:bg-brand-700 focus:outline-none focus:ring-4 focus:ring-emerald-300/45 dark:bg-emerald-500 dark:hover:bg-emerald-400"
+          className="flex min-h-11 items-center gap-2 rounded-full bg-brand-600 px-4 py-2 text-sm font-black text-white shadow-[0_16px_38px_rgba(16,185,129,0.28)] transition duration-300 hover:-translate-y-0.5 hover:bg-brand-700 focus:outline-none focus:ring-4 focus:ring-emerald-300/45 dark:bg-emerald-500 dark:hover:bg-emerald-400"
         >
-          +
+          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/18 text-xl leading-none">
+            +
+          </span>
+          <span>Transaksi</span>
         </button>
       </div>
     </div>
