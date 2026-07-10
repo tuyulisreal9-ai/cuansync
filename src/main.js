@@ -4318,9 +4318,7 @@ function ControlPriorityPanel({ alert, action, onNavigate }) {
   function handleAction() {
     if (!action) return;
     if (action.target === "control-budget") {
-      document
-        .getElementById("control-budget-section")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+      onNavigate("budget");
       return;
     }
     onNavigate(action.target);
@@ -4357,6 +4355,65 @@ function ControlPriorityPanel({ alert, action, onNavigate }) {
   `;
 }
 
+function ControlBudgetSummary({ metrics, selectedCurrency, onOpenBudget }) {
+  const selectedBudgets = metrics.budgetInsights.filter(
+    (item) => item.currency === selectedCurrency,
+  );
+  const targetTotal = selectedBudgets.reduce(
+    (sum, item) => sum + Number(item.limitAmount || 0),
+    0,
+  );
+  const spentTotal = selectedBudgets.reduce(
+    (sum, item) => sum + Number(item.spentAmount || 0),
+    0,
+  );
+  const remainingTotal = targetTotal - spentTotal;
+  const overCount = selectedBudgets.filter((item) => item.status === "over").length;
+
+  return html`
+    <section className=${`${PREMIUM_PANEL_SOFT} p-5 md:p-6`}>
+      <div className="relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
+            Anggaran
+          </p>
+          <h3 className="mt-2 font-display text-xl font-black text-slate-950 dark:text-white">
+            Anggaran bulan ini
+          </h3>
+          <p className="mt-1 max-w-xl text-sm leading-6 text-slate-600 dark:text-slate-300/80">
+            Pantau batas kategori tanpa memenuhi halaman Kontrol.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick=${() => onOpenBudget("budget")}
+          className="history-action-primary min-h-12 rounded-2xl px-5 py-3 text-sm font-black"
+        >
+          Atur anggaran
+        </button>
+      </div>
+
+      <div className="relative mt-4 grid grid-cols-3 gap-2">
+        <${ControlMetric}
+          label="Target"
+          value=${targetTotal > 0 ? formatCurrency(targetTotal, selectedCurrency) : "-"}
+          helper=${selectedBudgets.length ? `${selectedBudgets.length} kategori` : "Belum diatur"}
+        />
+        <${ControlMetric}
+          label="Terpakai"
+          value=${spentTotal > 0 ? formatCurrency(spentTotal, selectedCurrency) : "-"}
+          helper="Bulan ini"
+        />
+        <${ControlMetric}
+          label=${remainingTotal < 0 ? "Lewat" : "Sisa"}
+          value=${targetTotal > 0 ? formatCurrency(Math.abs(remainingTotal), selectedCurrency) : "-"}
+          helper=${overCount ? `${overCount} kategori lewat` : "Aman"}
+        />
+      </div>
+    </section>
+  `;
+}
+
 function ControlCenterEmptyState({ onNavigate }) {
   return html`
     <section className=${`${PREMIUM_PANEL} p-6 text-center md:p-8`}>
@@ -4380,6 +4437,90 @@ function ControlCenterEmptyState({ onNavigate }) {
   `;
 }
 
+function BudgetWorkspacePage({
+  metrics,
+  activeCurrencies = metrics.activeCurrencies || getActiveCurrencies(),
+  onBudgetDelete,
+  onBudgetSubmit,
+  loading = false,
+}) {
+  const normalizedCurrencies = normalizeCurrencyList(activeCurrencies);
+  const defaultCurrency = normalizeCurrencyCode(
+    metrics?.currencySettings?.baseCurrency || getBaseCurrency(),
+  );
+  const [selectedCurrency, setSelectedCurrency] = useState(
+    normalizedCurrencies.includes(defaultCurrency)
+      ? defaultCurrency
+      : normalizedCurrencies[0],
+  );
+  const selectedBudgets = metrics.budgetInsights.filter(
+    (item) => item.currency === selectedCurrency,
+  );
+  const targetTotal = selectedBudgets.reduce(
+    (sum, item) => sum + Number(item.limitAmount || 0),
+    0,
+  );
+  const spentTotal = selectedBudgets.reduce(
+    (sum, item) => sum + Number(item.spentAmount || 0),
+    0,
+  );
+  const remainingTotal = targetTotal - spentTotal;
+
+  useEffect(() => {
+    if (!normalizedCurrencies.includes(selectedCurrency)) {
+      setSelectedCurrency(normalizedCurrencies[0]);
+    }
+  }, [normalizedCurrencies.join("|"), selectedCurrency]);
+
+  return html`
+    <div className="grid gap-4">
+      <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
+        <div className="relative grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-500 dark:text-slate-400">
+              Anggaran
+            </p>
+            <h2 className="mt-3 font-display text-3xl font-black tracking-[-0.04em] text-slate-950 dark:text-white md:text-4xl">
+              Atur kategori bulan ini
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 dark:text-slate-300">
+              Mulai dari kategori penting. Nanti kamu bisa tambah kebutuhan lain sesuai pola hidupmu.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 md:min-w-[24rem]">
+            <${ControlMetric}
+              label="Target"
+              value=${targetTotal > 0 ? formatCurrency(targetTotal, selectedCurrency) : "-"}
+              helper=${selectedBudgets.length ? `${selectedBudgets.length} kategori` : "Belum diatur"}
+            />
+            <${ControlMetric}
+              label="Terpakai"
+              value=${spentTotal > 0 ? formatCurrency(spentTotal, selectedCurrency) : "-"}
+              helper=${metrics.currentMonthLabel}
+            />
+            <${ControlMetric}
+              label=${remainingTotal < 0 ? "Lewat" : "Tersisa"}
+              value=${targetTotal > 0 ? formatCurrency(Math.abs(remainingTotal), selectedCurrency) : "-"}
+              helper=${remainingTotal < 0 ? "Perlu dicek" : "Aman"}
+            />
+          </div>
+        </div>
+      </section>
+
+      <${ControlBudgetHub}
+        metrics=${metrics}
+        activeCurrencies=${normalizedCurrencies}
+        selectedCurrency=${selectedCurrency}
+        onCurrencyChange=${setSelectedCurrency}
+        loading=${loading}
+        onBudgetDelete=${onBudgetDelete}
+        onBudgetSubmit=${onBudgetSubmit}
+      />
+    </div>
+  `;
+}
+
 function ControlBudgetHub({
   metrics,
   activeCurrencies,
@@ -4389,9 +4530,16 @@ function ControlBudgetHub({
   onBudgetDelete,
   onBudgetSubmit,
 }) {
+  const [starterCategory, setStarterCategory] = useState(DEFAULT_CATEGORY);
   const selectedBudgets = metrics.budgetInsights.filter(
     (item) => item.currency === selectedCurrency,
   );
+  const budgetedCategoryKeys = new Set(
+    selectedBudgets.map((item) => item.categoryKey),
+  );
+  const starterCategories = CATEGORY_OPTIONS.filter(
+    (item) => !budgetedCategoryKeys.has(getBudgetCategoryKey(item.value)),
+  ).slice(0, 8);
   const budgetTargetTotal = selectedBudgets.reduce(
     (sum, item) => sum + Number(item.limitAmount || 0),
     0,
@@ -4440,6 +4588,35 @@ function ControlBudgetHub({
             : null}
         </div>
 
+        ${starterCategories.length
+          ? html`
+              <div className="rounded-[22px] border border-slate-200/70 bg-white/50 p-3 dark:border-white/10 dark:bg-slate-950/28">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                  Kategori awal
+                </p>
+                <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                  ${starterCategories.map((item) => {
+                    const active = starterCategory === item.value;
+                    return html`
+                      <button
+                        key=${item.value}
+                        type="button"
+                        onClick=${() => setStarterCategory(item.value)}
+                        className=${`shrink-0 rounded-full border px-3 py-2 text-xs font-black transition ${
+                          active
+                            ? "border-brand-400/40 bg-brand-600 text-white shadow-[0_12px_28px_rgba(16,185,129,0.20)]"
+                            : "border-slate-200/70 bg-white/60 text-slate-700 hover:bg-white dark:border-white/10 dark:bg-slate-900/40 dark:text-slate-200 dark:hover:bg-white/10"
+                        }`}
+                      >
+                        ${item.label}
+                      </button>
+                    `;
+                  })}
+                </div>
+              </div>
+            `
+          : null}
+
         <${BudgetForm}
           onSubmit=${onBudgetSubmit}
           loading=${loading}
@@ -4447,6 +4624,7 @@ function ControlBudgetHub({
           currency=${selectedCurrency}
           activeCurrencies=${activeCurrencies}
           onCurrencyChange=${onCurrencyChange}
+          initialCategory=${starterCategory}
           embedded=${true}
         />
 
@@ -4548,14 +4726,10 @@ function ControlCenterPage({
     return html`
       <div className="grid gap-4">
         <${ControlCenterEmptyState} onNavigate=${onNavigate} />
-        <${ControlBudgetHub}
+        <${ControlBudgetSummary}
           metrics=${metrics}
-          activeCurrencies=${normalizedCurrencies}
           selectedCurrency=${control.currency}
-          onCurrencyChange=${setSelectedCurrency}
-          loading=${loading}
-          onBudgetDelete=${onBudgetDelete}
-          onBudgetSubmit=${onBudgetSubmit}
+          onOpenBudget=${onNavigate}
         />
       </div>
     `;
@@ -4574,14 +4748,10 @@ function ControlCenterPage({
         action=${control.nextActions[0]}
         onNavigate=${onNavigate}
       />
-      <${ControlBudgetHub}
+      <${ControlBudgetSummary}
         metrics=${metrics}
-        activeCurrencies=${normalizedCurrencies}
         selectedCurrency=${control.currency}
-        onCurrencyChange=${setSelectedCurrency}
-        loading=${loading}
-        onBudgetDelete=${onBudgetDelete}
-        onBudgetSubmit=${onBudgetSubmit}
+        onOpenBudget=${onNavigate}
       />
     </div>
   `;
@@ -9070,11 +9240,12 @@ function BudgetForm({
   currency: initialCurrency = getBaseCurrency(),
   activeCurrencies = getActiveCurrencies(),
   onCurrencyChange = null,
+  initialCategory = DEFAULT_CATEGORY,
   embedded = false,
 }) {
   const [monthKey, setMonthKey] = useState(currentMonthKey);
   const [currency, setCurrency] = useState(normalizeCurrencyCode(initialCurrency));
-  const [category, setCategory] = useState(DEFAULT_CATEGORY);
+  const [category, setCategory] = useState(initialCategory);
   const [limitAmount, setLimitAmount] = useState("");
   const normalizedActiveCurrencies = normalizeCurrencyList(activeCurrencies);
   const currencyOptions = getCurrencyOptions(normalizedActiveCurrencies);
@@ -9086,6 +9257,10 @@ function BudgetForm({
   useEffect(() => {
     setMonthKey(currentMonthKey);
   }, [currentMonthKey]);
+
+  useEffect(() => {
+    setCategory(initialCategory || DEFAULT_CATEGORY);
+  }, [initialCategory]);
 
   useEffect(() => {
     const nextCurrency = normalizeCurrencyCode(initialCurrency);
@@ -9890,15 +10065,15 @@ function ToastMessage({ toast, onDismiss }) {
 }
 
 const DESKTOP_NAV_TABS = [
-  { key: "overview", label: "Keuangan" },
+  { key: "overview", label: "Kontrol" },
   { key: "history", label: "Riwayat" },
+  { key: "budget", label: "Anggaran" },
   { key: "investment", label: "Aset" },
   { key: "settings", label: "Pengaturan" },
 ];
 
 function getDesktopActiveTab(activeTab) {
   if (activeTab === "report") return "investment";
-  if (activeTab === "budget") return "overview";
   if (activeTab === "add" || activeTab === "today") return "overview";
   return activeTab;
 }
@@ -9908,7 +10083,7 @@ function DesktopTopTabs({ activeTab, onChange }) {
 
   return html`
     <nav className="mt-4 hidden items-center justify-center rounded-[28px] border border-slate-200/70 bg-white/64 p-1.5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/58 dark:shadow-black/22 lg:flex">
-      <div className="grid w-full grid-cols-4 gap-1">
+      <div className="grid w-full grid-cols-5 gap-1">
         ${DESKTOP_NAV_TABS.map((tab) => {
           const active = activeKey === tab.key;
           return html`
@@ -9985,7 +10160,6 @@ function DesktopRightPanel({
   const walletRows = assetAccounts.slice(0, 5);
   const quickActions = [
     { label: "Transaksi", target: "add" },
-    { label: "Exchange", target: "add" },
     { label: "Wallet", target: "investment" },
   ];
 
@@ -10104,6 +10278,7 @@ function MobileBottomNav({ activeTab, onChange }) {
   const items = [
     { key: "overview", label: "Kontrol" },
     { key: "history", label: "Riwayat" },
+    { key: "budget", label: "Anggaran" },
     { key: "investment", label: "Keuangan" },
   ];
 
@@ -10113,7 +10288,7 @@ function MobileBottomNav({ activeTab, onChange }) {
       style=${{ bottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
     >
       <div
-        className=${`grid grid-cols-3 items-end gap-1 rounded-[26px] p-1.5 transition duration-300 ease-out ${navSurface}`}
+        className=${`grid grid-cols-4 items-end gap-1 rounded-[26px] p-1.5 transition duration-300 ease-out ${navSurface}`}
       >
         ${items.map((item) => {
           const active =
@@ -10326,15 +10501,30 @@ function App() {
 
     let active = true;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!active) return;
-      const sessionUser = data.session?.user || null;
+    const applySessionUser = (sessionUser) => {
       if (sessionUser) {
+        const ownerId = getCurrencySettingsOwnerId(sessionUser);
+        const cachedSettings = readCurrencySettings(ownerId);
+        setCurrencySettings(cachedSettings);
+        setRuntimeCurrencySettings(cachedSettings);
+        if (cachedSettings) {
+          const cachedProfile = readLocalProfile(sessionUser, cachedSettings);
+          setProfile(cachedProfile);
+          setTheme(cachedProfile.theme_mode);
+          setBalanceVisible(!cachedProfile.hide_balances);
+        }
+      } else {
         setCurrencySettings(null);
         setRuntimeCurrencySettings(null);
       }
       setUser(sessionUser);
       setMode(sessionUser ? "supabase" : "signed-out");
+    };
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return;
+      const sessionUser = data.session?.user || null;
+      applySessionUser(sessionUser);
     });
 
     const {
@@ -10342,12 +10532,7 @@ function App() {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
       const sessionUser = session?.user || null;
-      if (sessionUser) {
-        setCurrencySettings(null);
-        setRuntimeCurrencySettings(null);
-      }
-      setUser(sessionUser);
-      setMode(sessionUser ? "supabase" : "signed-out");
+      applySessionUser(sessionUser);
     });
 
     return () => {
@@ -10403,8 +10588,11 @@ function App() {
       }
 
       const ownerId = getCurrencySettingsOwnerId(user);
-      setCurrencySettings(null);
-      setRuntimeCurrencySettings(null);
+      const cachedSettings = readCurrencySettings(ownerId);
+      if (cachedSettings) {
+        setCurrencySettings((current) => current || cachedSettings);
+        setRuntimeCurrencySettings(cachedSettings);
+      }
       setLoading(true);
       const [
         transactionResult,
@@ -11965,6 +12153,7 @@ function App() {
   const navigationTabs = [
     { key: "overview", label: "Kontrol" },
     { key: "history", label: "Riwayat" },
+    { key: "budget", label: "Anggaran" },
     { key: "investment", label: "Keuangan" },
     { key: "settings", label: "Pengaturan" },
   ];
@@ -12189,17 +12378,13 @@ function App() {
       `
     : activeTab === "budget"
       ? html`
-          <section className="grid gap-6">
-            <${BudgetForm}
-              onSubmit=${handleSaveBudget}
+          <section>
+            <${BudgetWorkspacePage}
+              metrics=${metrics}
+              activeCurrencies=${dashboardActiveCurrencies}
               loading=${loading}
-              currentMonthKey=${metrics.currentMonthKey}
-            />
-            <${BudgetTracker}
-              budgets=${metrics.budgetInsights}
-              monthLabel=${metrics.currentMonthLabel}
-              onDelete=${handleDeleteBudget}
-              onCreateBudget=${() => navigateAppTab("overview")}
+              onBudgetDelete=${handleDeleteBudget}
+              onBudgetSubmit=${handleSaveBudget}
             />
           </section>
         `
