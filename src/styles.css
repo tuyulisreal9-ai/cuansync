@@ -122,38 +122,6 @@ select optgroup {
   backdrop-filter: blur(24px);
 }
 
-.onboarding-target-active {
-  position: relative;
-  z-index: 2;
-  outline: 2px solid rgba(16, 185, 129, 0.72);
-  outline-offset: 4px;
-  box-shadow:
-    0 0 0 6px rgba(16, 185, 129, 0.14),
-    0 24px 70px rgba(16, 185, 129, 0.16);
-  transition:
-    outline-color 180ms ease,
-    box-shadow 180ms ease;
-}
-
-.onboarding-checklist-card {
-  border: 1px solid rgba(203, 213, 225, 0.72);
-  background: rgba(255, 255, 255, 0.84);
-  box-shadow: 0 20px 56px rgba(15, 23, 42, 0.1);
-  backdrop-filter: blur(20px);
-}
-
-:root.dark .onboarding-checklist-card {
-  border-color: rgba(255, 255, 255, 0.1);
-  background: rgba(15, 23, 42, 0.74);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.34);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .onboarding-target-active {
-    transition: none;
-  }
-}
-
 .wallet-bottom-sheet,
 .settings-bottom-sheet {
   animation: wallet-sheet-up 220ms cubic-bezier(0.22, 1, 0.36, 1) both;

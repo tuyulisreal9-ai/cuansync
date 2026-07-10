@@ -1,12 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from "https://esm.sh/react@18.3.1";
+import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.3.1";
 import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 import htm from "https://esm.sh/htm@3.1.1";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.50.0";
 import { APP_NAME, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
-import {
-  GuidedOnboardingOverlay,
-  OnboardingChecklistCard,
-} from "./components/onboarding.js";
 import {
   DEFAULT_ACTIVE_CURRENCIES,
   DEFAULT_BASE_CURRENCY,
@@ -29,19 +25,6 @@ import {
   isGlobalRateSnapshotFresh,
   normalizeGlobalRateSnapshot,
 } from "./lib/exchangeRates.js";
-import {
-  ONBOARDING_EVENTS,
-  ONBOARDING_STEPS,
-  buildOnboardingChecklist,
-  getCompletedChecklistIds,
-  getDefaultOnboardingState,
-  isChecklistComplete,
-  patchOnboardingState,
-  readOnboardingState,
-  shouldAutoStartOnboarding,
-  trackOnboardingEvent,
-  writeOnboardingState,
-} from "./lib/onboarding.js";
 
 const html = htm.bind(React.createElement);
 
@@ -1117,7 +1100,7 @@ function WalletHeader({
 
   return html`
     <${React.Fragment}>
-    <header data-onboarding-target="wallet-header" className=${`wallet-header relative isolate overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/88 px-4 ${compact ? "pb-3 lg:pb-3" : "pb-4 lg:pb-3"} pt-[calc(1rem+env(safe-area-inset-top))] text-slate-950 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur-2xl md:px-5 lg:px-5 lg:pt-3 dark:border-white/10 dark:bg-slate-950/75 dark:text-white dark:shadow-[0_22px_70px_rgba(0,0,0,0.38)]`}>
+    <header className=${`wallet-header relative isolate overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/88 px-4 ${compact ? "pb-3 lg:pb-3" : "pb-4 lg:pb-3"} pt-[calc(1rem+env(safe-area-inset-top))] text-slate-950 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur-2xl md:px-5 lg:px-5 lg:pt-3 dark:border-white/10 dark:bg-slate-950/75 dark:text-white dark:shadow-[0_22px_70px_rgba(0,0,0,0.38)]`}>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-300/70 to-transparent dark:via-cyan-200/35"></div>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.10),transparent_40%,rgba(34,211,238,0.08))] dark:bg-[linear-gradient(135deg,rgba(16,185,129,0.15),transparent_42%,rgba(34,211,238,0.10))]"></div>
 
@@ -4287,7 +4270,7 @@ function ControlBudgetHub({
     : "0%";
 
   return html`
-    <section id="control-budget-section" data-onboarding-target="budget-exchange" className=${`${PREMIUM_PANEL} scroll-mt-6 p-5 md:p-6`}>
+    <section id="control-budget-section" className=${`${PREMIUM_PANEL} scroll-mt-6 p-5 md:p-6`}>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
       <div className="relative flex flex-col gap-4">
         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -5146,7 +5129,7 @@ function ExpenseChart({ data, monthLabel }) {
   const max = Math.max(...data.map((item) => item.value), 1);
 
   return html`
-    <div data-onboarding-target="asset-area" className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
+    <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.14),transparent_45%)] opacity-80"></div>
       <div className="flex items-start justify-between gap-4">
         <div className="relative">
@@ -7063,7 +7046,7 @@ function DailyExpenseForm({
   }
 
   return html`
-    <div data-onboarding-target="quick-entry" className=${`${PREMIUM_PANEL} p-4 md:p-6 lg:p-5`}>
+    <div className=${`${PREMIUM_PANEL} p-4 md:p-6 lg:p-5`}>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
       <div className="relative">
         <div className="flex items-start justify-between gap-3">
@@ -9745,11 +9728,6 @@ function DesktopRightPanel({
   baseCurrency = getBaseCurrency(),
   visible = true,
   onNavigate,
-  onboardingItems = [],
-  showOnboardingChecklist = false,
-  onChecklistAction,
-  onChecklistDismiss,
-  onRestartTutorial,
 }) {
   const normalizedDailyCurrency = normalizeCurrencyCode(dailyCurrency);
   const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
@@ -9782,17 +9760,6 @@ function DesktopRightPanel({
   return html`
     <aside className="hidden lg:block">
       <div className="sticky top-6 grid gap-4">
-        ${showOnboardingChecklist
-          ? html`
-              <${OnboardingChecklistCard}
-                items=${onboardingItems}
-                onItemClick=${onChecklistAction}
-                onDismiss=${onChecklistDismiss}
-                onRestartTutorial=${onRestartTutorial}
-              />
-            `
-          : null}
-
         <section className=${`${PREMIUM_PANEL_SOFT} p-5`}>
           <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.10),transparent_55%)] opacity-80"></div>
           <div className="relative">
@@ -9992,14 +9959,8 @@ function App() {
   );
   const [selectedWalletCurrency, setSelectedWalletCurrency] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [onboardingState, setOnboardingState] = useState(() =>
-    readOnboardingState("guest"),
-  );
-  const [tutorialOpen, setTutorialOpen] = useState(false);
-  const checklistViewedRef = useRef(false);
 
   const supabaseReady = Boolean(supabase);
-  const onboardingOwnerId = user ? getUserStorageId(user) : "guest";
   setRuntimeCurrencySettings(currencySettings);
   const normalizedAppCurrencySettings = normalizeCurrencySettings(
     currencySettings || DEFAULT_SELECTED_CURRENCIES,
@@ -10023,61 +9984,6 @@ function App() {
     ),
     [transactions, budgets, goals, assetAccounts, currencySettings, globalRateSnapshot],
   );
-  const onboardingChecklistItems = useMemo(
-    () =>
-      buildOnboardingChecklist({
-        currencySetupDone,
-        assetAccounts,
-        transactions,
-        budgets,
-      }),
-    [currencySetupDone, assetAccounts, transactions, budgets],
-  );
-  const onboardingChecklistDone = isChecklistComplete(onboardingChecklistItems);
-  const showOnboardingChecklist = Boolean(
-    user &&
-      currencySetupDone &&
-      !onboardingChecklistDone &&
-      !onboardingState.checklistDismissed,
-  );
-  const activeOnboardingStep =
-    ONBOARDING_STEPS[
-      Math.min(
-        Math.max(Number(onboardingState.currentStep || 0), 0),
-        ONBOARDING_STEPS.length - 1,
-      )
-    ] || ONBOARDING_STEPS[0];
-
-  function saveOnboardingState(patchOrUpdater) {
-    setOnboardingState((current) => {
-      const patch =
-        typeof patchOrUpdater === "function"
-          ? patchOrUpdater(current)
-          : patchOrUpdater;
-      const next = patchOnboardingState(current, patch);
-      writeOnboardingState(onboardingOwnerId, next);
-      return next;
-    });
-  }
-
-  function getTutorialTargetTab(step) {
-    if (!step) return null;
-    if (step.target === "quick-entry") return "today";
-    if (step.target === "asset-area") return "investment";
-    if (step.target === "budget-exchange") return "overview";
-    return null;
-  }
-
-  function moveTutorialToStep(stepIndex) {
-    const boundedStep = Math.min(Math.max(stepIndex, 0), ONBOARDING_STEPS.length - 1);
-    const nextStep = ONBOARDING_STEPS[boundedStep];
-    const targetTab = getTutorialTargetTab(nextStep);
-    if (targetTab) navigateAppTab(targetTab);
-    saveOnboardingState({
-      status: "active",
-      currentStep: boundedStep,
-    });
-  }
 
   useEffect(() => {
     if (!window.matchMedia) return undefined;
@@ -10143,92 +10049,6 @@ function App() {
     const timer = window.setTimeout(() => setMessage(""), 3400);
     return () => window.clearTimeout(timer);
   }, [message, messageTone]);
-
-  useEffect(() => {
-    if (!user) {
-      setOnboardingState(getDefaultOnboardingState());
-      setTutorialOpen(false);
-      checklistViewedRef.current = false;
-      return;
-    }
-    const nextState = readOnboardingState(onboardingOwnerId);
-    setOnboardingState(nextState);
-    setTutorialOpen(false);
-    checklistViewedRef.current = false;
-  }, [onboardingOwnerId, Boolean(user)]);
-
-  useEffect(() => {
-    if (!user || !currencySetupDone || mode === "loading") return;
-    if (!shouldAutoStartOnboarding(onboardingState, onboardingChecklistItems)) return;
-
-    const startedAt = onboardingState.startedAt || new Date().toISOString();
-    saveOnboardingState({
-      status: "active",
-      startedAt,
-      currentStep: onboardingState.currentStep || 0,
-    });
-    setTutorialOpen(true);
-    if (!onboardingState.startedAt) {
-      trackOnboardingEvent(ONBOARDING_EVENTS.onboardingStarted, {
-        ownerId: onboardingOwnerId,
-      });
-    }
-  }, [
-    user,
-    currencySetupDone,
-    mode,
-    onboardingOwnerId,
-    onboardingState.status,
-    onboardingState.startedAt,
-    onboardingState.completed,
-    onboardingState.skipped,
-    onboardingState.dismissedForever,
-    onboardingChecklistItems.map((item) => `${item.id}:${item.completed}`).join("|"),
-  ]);
-
-  useEffect(() => {
-    if (!tutorialOpen || !activeOnboardingStep) return;
-    if (onboardingState.lastViewedStepId === activeOnboardingStep.id) return;
-    saveOnboardingState({ lastViewedStepId: activeOnboardingStep.id });
-    trackOnboardingEvent(ONBOARDING_EVENTS.onboardingStepViewed, {
-      stepId: activeOnboardingStep.id,
-      stepIndex: onboardingState.currentStep,
-    });
-  }, [tutorialOpen, activeOnboardingStep?.id]);
-
-  useEffect(() => {
-    if (!showOnboardingChecklist || checklistViewedRef.current) return;
-    checklistViewedRef.current = true;
-    trackOnboardingEvent(ONBOARDING_EVENTS.checklistViewed, {
-      completed: onboardingChecklistItems.filter((item) => item.completed).length,
-      total: onboardingChecklistItems.length,
-    });
-  }, [showOnboardingChecklist, onboardingChecklistItems]);
-
-  useEffect(() => {
-    if (!user || !currencySetupDone) return;
-    const completedIds = getCompletedChecklistIds(onboardingChecklistItems);
-    const knownIds = new Set(onboardingState.completedChecklistItems || []);
-    const newIds = completedIds.filter((id) => !knownIds.has(id));
-    if (!newIds.length) return;
-
-    newIds.forEach((id) => {
-      trackOnboardingEvent(ONBOARDING_EVENTS.checklistItemCompleted, {
-        itemId: id,
-      });
-    });
-    saveOnboardingState({
-      completedChecklistItems: [...new Set([
-        ...(onboardingState.completedChecklistItems || []),
-        ...newIds,
-      ])],
-    });
-  }, [
-    user,
-    currencySetupDone,
-    onboardingChecklistItems.map((item) => `${item.id}:${item.completed}`).join("|"),
-    onboardingState.completedChecklistItems?.join("|"),
-  ]);
 
   useEffect(() => {
     const demoAuth = readAppStorage("demoAuth", false);
@@ -10811,15 +10631,6 @@ function App() {
       setLoading(true);
       setMessage("");
       setToast(null);
-      trackOnboardingEvent(ONBOARDING_EVENTS.transactionAddStarted, {
-        type: payload.type,
-      });
-      if (payload.type === "exchange") {
-        trackOnboardingEvent(ONBOARDING_EVENTS.exchangeStarted, {
-          fromCurrency: payload.from_currency,
-          toCurrency: payload.to_currency,
-        });
-      }
 
       const record = {
         id: crypto.randomUUID(),
@@ -10989,15 +10800,6 @@ function App() {
       setToast({
         message: "Transaksi berhasil disimpan.",
       });
-      trackOnboardingEvent(ONBOARDING_EVENTS.transactionAddCompleted, {
-        type: payload.type,
-      });
-      if (payload.type === "exchange") {
-        trackOnboardingEvent(ONBOARDING_EVENTS.exchangeCompleted, {
-          fromCurrency: record.from_currency,
-          toCurrency: record.to_currency,
-        });
-      }
       return true;
     } catch (error) {
       setMessage(error.message || "Terjadi kesalahan saat menyimpan transaksi.");
@@ -11246,10 +11048,6 @@ function App() {
     try {
       setLoading(true);
       setMessage("");
-      trackOnboardingEvent(ONBOARDING_EVENTS.budgetCreateStarted, {
-        currency: payload.currency || getBaseCurrency(),
-        monthKey: payload.month_key,
-      });
 
       const budgetCurrency = normalizeCurrencyCode(payload.currency || getBaseCurrency());
       const limitAmount = Number(payload.limit_amount || payload.limit_thb);
@@ -11309,10 +11107,6 @@ function App() {
 
       setMessage("Anggaran berhasil disimpan.");
       setMessageTone("success");
-      trackOnboardingEvent(ONBOARDING_EVENTS.budgetCreateCompleted, {
-        currency: budgetCurrency,
-        monthKey: payload.month_key,
-      });
       return true;
     } catch (error) {
       setMessage(error.message || "Gagal menyimpan anggaran.");
@@ -11359,10 +11153,6 @@ function App() {
     try {
       setLoading(true);
       setMessage("");
-      trackOnboardingEvent(ONBOARDING_EVENTS.walletAddStarted, {
-        type: payload.account_type,
-        currency: payload.currency,
-      });
 
       const rawName = String(payload.name || "").trim();
       const balanceAmount = Number(payload.balance_amount || 0);
@@ -11406,10 +11196,6 @@ function App() {
 
       setMessage(`${name} ditambahkan ke Aset.`);
       setMessageTone("success");
-      trackOnboardingEvent(ONBOARDING_EVENTS.walletAddCompleted, {
-        type: accountType,
-        currency,
-      });
       return true;
     } catch (error) {
       setMessage(error.message || "Gagal menyimpan akun aset.");
@@ -12063,135 +11849,6 @@ function App() {
     setMenuOpen(false);
   }
 
-  function handleChecklistAction(item) {
-    if (!item) return;
-    trackOnboardingEvent(ONBOARDING_EVENTS.checklistItemClicked, {
-      itemId: item.id,
-      completed: item.completed,
-    });
-    if (item.action) navigateAppTab(item.action);
-  }
-
-  function handleChecklistDismiss() {
-    saveOnboardingState({ checklistDismissed: true });
-  }
-
-  function handleShowChecklistFromMenu() {
-    trackOnboardingEvent(ONBOARDING_EVENTS.helpOpened, {
-      source: "profile_menu",
-      target: "checklist",
-    });
-    saveOnboardingState({ checklistDismissed: false });
-    setMenuOpen(false);
-  }
-
-  function handleRestartTutorial() {
-    const startedAt = new Date().toISOString();
-    trackOnboardingEvent(ONBOARDING_EVENTS.helpOpened, {
-      source: "profile_menu",
-      target: "tutorial",
-    });
-    trackOnboardingEvent(ONBOARDING_EVENTS.tutorialRestarted, {
-      ownerId: onboardingOwnerId,
-    });
-    saveOnboardingState({
-      status: "active",
-      currentStep: 0,
-      completed: false,
-      skipped: false,
-      dismissedForever: false,
-      startedAt,
-      completedAt: null,
-      skippedAt: null,
-      lastViewedStepId: null,
-      checklistDismissed: false,
-    });
-    setTutorialOpen(true);
-    setMenuOpen(false);
-  }
-
-  function completeTutorial({ showChecklist = false } = {}) {
-    saveOnboardingState({
-      status: "completed",
-      completed: true,
-      skipped: false,
-      currentStep: ONBOARDING_STEPS.length - 1,
-      completedAt: new Date().toISOString(),
-      checklistDismissed: showChecklist ? false : onboardingState.checklistDismissed,
-    });
-    setTutorialOpen(false);
-    trackOnboardingEvent(ONBOARDING_EVENTS.onboardingCompleted, {
-      ownerId: onboardingOwnerId,
-    });
-  }
-
-  function handleTutorialPrimary() {
-    const step = activeOnboardingStep;
-    trackOnboardingEvent(ONBOARDING_EVENTS.onboardingStepCompleted, {
-      stepId: step.id,
-      stepIndex: onboardingState.currentStep,
-      action: "primary",
-    });
-
-    if (step.action && onboardingState.currentStep < ONBOARDING_STEPS.length - 1) {
-      navigateAppTab(step.action);
-      return;
-    }
-
-    if (onboardingState.currentStep >= ONBOARDING_STEPS.length - 1) {
-      completeTutorial();
-      return;
-    }
-
-    moveTutorialToStep(Number(onboardingState.currentStep || 0) + 1);
-  }
-
-  function handleTutorialSecondary() {
-    const step = activeOnboardingStep;
-    trackOnboardingEvent(ONBOARDING_EVENTS.onboardingStepCompleted, {
-      stepId: step.id,
-      stepIndex: onboardingState.currentStep,
-      action: "secondary",
-    });
-
-    if (onboardingState.currentStep >= ONBOARDING_STEPS.length - 1) {
-      completeTutorial({ showChecklist: true });
-      return;
-    }
-
-    moveTutorialToStep(Number(onboardingState.currentStep || 0) + 1);
-  }
-
-  function handleTutorialBack() {
-    moveTutorialToStep(Number(onboardingState.currentStep || 0) - 1);
-  }
-
-  function handleTutorialSkip() {
-    saveOnboardingState({
-      status: "skipped",
-      skipped: true,
-      skippedAt: new Date().toISOString(),
-    });
-    setTutorialOpen(false);
-    trackOnboardingEvent(ONBOARDING_EVENTS.onboardingSkipped, {
-      stepId: activeOnboardingStep?.id,
-    });
-  }
-
-  function handleTutorialDismissForever() {
-    saveOnboardingState({
-      status: "dismissed",
-      skipped: true,
-      dismissedForever: true,
-      skippedAt: new Date().toISOString(),
-    });
-    setTutorialOpen(false);
-    trackOnboardingEvent(ONBOARDING_EVENTS.onboardingSkipped, {
-      stepId: activeOnboardingStep?.id,
-      dismissedForever: true,
-    });
-  }
-
   const recentTodayTransactions = orderTransactions(transactions)
     .filter((item) => getLocalDayKey(item.occurred_at) === todayKey)
     .reverse()
@@ -12355,20 +12012,6 @@ function App() {
           onChange=${navigateAppTab}
         />
 
-        ${showOnboardingChecklist
-          ? html`
-              <div className="mt-5 lg:hidden">
-                <${OnboardingChecklistCard}
-                  items=${onboardingChecklistItems}
-                  compact=${true}
-                  onItemClick=${handleChecklistAction}
-                  onDismiss=${handleChecklistDismiss}
-                  onRestartTutorial=${handleRestartTutorial}
-                />
-              </div>
-            `
-          : null}
-
         ${menuOpen
           ? html`
               <button
@@ -12411,28 +12054,6 @@ function App() {
                     `,
                   )}
                 </div>
-
-                <div className="mt-3 rounded-2xl border border-slate-200/70 bg-white/58 p-2 dark:border-white/10 dark:bg-white/6">
-                  <p className="px-2 pb-1 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                    Bantuan
-                  </p>
-                  <button
-                    type="button"
-                    onClick=${handleRestartTutorial}
-                    className="flex min-h-11 w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-white dark:text-slate-200 dark:hover:bg-white/10"
-                  >
-                    <span>Panduan singkat</span>
-                    <span>Mulai</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick=${handleShowChecklistFromMenu}
-                    className="flex min-h-11 w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 transition hover:bg-white dark:text-slate-200 dark:hover:bg-white/10"
-                  >
-                    <span>Lihat checklist</span>
-                    <span>${onboardingChecklistItems.filter((item) => item.completed).length}/${onboardingChecklistItems.length}</span>
-                  </button>
-                </div>
               </section>
             `
           : null}
@@ -12458,28 +12079,12 @@ function App() {
             baseCurrency=${walletBaseCurrency}
             visible=${balanceVisible}
             onNavigate=${navigateAppTab}
-            onboardingItems=${onboardingChecklistItems}
-            showOnboardingChecklist=${showOnboardingChecklist}
-            onChecklistAction=${handleChecklistAction}
-            onChecklistDismiss=${handleChecklistDismiss}
-            onRestartTutorial=${handleRestartTutorial}
           />
         </div>
       </div>
       <${MobileBottomNav}
         activeTab=${activeTab}
         onChange=${navigateAppTab}
-      />
-      <${GuidedOnboardingOverlay}
-        open=${tutorialOpen}
-        step=${activeOnboardingStep}
-        stepIndex=${Number(onboardingState.currentStep || 0)}
-        totalSteps=${ONBOARDING_STEPS.length}
-        onPrimary=${handleTutorialPrimary}
-        onSecondary=${handleTutorialSecondary}
-        onBack=${handleTutorialBack}
-        onSkip=${handleTutorialSkip}
-        onDismissForever=${handleTutorialDismissForever}
       />
     </main>
   `;
