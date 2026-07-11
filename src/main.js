@@ -1535,7 +1535,12 @@ function getDefaultGroupForCategory(category) {
   return UNIVERSAL_BUDGET_GROUP;
 }
 
-function resolveBudgetActivityAmount(transaction, budgetCurrency, baseCurrency = getBaseCurrency()) {
+function resolveBudgetActivityAmount(
+  transaction,
+  budgetCurrency,
+  baseCurrency = getBaseCurrency(),
+  globalRateSnapshot = null,
+) {
   if (transaction?.type !== "expense") return null;
   const code = normalizeCurrencyCode(budgetCurrency);
   const transactionCurrency = getTransactionCurrency(transaction);
@@ -1547,7 +1552,12 @@ function resolveBudgetActivityAmount(transaction, budgetCurrency, baseCurrency =
   const base = normalizeCurrencyCode(baseCurrency);
   if (code === base) {
     const baseAmount = Number(transaction.base_amount || 0);
-    return baseAmount > 0 ? baseAmount : null;
+    if (baseAmount > 0) return baseAmount;
+    const fallbackBaseValue = resolveTransactionCurrentBaseValue(
+      transaction,
+      globalRateSnapshot,
+    );
+    return fallbackBaseValue > 0 ? fallbackBaseValue : null;
   }
 
   return null;
@@ -2177,7 +2187,13 @@ function buildOverviewDailyExpenses(transactions, monthKey) {
   return days;
 }
 
-function computeBudgetInsights(monthlyExpenses, budgets, monthKey, baseCurrency = getBaseCurrency()) {
+function computeBudgetInsights(
+  monthlyExpenses,
+  budgets,
+  monthKey,
+  baseCurrency = getBaseCurrency(),
+  globalRateSnapshot = null,
+) {
   const now = new Date();
   const [year, month] = String(monthKey).split("-").map(Number);
   const daysInMonth = new Date(year, month, 0).getDate();
@@ -2198,27 +2214,51 @@ function computeBudgetInsights(monthlyExpenses, budgets, monthKey, baseCurrency 
   const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
 
   return budgets
-    .filter((item) => item.month_key === monthKey)
+    .filter(
+      (item) =>
+        item.month_key === monthKey &&
+        normalizeCurrencyCode(item.currency || normalizedBaseCurrency) === normalizedBaseCurrency,
+    )
     .map(normalizeBudget)
     .map((budget) => {
-      const currency = normalizeCurrencyCode(budget.currency);
+      const currency = normalizedBaseCurrency;
       const budgetCategoryKey = getBudgetCategoryKey(budget.category, budget.group_key);
       const currencyExpenses = monthlyExpenses.filter(
         (item) =>
           item.type === "expense" &&
           Boolean(item.category) &&
           getBudgetCategoryKey(item.category, item.category_group) === budgetCategoryKey &&
-          resolveBudgetActivityAmount(item, currency, normalizedBaseCurrency) != null,
+          resolveBudgetActivityAmount(
+            item,
+            currency,
+            normalizedBaseCurrency,
+            globalRateSnapshot,
+          ) != null,
       );
       const spentAmount = currencyExpenses.reduce(
         (sum, item) =>
-          sum + Number(resolveBudgetActivityAmount(item, currency, normalizedBaseCurrency) || 0),
+          sum +
+          Number(
+            resolveBudgetActivityAmount(
+              item,
+              currency,
+              normalizedBaseCurrency,
+              globalRateSnapshot,
+            ) || 0,
+          ),
         0,
       );
       let spentBeforeToday = 0;
       let spentToday = 0;
       currencyExpenses.forEach((item) => {
-        const amount = Number(resolveBudgetActivityAmount(item, currency, normalizedBaseCurrency) || 0);
+        const amount = Number(
+          resolveBudgetActivityAmount(
+            item,
+            currency,
+            normalizedBaseCurrency,
+            globalRateSnapshot,
+          ) || 0,
+        );
         const dayKey = getLocalDayKey(item.occurred_at);
         if (dayKey < todayKey) {
           spentBeforeToday += amount;
@@ -2314,11 +2354,16 @@ function computeBudgetInsights(monthlyExpenses, budgets, monthKey, baseCurrency 
     );
 }
 
-function buildBudgetOverspendWarning(transaction, transactionsForBudget, budgets, baseCurrency = getBaseCurrency()) {
+function buildBudgetOverspendWarning(
+  transaction,
+  transactionsForBudget,
+  budgets,
+  baseCurrency = getBaseCurrency(),
+  globalRateSnapshot = null,
+) {
   if (transaction?.type !== "expense" || !transaction.category) return null;
   const monthKey = getMonthKey(transaction.occurred_at);
   const categoryKey = getBudgetCategoryKey(transaction.category, transaction.category_group);
-  const currency = getTransactionCurrency(transaction);
   const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
   const insights = computeBudgetInsights(
     transactionsForBudget.filter(
@@ -2327,11 +2372,12 @@ function buildBudgetOverspendWarning(transaction, transactionsForBudget, budgets
     budgets,
     monthKey,
     normalizedBaseCurrency,
+    globalRateSnapshot,
   );
   const budget = insights.find(
     (item) =>
       item.categoryKey === categoryKey &&
-      (item.currency === currency || item.currency === normalizedBaseCurrency) &&
+      item.currency === normalizedBaseCurrency &&
       item.remainingAmount < 0,
   );
   if (!budget) return null;
@@ -2548,6 +2594,7 @@ function computeMetrics(
     budgets,
     currentMonthKey,
     getBaseCurrency(),
+    globalRateSnapshot,
   );
   const overspentCount = budgetInsights.filter((item) => item.status === "over").length;
   const warningCount = budgetInsights.filter((item) => item.status === "warning").length;
@@ -4439,22 +4486,13 @@ function ControlCenterEmptyState({ onNavigate }) {
 
 function BudgetWorkspacePage({
   metrics,
-  activeCurrencies = metrics.activeCurrencies || getActiveCurrencies(),
   onBudgetDelete,
   onBudgetSubmit,
   loading = false,
 }) {
-  const normalizedCurrencies = normalizeCurrencyList(activeCurrencies);
-  const defaultCurrency = normalizeCurrencyCode(
-    metrics?.currencySettings?.baseCurrency || getBaseCurrency(),
-  );
-  const [selectedCurrency, setSelectedCurrency] = useState(
-    normalizedCurrencies.includes(defaultCurrency)
-      ? defaultCurrency
-      : normalizedCurrencies[0],
-  );
+  const budgetCurrency = getBaseCurrency();
   const selectedBudgets = metrics.budgetInsights.filter(
-    (item) => item.currency === selectedCurrency,
+    (item) => item.currency === budgetCurrency,
   );
   const targetTotal = selectedBudgets.reduce(
     (sum, item) => sum + Number(item.limitAmount || 0),
@@ -4465,12 +4503,6 @@ function BudgetWorkspacePage({
     0,
   );
   const remainingTotal = targetTotal - spentTotal;
-
-  useEffect(() => {
-    if (!normalizedCurrencies.includes(selectedCurrency)) {
-      setSelectedCurrency(normalizedCurrencies[0]);
-    }
-  }, [normalizedCurrencies.join("|"), selectedCurrency]);
 
   return html`
     <div className="grid gap-4 pb-[calc(8rem+env(safe-area-inset-bottom))] lg:pb-0">
@@ -4495,7 +4527,7 @@ function BudgetWorkspacePage({
                   Target
                 </p>
                 <p className="mt-1 text-base font-black text-slate-950 dark:text-white">
-                  ${targetTotal > 0 ? formatCurrency(targetTotal, selectedCurrency) : "-"}
+                  ${targetTotal > 0 ? formatCurrency(targetTotal, budgetCurrency) : "-"}
                 </p>
               </div>
               <div>
@@ -4503,7 +4535,7 @@ function BudgetWorkspacePage({
                   Terpakai
                 </p>
                 <p className="mt-1 text-base font-black text-slate-950 dark:text-white">
-                  ${spentTotal > 0 ? formatCurrency(spentTotal, selectedCurrency) : "-"}
+                  ${spentTotal > 0 ? formatCurrency(spentTotal, budgetCurrency) : "-"}
                 </p>
               </div>
               <div>
@@ -4515,7 +4547,7 @@ function BudgetWorkspacePage({
                     ? "text-rose-600 dark:text-rose-300"
                     : "text-brand-700 dark:text-brand-200"
                 }`}>
-                  ${targetTotal > 0 ? formatCurrency(Math.abs(remainingTotal), selectedCurrency) : "-"}
+                  ${targetTotal > 0 ? formatCurrency(Math.abs(remainingTotal), budgetCurrency) : "-"}
                 </p>
               </div>
             </div>
@@ -4525,9 +4557,7 @@ function BudgetWorkspacePage({
 
       <${ControlBudgetHub}
         metrics=${metrics}
-        activeCurrencies=${normalizedCurrencies}
-        selectedCurrency=${selectedCurrency}
-        onCurrencyChange=${setSelectedCurrency}
+        selectedCurrency=${budgetCurrency}
         loading=${loading}
         onBudgetDelete=${onBudgetDelete}
         onBudgetSubmit=${onBudgetSubmit}
@@ -4538,9 +4568,7 @@ function BudgetWorkspacePage({
 
 function ControlBudgetHub({
   metrics,
-  activeCurrencies,
   selectedCurrency,
-  onCurrencyChange,
   loading,
   onBudgetDelete,
   onBudgetSubmit,
@@ -4550,8 +4578,6 @@ function ControlBudgetHub({
   const selectedBudgets = metrics.budgetInsights.filter(
     (item) => item.currency === selectedCurrency,
   );
-  const normalizedActiveCurrencies = normalizeCurrencyList(activeCurrencies);
-  const currencyOptions = getCurrencyOptions(normalizedActiveCurrencies);
   const categoryOptionKeys = new Set(
     CATEGORY_OPTIONS.map((item) => getBudgetCategoryKey(item.value)),
   );
@@ -4621,22 +4647,12 @@ function ControlBudgetHub({
                 className=${`${GLASS_INPUT} h-11 text-sm`}
               />
             </label>
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-black text-slate-500 dark:text-slate-400">Mata uang</span>
-              <select
-                value=${selectedCurrency}
-                onChange=${(event) => onCurrencyChange(normalizeCurrencyCode(event.target.value))}
-                className=${`${GLASS_INPUT} h-11 text-sm`}
-              >
-                ${currencyOptions.map(
-                  (option) => html`
-                    <option key=${option.value} value=${option.value}>
-                      ${option.label}
-                    </option>
-                  `,
-                )}
-              </select>
-            </label>
+            <div>
+              <span className="mb-1.5 block text-xs font-black text-slate-500 dark:text-slate-400">Mata uang anggaran</span>
+              <div className="flex h-11 items-center rounded-2xl border border-slate-200/80 bg-white/60 px-4 text-sm font-black text-slate-950 dark:border-white/10 dark:bg-slate-900/50 dark:text-white">
+                ${selectedCurrency}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -8728,6 +8744,7 @@ function TransactionForm({
   baseCurrency: baseCurrencySetting = getBaseCurrency(),
   assetAccounts = [],
   budgetInsights = [],
+  globalRateSnapshot = null,
 }) {
   const [entryType, setEntryType] = useState("income");
   const [incomeCurrency, setIncomeCurrency] = useState(() => getBaseCurrency());
@@ -8796,8 +8813,14 @@ function TransactionForm({
         )
       : null;
   const latestExpenseRate =
-    latestExpenseExchange && isExpense && isForeign
-      ? getExchangeRateToBase(latestExpenseExchange, selectedCurrencyCode, baseCurrency) || 0
+    isExpense && isForeign
+      ? getExchangeRateToBase(latestExpenseExchange, selectedCurrencyCode, baseCurrency) ||
+        getCurrentValuationRateForCurrency(
+          globalRateSnapshot,
+          selectedCurrencyCode,
+          baseCurrency,
+        ).rate ||
+        0
       : 0;
   const parsedSelectedAmount = parsedAmount || (isIdr ? parsedAmountIdr : parsedAmountThb);
   const submitDisabled = isExchange
@@ -11278,7 +11301,12 @@ function App() {
                 transactions,
                 expenseCurrency,
                 new Date(payload.occurred_at),
-              );
+              ) ||
+              getCurrentValuationRateForCurrency(
+                globalRateSnapshot,
+                expenseCurrency,
+                getBaseCurrency(),
+              ).rate;
 
         record.currency = expenseCurrency;
         record.amount = amount;
@@ -11326,6 +11354,7 @@ function App() {
         [...transactions, savedTransaction],
         budgets,
         getBaseCurrency(),
+        globalRateSnapshot,
       );
       setMessage("Transaksi berhasil disimpan dan dashboard sudah diperbarui.");
       setMessageTone("success");
@@ -11464,7 +11493,12 @@ function App() {
                   transactions.filter((item) => item.id !== transaction.id),
                   expenseCurrency,
                   occurredAt,
-                );
+                ) ||
+                getCurrentValuationRateForCurrency(
+                  globalRateSnapshot,
+                  expenseCurrency,
+                  getBaseCurrency(),
+                ).rate;
 
         record.currency = expenseCurrency;
         record.amount = nextAmount;
@@ -11535,6 +11569,7 @@ function App() {
         nextTransactionsForBudget,
         budgets,
         getBaseCurrency(),
+        globalRateSnapshot,
       );
       setMessage("Transaksi berhasil diperbarui.");
       setMessageTone("success");
@@ -11599,7 +11634,7 @@ function App() {
       setLoading(true);
       setMessage("");
 
-      const budgetCurrency = normalizeCurrencyCode(payload.currency || getBaseCurrency());
+      const budgetCurrency = getBaseCurrency();
       const limitAmount = Number(payload.limit_amount || payload.limit_thb);
       const category = normalizeBudgetCategory(payload.category, payload.group_key);
       const groupKey = payload.group_key || getDefaultGroupForCategory(category);
@@ -11608,12 +11643,15 @@ function App() {
         throw new Error(`Batas anggaran ${budgetCurrency} harus lebih besar dari 0.`);
       }
 
-      const existing = budgets.find(
+      const matchingBudgets = budgets.filter(
         (item) =>
           item.month_key === payload.month_key &&
-          normalizeCurrencyCode(item.currency || getBaseCurrency()) === budgetCurrency &&
           getBudgetCategoryKey(item.category, item.group_key) === categoryKey,
       );
+      const existing =
+        matchingBudgets.find(
+          (item) => normalizeCurrencyCode(item.currency || getBaseCurrency()) === budgetCurrency,
+        ) || matchingBudgets[0];
 
       const record = {
         id: existing?.id || crypto.randomUUID(),
@@ -11632,7 +11670,6 @@ function App() {
             (item) =>
               !(
                 item.month_key === payload.month_key &&
-                normalizeCurrencyCode(item.currency || getBaseCurrency()) === budgetCurrency &&
                 getBudgetCategoryKey(item.category, item.group_key) === categoryKey
               ),
           ),
@@ -12475,6 +12512,7 @@ function App() {
                 baseCurrency=${walletBaseCurrency}
                 assetAccounts=${assetAccounts}
                 budgetInsights=${metrics.budgetInsights}
+                globalRateSnapshot=${globalRateSnapshot}
               />
             </section>
           `
