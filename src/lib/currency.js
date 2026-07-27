@@ -35,6 +35,15 @@ export const numberFormatter = new Intl.NumberFormat("id-ID", {
   maximumFractionDigits: 2,
 });
 
+const percentFormatter = new Intl.NumberFormat("id-ID", {
+  style: "percent",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+const inputGroupingFormatter = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 0,
+});
+
 const currencyFormatters = {};
 const moneyFormatters = {};
 
@@ -155,4 +164,67 @@ export function getCurrencyOptions(currencies) {
     const code = normalizeCurrencyCode(currency);
     return { value: code, label: getCurrencyMeta(code).label };
   });
+}
+
+export function formatRate(
+  value,
+  fromCurrency = DEFAULT_BASE_CURRENCY,
+  toCurrency = "THB",
+) {
+  if (!value) return "-";
+  return `${numberFormatter.format(Number(value))} ${normalizeCurrencyCode(
+    fromCurrency,
+  )} / 1 ${normalizeCurrencyCode(toCurrency, "THB")}`;
+}
+
+export function formatPercent(value) {
+  return percentFormatter.format(Number(value || 0));
+}
+
+export function normalizeNumericInput(value, { allowDecimal = true } = {}) {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+
+  const withoutCommas = raw.replace(/,/g, "");
+  if (!allowDecimal) {
+    return withoutCommas.replace(/[^\d]/g, "");
+  }
+
+  let cleaned = withoutCommas.replace(/[^\d.]/g, "");
+  const firstDot = cleaned.indexOf(".");
+  if (firstDot !== -1) {
+    cleaned = `${cleaned.slice(0, firstDot + 1)}${cleaned
+      .slice(firstDot + 1)
+      .replace(/\./g, "")}`;
+  }
+  return cleaned;
+}
+
+export function formatNumericInput(value, { allowDecimal = true } = {}) {
+  const cleaned = normalizeNumericInput(value, { allowDecimal });
+  if (!cleaned) return "";
+
+  if (!allowDecimal) {
+    return inputGroupingFormatter.format(Number(cleaned));
+  }
+
+  if (cleaned.includes(".")) {
+    const [integerPartRaw, decimalPart = ""] = cleaned.split(".");
+    const integerPart = integerPartRaw
+      ? inputGroupingFormatter.format(Number(integerPartRaw))
+      : "0";
+    return `${integerPart}.${decimalPart}`;
+  }
+
+  return inputGroupingFormatter.format(Number(cleaned));
+}
+
+export function formatAutoNumericValue(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "";
+  const rounded =
+    Math.abs(numeric) >= 100
+      ? Math.round(numeric * 100) / 100
+      : Math.round(numeric * 1000000) / 1000000;
+  return formatNumericInput(String(rounded));
 }
