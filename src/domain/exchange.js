@@ -1,10 +1,19 @@
 import {
   DEFAULT_BASE_CURRENCY,
-  formatAutoNumericValue,
+  formatNumericInput,
   normalizeCurrencyCode,
   normalizeNumericInput,
 } from "../lib/currency.js";
 import { getCurrentValuationRateForCurrency } from "./assets.js";
+import {
+  calculateExchangeSourceAmount,
+  calculateExchangeTargetAmount,
+  deriveStoredExchangeRateOrientation,
+  getDirectionalExchangeRate,
+  normalizeExchangeRateOrientation,
+  serializeExchangeRate,
+  validateExchangeRate,
+} from "./exchangeRate.js";
 import {
   getTransactionAmountValue,
   getTransactionCurrency,
@@ -13,65 +22,202 @@ import {
   resolveTransactionBaseValue,
 } from "./transactions.js";
 
+export {
+  EXCHANGE_RATE_SCALE_DIGITS,
+  addExchangeDecimals,
+  calculateExchangeSourceAmount,
+  calculateExchangeTargetAmount,
+  compareExchangeDecimals,
+  decimalToString,
+  deriveStoredExchangeRateOrientation,
+  divideExchangeDecimals,
+  getDirectionalExchangeRate,
+  getExchangeAmountDigits,
+  multiplyExchangeDecimals,
+  normalizeExchangeRateOrientation,
+  parseExchangeDecimal,
+  roundExchangeDecimal,
+  serializeExchangeRate,
+  validateExchangeRate,
+} from "./exchangeRate.js";
+
 export function settleExchangeCalculation(
   form,
   changedField,
-  { rateField = "exchange_rate", preferredTarget = null } = {},
+  {
+    rateField = "exchange_rate",
+    preferredTarget = null,
+    rateBaseCurrency = form.rate_base_currency,
+    rateQuoteCurrency = form.rate_quote_currency,
+  } = {},
 ) {
   const next = { ...form };
-  const fromAmount = Number(normalizeNumericInput(next.from_amount));
-  const toAmount = Number(normalizeNumericInput(next.to_amount));
-  const rate = Number(normalizeNumericInput(next[rateField]));
+  const fromAmount = normalizeNumericInput(next.from_amount);
+  const toAmount = normalizeNumericInput(next.to_amount);
+  const rate = serializeExchangeRate(next[rateField]);
 
   function setAutoValue(field, value) {
-    const formatted = formatAutoNumericValue(value);
+    const formatted = value ? formatNumericInput(value) : "";
     if (formatted) next[field] = formatted;
   }
 
   if (changedField === rateField) {
-    if (rate <= 0) return next;
-    if (preferredTarget === "from_amount" && toAmount > 0) {
-      setAutoValue("from_amount", toAmount * rate);
+    if (!rate) return next;
+    if (preferredTarget === "from_amount" && Number(toAmount) > 0) {
+      setAutoValue(
+        "from_amount",
+        calculateExchangeSourceAmount({
+          sourceCurrency: next.from_currency,
+          targetCurrency: next.to_currency,
+          targetAmount: toAmount,
+          rateBaseCurrency,
+          rateQuoteCurrency,
+          exchangeRate: rate,
+        }),
+      );
       return next;
     }
-    if (preferredTarget === "to_amount" && fromAmount > 0) {
-      setAutoValue("to_amount", fromAmount / rate);
+    if (preferredTarget === "to_amount" && Number(fromAmount) > 0) {
+      setAutoValue(
+        "to_amount",
+        calculateExchangeTargetAmount({
+          sourceCurrency: next.from_currency,
+          targetCurrency: next.to_currency,
+          sourceAmount: fromAmount,
+          rateBaseCurrency,
+          rateQuoteCurrency,
+          exchangeRate: rate,
+        }),
+      );
       return next;
     }
-    if (toAmount > 0) {
-      setAutoValue("from_amount", toAmount * rate);
+    if (Number(toAmount) > 0) {
+      setAutoValue(
+        "from_amount",
+        calculateExchangeSourceAmount({
+          sourceCurrency: next.from_currency,
+          targetCurrency: next.to_currency,
+          targetAmount: toAmount,
+          rateBaseCurrency,
+          rateQuoteCurrency,
+          exchangeRate: rate,
+        }),
+      );
       return next;
     }
-    if (fromAmount > 0) {
-      setAutoValue("to_amount", fromAmount / rate);
+    if (Number(fromAmount) > 0) {
+      setAutoValue(
+        "to_amount",
+        calculateExchangeTargetAmount({
+          sourceCurrency: next.from_currency,
+          targetCurrency: next.to_currency,
+          sourceAmount: fromAmount,
+          rateBaseCurrency,
+          rateQuoteCurrency,
+          exchangeRate: rate,
+        }),
+      );
     }
     return next;
   }
 
   if (changedField === "from_amount") {
-    if (fromAmount <= 0) return next;
-    if (toAmount > 0) {
-      setAutoValue(rateField, fromAmount / toAmount);
-      return next;
-    }
-    if (rate > 0) {
-      setAutoValue("to_amount", fromAmount / rate);
-    }
+    if (Number(fromAmount) <= 0 || !rate) return next;
+    setAutoValue(
+      "to_amount",
+      calculateExchangeTargetAmount({
+        sourceCurrency: next.from_currency,
+        targetCurrency: next.to_currency,
+        sourceAmount: fromAmount,
+        rateBaseCurrency,
+        rateQuoteCurrency,
+        exchangeRate: rate,
+      }),
+    );
     return next;
   }
 
   if (changedField === "to_amount") {
-    if (toAmount <= 0) return next;
-    if (fromAmount > 0) {
-      setAutoValue(rateField, fromAmount / toAmount);
-      return next;
-    }
-    if (rate > 0) {
-      setAutoValue("from_amount", toAmount * rate);
-    }
+    if (Number(toAmount) <= 0 || !rate) return next;
+    setAutoValue(
+      "from_amount",
+      calculateExchangeSourceAmount({
+        sourceCurrency: next.from_currency,
+        targetCurrency: next.to_currency,
+        targetAmount: toAmount,
+        rateBaseCurrency,
+        rateQuoteCurrency,
+        exchangeRate: rate,
+      }),
+    );
   }
 
   return next;
+}
+
+export function resolveNormalizedPairRate(
+  globalRateSnapshot,
+  fromCurrency,
+  toCurrency,
+  baseCurrency = DEFAULT_BASE_CURRENCY,
+) {
+  const pairRate = getGlobalPairRate(
+    globalRateSnapshot,
+    fromCurrency,
+    toCurrency,
+    baseCurrency,
+  );
+  const orientation = normalizeExchangeRateOrientation(
+    pairRate.rate,
+    fromCurrency,
+    toCurrency,
+  );
+  return {
+    ...pairRate,
+    ...orientation,
+    directionalRate: serializeExchangeRate(pairRate.rate),
+  };
+}
+
+export function getTransactionDirectionalRate(transaction) {
+  const orientation = deriveStoredExchangeRateOrientation(transaction);
+  return getDirectionalExchangeRate({
+    sourceCurrency: transaction?.from_currency,
+    targetCurrency: transaction?.to_currency,
+    ...orientation,
+  });
+}
+
+export function getExchangeRateValidation(value) {
+  return validateExchangeRate(value);
+}
+
+export function getGlobalPairRate(
+  globalRateSnapshot,
+  fromCurrency,
+  toCurrency,
+  baseCurrency = DEFAULT_BASE_CURRENCY,
+) {
+  const from = normalizeCurrencyCode(fromCurrency);
+  const to = normalizeCurrencyCode(toCurrency);
+  const base = normalizeCurrencyCode(baseCurrency);
+  if (from === to) return { rate: 1, source: "same-currency" };
+
+  const fromRate = getCurrentValuationRateForCurrency(
+    globalRateSnapshot,
+    from,
+    base,
+  );
+  const toRate = getCurrentValuationRateForCurrency(
+    globalRateSnapshot,
+    to,
+    base,
+  );
+  const rate = Number(fromRate.rate || 0) / Number(toRate.rate || 0);
+
+  return Number.isFinite(rate) && rate > 0
+    ? { rate, source: "global" }
+    : { rate: 0, source: null };
 }
 
 export function getLockedExchange(transactions, occurredAt) {

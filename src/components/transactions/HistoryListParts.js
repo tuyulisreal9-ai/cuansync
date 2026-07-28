@@ -1,22 +1,25 @@
 import React from "https://esm.sh/react@18.3.1";
 import htm from "https://esm.sh/htm@3.1.1";
+import {
+  ArrowDownLeft,
+  ArrowRightLeft,
+  ArrowUpRight,
+} from "https://esm.sh/lucide-react@0.468.0?deps=react@18.3.1";
+import { getAssetAccountDisplayName } from "../../domain/assets.js";
 import { getTransactionFlow } from "../../domain/transactions.js";
 import { formatNumericInput } from "../../lib/currency.js";
-import { formatShortDateTime } from "../../lib/dates.js";
+import { formatShortTime } from "../../lib/dates.js";
 import {
   getTransactionCategoryLabel,
   getTransactionCompactAmount,
   getTransactionDisplayTitle,
-  getTransactionIconLabel,
   getTransactionTone,
 } from "./presentation.js";
 
 const html = htm.bind(React.createElement);
 
-const FILTER_PANEL =
-  "relative overflow-hidden rounded-[26px] cuan-card-soft";
 const INPUT_CLASS =
-  "w-full min-h-12 rounded-2xl px-4 py-3.5 text-sm transition cuan-input";
+  "cuan-input min-h-11 w-full rounded-xl px-3 py-2.5 text-sm transition";
 
 const HISTORY_SORT_OPTIONS = [
   { value: "newest", label: "Terbaru" },
@@ -46,19 +49,19 @@ export function TransactionFilter({
   categoryOptions,
   currencyOptions,
   showSearch = true,
+  onDone = null,
 }) {
   function updateFilter(field, value) {
     onChange((current) => ({ ...current, [field]: value }));
   }
 
   return html`
-    <section className=${`${FILTER_PANEL} p-4 md:p-5`}>
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-      <div className="relative grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid gap-3">
+      <div className="grid grid-cols-2 gap-3">
         ${showSearch
           ? html`
-              <label className="block md:col-span-2 xl:col-span-4">
-                <span className="mb-2 block text-sm font-medium">Cari catatan</span>
+              <label className="col-span-2 block">
+                <span className="mb-1.5 block text-xs font-bold">Cari catatan</span>
                 <input
                   type="search"
                   autoComplete="off"
@@ -72,7 +75,7 @@ export function TransactionFilter({
           : null}
 
         <label className="block">
-          <span className="mb-2 block text-sm font-medium">Dari tanggal</span>
+          <span className="mb-1.5 block text-xs font-bold">Dari tanggal</span>
           <input
             type="date"
             value=${filters.startDate}
@@ -82,7 +85,7 @@ export function TransactionFilter({
         </label>
 
         <label className="block">
-          <span className="mb-2 block text-sm font-medium">Sampai tanggal</span>
+          <span className="mb-1.5 block text-xs font-bold">Sampai tanggal</span>
           <input
             type="date"
             value=${filters.endDate}
@@ -91,8 +94,8 @@ export function TransactionFilter({
           />
         </label>
 
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">Tipe transaksi</span>
+        <label className="col-span-2 block">
+          <span className="mb-1.5 block text-xs font-bold">Tipe transaksi</span>
           <select
             value=${filters.type}
             onChange=${(event) => updateFilter("type", event.target.value)}
@@ -108,8 +111,8 @@ export function TransactionFilter({
           </select>
         </label>
 
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">Kategori</span>
+        <label className="col-span-2 block">
+          <span className="mb-1.5 block text-xs font-bold">Kategori</span>
           <select
             value=${filters.category}
             onChange=${(event) => updateFilter("category", event.target.value)}
@@ -125,8 +128,8 @@ export function TransactionFilter({
           </select>
         </label>
 
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">Mata uang</span>
+        <label className="col-span-2 block">
+          <span className="mb-1.5 block text-xs font-bold">Mata uang</span>
           <select
             value=${filters.currency}
             onChange=${(event) => updateFilter("currency", event.target.value)}
@@ -143,7 +146,7 @@ export function TransactionFilter({
         </label>
 
         <label className="block">
-          <span className="mb-2 block text-sm font-medium">Nominal minimum</span>
+          <span className="mb-1.5 block text-xs font-bold">Nominal minimum</span>
           <input
             type="text"
             inputMode="decimal"
@@ -157,7 +160,7 @@ export function TransactionFilter({
         </label>
 
         <label className="block">
-          <span className="mb-2 block text-sm font-medium">Nominal maksimum</span>
+          <span className="mb-1.5 block text-xs font-bold">Nominal maksimum</span>
           <input
             type="text"
             inputMode="decimal"
@@ -170,8 +173,8 @@ export function TransactionFilter({
           />
         </label>
 
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">Urutkan</span>
+        <label className="col-span-2 block">
+          <span className="mb-1.5 block text-xs font-bold">Urutkan</span>
           <select
             value=${filters.sortBy}
             onChange=${(event) => updateFilter("sortBy", event.target.value)}
@@ -187,55 +190,107 @@ export function TransactionFilter({
           </select>
         </label>
 
-        <div className="flex items-end">
-          <button
-            type="button"
-            onClick=${onReset}
-            className="cuan-secondary min-h-12 w-full rounded-2xl px-4 py-3 text-sm font-semibold transition hover:-translate-y-0.5"
-          >
-            Reset penyaring
-          </button>
-        </div>
       </div>
-    </section>
+      <div className="grid grid-cols-2 gap-2 border-t border-slate-200/70 pt-3 dark:border-white/10">
+        <button
+          type="button"
+          onClick=${onReset}
+          className="cuan-secondary min-h-11 rounded-xl px-3 py-2.5 text-sm font-bold transition"
+        >
+          Reset filter
+        </button>
+        ${onDone
+          ? html`
+              <button
+                type="button"
+                onClick=${onDone}
+                className="history-action-primary min-h-11 rounded-xl px-3 py-2.5 text-sm font-black"
+              >
+                Terapkan
+              </button>
+            `
+          : null}
+      </div>
+    </div>
   `;
 }
 
-export function TransactionItem({ transaction, onOpen, fallbackRate = 0 }) {
+function getTransactionAccountLabel(transaction, accountById) {
+  function getShortName(account) {
+    return account?.name || getAssetAccountDisplayName(account);
+  }
+
+  const flow = getTransactionFlow(transaction);
+  if (flow === "income") {
+    const account = accountById.get(transaction.destination_account_id);
+    return account ? getShortName(account) : "";
+  }
+  if (flow === "expense") {
+    const account = accountById.get(transaction.source_account_id);
+    return account ? getShortName(account) : "";
+  }
+
+  const source = accountById.get(transaction.source_account_id);
+  const destination = accountById.get(transaction.destination_account_id);
+  if (source && destination) {
+    return `${getShortName(source)} ke ${getShortName(destination)}`;
+  }
+  return source
+    ? getShortName(source)
+    : destination
+      ? getShortName(destination)
+      : "";
+}
+
+export function TransactionItem({
+  transaction,
+  onOpen,
+  fallbackRate = 0,
+  accountById = new Map(),
+}) {
   const tone = getTransactionTone(transaction);
   const compactAmount = getTransactionCompactAmount(transaction, fallbackRate);
   const title = getTransactionDisplayTitle(transaction);
   const categoryLabel = getTransactionCategoryLabel(transaction);
   const flow = getTransactionFlow(transaction);
+  const accountLabel = getTransactionAccountLabel(transaction, accountById);
+  const Icon =
+    flow === "income"
+      ? ArrowDownLeft
+      : flow === "exchange"
+        ? ArrowRightLeft
+        : ArrowUpRight;
+  const metadata = [
+    flow === "exchange" ? "Transfer / Exchange" : categoryLabel,
+    accountLabel,
+    formatShortTime(transaction.occurred_at),
+  ].filter(Boolean);
 
   return html`
     <button
       type="button"
       onClick=${() => onOpen(transaction)}
-      className="history-transaction-item transaction-item group grid min-h-[76px] w-full grid-cols-[44px_1fr_auto] items-center gap-3 rounded-[22px] border border-slate-200/70 bg-white/60 px-3 py-2.5 text-left shadow-[0_10px_30px_rgba(15,23,42,0.06)] backdrop-blur-xl transition duration-300 hover:-translate-y-0.5 hover:border-brand-300/30 hover:bg-white/82 dark:border-white/10 dark:bg-slate-900/52 dark:shadow-black/20 dark:hover:bg-slate-900/75"
+      className="history-transaction-item transaction-item group grid min-h-[66px] w-full grid-cols-[38px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left transition duration-200 hover:border-brand-300/30"
       aria-label=${`Buka detail ${title}`}
     >
-      <span className=${`history-icon-badge flex h-11 w-11 items-center justify-center rounded-2xl text-[11px] font-black uppercase tracking-[0.08em] leading-none ring-1 transition duration-300 group-hover:scale-105 ${tone.historyIcon}`}>
-        ${getTransactionIconLabel(transaction)}
+      <span className=${`history-icon-badge flex h-[38px] w-[38px] items-center justify-center rounded-[10px] ring-1 transition duration-200 group-hover:scale-105 ${tone.historyIcon}`}>
+        <${Icon} aria-hidden="true" className="h-4 w-4" />
       </span>
 
       <span className="min-w-0">
-        <span className="history-item-title block truncate text-sm font-black text-slate-950 dark:text-white">
+        <span className="history-item-title block truncate text-[13px] font-black leading-5 text-slate-950 dark:text-white">
           ${title}
         </span>
-        <span className="history-item-meta mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-          <span className=${`history-chip max-w-[8rem] truncate rounded-full px-2 py-0.5 ${tone.chip}`}>
-            ${flow === "exchange" ? "Exchange" : categoryLabel}
-          </span>
-          <span>${formatShortDateTime(transaction.occurred_at)}</span>
+        <span className="history-item-meta mt-0.5 block truncate text-[10px] font-semibold leading-4 text-slate-500 dark:text-slate-400">
+          ${metadata.join(" \u00b7 ")}
         </span>
       </span>
 
-      <span className="min-w-0 text-right">
-        <span className=${`block max-w-[8.5rem] truncate text-sm font-black ${tone.amount}`}>
+      <span className="min-w-0 max-w-[8rem] text-right">
+        <span className=${`block truncate text-[13px] font-black leading-5 ${tone.amount}`}>
           ${compactAmount.primary}
         </span>
-        <span className="history-item-secondary mt-1 block max-w-[8.5rem] truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">
+        <span className="history-item-secondary mt-0.5 block truncate text-[9px] font-bold uppercase text-slate-500 dark:text-slate-400">
           ${compactAmount.secondary}
         </span>
       </span>
@@ -245,7 +300,7 @@ export function TransactionItem({ transaction, onOpen, fallbackRate = 0 }) {
 
 export function TransactionFilterTabs({ value, onChange }) {
   return html`
-    <div className="cuan-segment grid grid-cols-4 gap-1 rounded-[22px] p-1">
+    <div className="cuan-segment grid grid-cols-4 gap-1 rounded-xl p-1">
       ${TRANSACTION_FILTER_TABS.map((tab) => {
         const active = value === tab.value;
         return html`
@@ -253,7 +308,8 @@ export function TransactionFilterTabs({ value, onChange }) {
             key=${tab.value}
             type="button"
             onClick=${() => onChange(tab.value)}
-            className=${`min-h-11 rounded-2xl px-2 text-xs font-black transition duration-300 ${active ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.22)] dark:bg-emerald-500" : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"}`}
+            aria-pressed=${active}
+            className=${`min-h-10 rounded-lg px-1.5 text-[11px] font-black transition duration-200 ${active ? "bg-brand-600 text-white shadow-[0_8px_22px_rgba(16,185,129,0.18)] dark:bg-emerald-500" : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"}`}
           >
             ${tab.label}
           </button>

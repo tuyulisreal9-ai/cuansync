@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "https://esm.sh/react@18.3.1";
 import htm from "https://esm.sh/htm@3.1.1";
 import { SheetShell } from "../shared/SheetShell.js";
+import { WalletAccountsPage } from "./WalletAccountsPage.js";
 import {
   ASSET_ACCOUNT_TYPES,
   getAssetAccountValuationLabel,
@@ -816,6 +817,7 @@ function GoalForm({
 
 export function WealthGoalsPage({
   metrics,
+  transactions = [],
   loading,
   activeCurrencies,
   baseCurrency = DEFAULT_BASE_CURRENCY,
@@ -824,11 +826,20 @@ export function WealthGoalsPage({
   onCreateGoal,
   onDeleteGoal,
   onContribute,
+  onOpenGoals,
   onOpenReport,
+  openAssetFormRequest = 0,
 }) {
   const [activeSection, setActiveSection] = useState("accounts");
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [showAssetForm, setShowAssetForm] = useState(false);
+
+  useEffect(() => {
+    if (openAssetFormRequest > 0) {
+      setActiveSection("accounts");
+      setShowAssetForm(true);
+    }
+  }, [openAssetFormRequest]);
 
   async function handleCreateGoal(payload) {
     const ok = await onCreateGoal(payload);
@@ -844,33 +855,48 @@ export function WealthGoalsPage({
   }
 
   function openGoalForm() {
+    if (onOpenGoals) {
+      onOpenGoals();
+      return;
+    }
     setActiveSection("goals");
     setShowGoalForm(true);
   }
 
   return html`
     <div className="grid gap-4">
-      <${InvestmentSnapshot}
-        metrics=${metrics}
-        activeSection=${activeSection}
-        onSelectSection=${setActiveSection}
-        onAddAccount=${openAssetForm}
-        onAddGoal=${openGoalForm}
-      />
-
       ${activeSection === "accounts"
         ? html`
-            <${AssetAccountsPanel}
+            <${WalletAccountsPage}
               metrics=${metrics}
+              transactions=${transactions}
               onAddAccount=${openAssetForm}
               onDeleteAccount=${onDeleteAssetAccount}
               baseCurrency=${baseCurrency}
+              onOpenGoals=${openGoalForm}
+              onOpenReport=${() => setActiveSection("report")}
             />
           `
         : null}
 
       ${activeSection === "goals"
         ? html`
+            <div className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick=${() => setActiveSection("accounts")}
+                className="history-action-secondary min-h-10 rounded-lg px-3 text-xs font-bold"
+              >
+                Kembali ke dompet
+              </button>
+              <button
+                type="button"
+                onClick=${openGoalForm}
+                className="history-action-primary min-h-10 rounded-lg px-3 text-xs font-bold"
+              >
+                Tambah target
+              </button>
+            </div>
             <${GoalTracker}
               goals=${metrics.goalInsights}
               onDelete=${onDeleteGoal}
@@ -881,6 +907,13 @@ export function WealthGoalsPage({
 
       ${activeSection === "report"
         ? html`
+            <button
+              type="button"
+              onClick=${() => setActiveSection("accounts")}
+              className="history-action-secondary min-h-10 justify-self-start rounded-lg px-3 text-xs font-bold"
+            >
+              Kembali ke dompet
+            </button>
             <${FinancialMonthlyPreview}
               metrics=${metrics}
               onOpenReport=${onOpenReport}
@@ -890,8 +923,8 @@ export function WealthGoalsPage({
 
       <${SheetShell}
         open=${showAssetForm}
-        title="Tambah Aset"
-        helper="Isi tempat dana disimpan. Setelah tersimpan, saldonya ikut masuk ke Keuangan."
+        title="Tambah Dompet"
+        helper="Tambahkan bank, wallet, atau uang tunai beserta mata uangnya."
         onClose=${() => setShowAssetForm(false)}
         labelledBy="asset-account-sheet-title"
       >
@@ -923,5 +956,3 @@ export function WealthGoalsPage({
     </div>
   `;
 }
-
-

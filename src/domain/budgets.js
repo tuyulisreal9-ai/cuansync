@@ -9,147 +9,61 @@ import {
   getTransactionAmountValue,
   getTransactionCurrency,
 } from "./transactions.js";
+import {
+  CATEGORY_OPTIONS,
+  DEFAULT_CATEGORY,
+  UNIVERSAL_BUDGET_GROUP,
+  getDefaultCategoryGroup,
+  getExpenseCategoryKey,
+  getExpenseCategoryLabel,
+  getExpenseCategoryMeta,
+  normalizeExpenseCategory,
+} from "./categories.js";
 
-export const CATEGORY_OPTIONS = [
-  {
-    value: "Makan",
-    label: "Makan Harian",
-    chip:
-      "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
-    bar: "from-emerald-400 to-emerald-500",
-  },
-  {
-    value: "Belanja",
-    label: "Belanja Kebutuhan",
-    chip: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
-    bar: "from-sky-300 to-indigo-500",
-  },
-  {
-    value: "Transport",
-    label: "Transport",
-    chip:
-      "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
-    bar: "from-amber-300 to-orange-500",
-  },
-  {
-    value: "Tagihan",
-    label: "Tagihan",
-    chip:
-      "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
-    bar: "from-violet-300 to-fuchsia-500",
-  },
-  {
-    value: "Kesehatan",
-    label: "Kesehatan",
-    chip: "bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300",
-    bar: "from-rose-300 to-pink-500",
-  },
-  {
-    value: "Internet",
-    label: "Internet & Pulsa",
-    chip: "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/15 dark:text-cyan-300",
-    bar: "from-cyan-300 to-blue-500",
-  },
-  {
-    value: "Tempat Tinggal",
-    label: "Tempat Tinggal",
-    chip: "bg-lime-100 text-lime-700 dark:bg-lime-500/15 dark:text-lime-300",
-    bar: "from-lime-300 to-emerald-500",
-  },
-  {
-    value: "Lainnya",
-    label: "Lainnya",
-    chip:
-      "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300",
-    bar: "from-slate-400 to-slate-700",
-  },
-];
+export {
+  CATEGORY_OPTIONS,
+  DEFAULT_CATEGORY,
+  UNIVERSAL_BUDGET_GROUP,
+} from "./categories.js";
 
-const CATEGORY_LOOKUP = Object.fromEntries(
-  CATEGORY_OPTIONS.map((item) => [item.value, item]),
-);
-
-export const DEFAULT_CATEGORY = "Makan";
-export const UNIVERSAL_BUDGET_GROUP = "needs";
-
-export function getCategoryMeta(category) {
-  return (
-    CATEGORY_LOOKUP[category] || {
-      value: category || "Lainnya",
-      label: category || "Lainnya",
-      chip:
-        "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300",
-      bar: "from-slate-400 to-slate-700",
-    }
-  );
-}
+export const getCategoryMeta = getExpenseCategoryMeta;
 
 export function normalizeBudgetCategory(
   category,
   groupKey = UNIVERSAL_BUDGET_GROUP,
 ) {
-  const raw = String(category || groupKey || UNIVERSAL_BUDGET_GROUP).trim();
-  return raw || UNIVERSAL_BUDGET_GROUP;
+  return normalizeExpenseCategory(category || groupKey, "Lainnya");
 }
 
 export function getBudgetCategoryKey(
   category,
   groupKey = UNIVERSAL_BUDGET_GROUP,
 ) {
-  return normalizeBudgetCategory(category, groupKey).toLowerCase();
+  return getExpenseCategoryKey(
+    normalizeBudgetCategory(category, groupKey),
+  );
 }
 
 export function getBudgetCategoryLabel(
   category,
   groupKey = UNIVERSAL_BUDGET_GROUP,
 ) {
-  const normalized = normalizeBudgetCategory(category, groupKey);
-  const groupLabels = {
-    needs: "Kebutuhan",
-    wants: "Gaya hidup",
-    invest: "Investasi",
-  };
-  return groupLabels[normalized] || getCategoryMeta(normalized).label;
+  return getExpenseCategoryLabel(
+    normalizeBudgetCategory(category, groupKey),
+  );
 }
 
 export function getBudgetCategoryMeta(
   category,
   groupKey = UNIVERSAL_BUDGET_GROUP,
 ) {
-  const normalized = normalizeBudgetCategory(category, groupKey);
-  const groupMeta = {
-    needs: {
-      label: "Kebutuhan",
-      chip:
-        "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
-      bar: "from-emerald-400 to-emerald-500",
-    },
-    wants: {
-      label: "Gaya hidup",
-      chip: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
-      bar: "from-sky-300 to-indigo-500",
-    },
-    invest: {
-      label: "Investasi",
-      chip:
-        "bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
-      bar: "from-violet-300 to-fuchsia-500",
-    },
-  };
-  return groupMeta[normalized] || getCategoryMeta(normalized);
+  return getExpenseCategoryMeta(
+    normalizeBudgetCategory(category, groupKey),
+  );
 }
 
 export function getDefaultGroupForCategory(category) {
-  const value = normalizeBudgetCategory(category);
-  if (["Hiburan", "Belanja", "Ngopi", "Hadiah", "Travel"].includes(value)) {
-    return "wants";
-  }
-  if (
-    ["Dana Darurat", "Tabungan", "Reksa Dana", "Emas", "Bisnis"].includes(value)
-  ) {
-    return "invest";
-  }
-  return UNIVERSAL_BUDGET_GROUP;
+  return getDefaultCategoryGroup(category);
 }
 
 export function normalizeBudget(
@@ -162,11 +76,13 @@ export function normalizeBudget(
   const limitAmount = Number(
     row.limit_amount ?? row.limitAmount ?? row.limit_thb ?? 0,
   );
-  const groupKey = row.group_key || getDefaultGroupForCategory(row.category);
-  const category = normalizeBudgetCategory(row.category, groupKey);
+  const sourceCategory = row.category || row.group_key;
+  const category = normalizeBudgetCategory(sourceCategory, row.group_key);
+  const groupKey = getDefaultGroupForCategory(category);
   const categoryKey = getBudgetCategoryKey(category, groupKey);
   return {
     ...row,
+    source_category: row.source_category || sourceCategory || null,
     group_key: groupKey,
     category,
     categoryKey,
@@ -178,6 +94,68 @@ export function normalizeBudget(
       row.limit_thb ?? (currency === "THB" ? limitAmount : 0) ?? 0,
     ),
   };
+}
+
+function isCanonicalBudgetSource(budget) {
+  return (
+    String(budget.source_category || "").trim().toLocaleLowerCase("id-ID") ===
+    String(budget.category || "").trim().toLocaleLowerCase("id-ID")
+  );
+}
+
+export function normalizeBudgets(
+  rows = [],
+  baseCurrency = DEFAULT_BASE_CURRENCY,
+) {
+  const groups = new Map();
+
+  rows.map((row) => normalizeBudget(row, baseCurrency)).forEach((budget) => {
+    const key = [
+      budget.user_id || "",
+      budget.month_key || "",
+      budget.currency,
+      budget.categoryKey,
+    ].join("|");
+    const current = groups.get(key);
+    const sourceBudgetIds = budget.id ? [budget.id] : [];
+    if (!current) {
+      groups.set(key, {
+        ...budget,
+        sourceBudgetIds,
+        mergedBudgetCount: 1,
+      });
+      return;
+    }
+
+    const currentLimit = Number(current.limitAmount || 0);
+    const nextLimit = Number(budget.limitAmount || 0);
+    const preferred =
+      !isCanonicalBudgetSource(current) && isCanonicalBudgetSource(budget)
+        ? budget
+        : current;
+    groups.set(key, {
+      ...preferred,
+      category: budget.category,
+      categoryKey: budget.categoryKey,
+      categoryLabel: budget.categoryLabel,
+      group_key: budget.group_key,
+      currency: budget.currency,
+      limit_amount: currentLimit + nextLimit,
+      limitAmount: currentLimit + nextLimit,
+      limit_thb:
+        budget.currency === "THB" ? currentLimit + nextLimit : 0,
+      sourceBudgetIds: [
+        ...new Set([
+          ...(current.sourceBudgetIds || []),
+          ...sourceBudgetIds,
+        ]),
+      ],
+      mergedBudgetCount:
+        Number(current.mergedBudgetCount || 1) + 1,
+    });
+  });
+
+  return [...groups.values()];
 }
 
 export function resolveBudgetActivityAmount(
@@ -229,14 +207,13 @@ export function computeBudgetInsights(
   const statusOrder = { over: 0, warning: 1, healthy: 2 };
   const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
 
-  return budgets
+  return normalizeBudgets(budgets, normalizedBaseCurrency)
     .filter(
       (item) =>
         item.month_key === monthKey &&
         normalizeCurrencyCode(item.currency || normalizedBaseCurrency) ===
           normalizedBaseCurrency,
     )
-    .map((item) => normalizeBudget(item, normalizedBaseCurrency))
     .map((budget) => {
       const currency = normalizedBaseCurrency;
       const budgetCategoryKey = getBudgetCategoryKey(

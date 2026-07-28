@@ -24,6 +24,12 @@ const SPENDABLE_ASSET_ACCOUNT_TYPES = new Set([
   "other",
 ]);
 
+const DEFAULT_ALLOCATABLE_ASSET_ACCOUNT_TYPES = new Set([
+  "bank",
+  "cash",
+  "ewallet",
+]);
+
 function createLegacyAssetAccountId(row, index = 0) {
   const seed = [
     row.created_at,
@@ -70,6 +76,12 @@ export function normalizeAssetAccount(row, index = 0) {
     account_type: accountType,
     currency,
     balance_amount: Number.isFinite(balanceAmount) ? balanceAmount : 0,
+    is_allocatable:
+      typeof row?.is_allocatable === "boolean"
+        ? row.is_allocatable
+        : typeof row?.isAllocatable === "boolean"
+          ? row.isAllocatable
+          : DEFAULT_ALLOCATABLE_ASSET_ACCOUNT_TYPES.has(accountType),
     note: row?.note || row?.description || "",
     created_at: row?.created_at || new Date().toISOString(),
   };
@@ -85,6 +97,18 @@ export function normalizeAssetAccounts(rows = []) {
 
 export function isSpendableAssetAccount(account) {
   return SPENDABLE_ASSET_ACCOUNT_TYPES.has(account?.account_type || "bank");
+}
+
+export function isAllocatableAssetAccount(account) {
+  if (typeof account?.is_allocatable === "boolean") {
+    return account.is_allocatable;
+  }
+  if (typeof account?.isAllocatable === "boolean") {
+    return account.isAllocatable;
+  }
+  return DEFAULT_ALLOCATABLE_ASSET_ACCOUNT_TYPES.has(
+    account?.account_type || "bank",
+  );
 }
 
 export function getSelectableAssetAccounts(accounts = [], currency, options = {}) {

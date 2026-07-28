@@ -1,4 +1,7 @@
-import { CATEGORY_OPTIONS } from "../../domain/budgets.js";
+import {
+  CATEGORY_OPTIONS,
+  getBudgetCategoryKey,
+} from "../../domain/budgets.js";
 import {
   getTransactionAmountValue,
   getTransactionCurrency,
@@ -61,26 +64,13 @@ function getTransactionComparableAmount(transaction) {
 }
 
 export function getHistoryCategoryOptions(transactions) {
-  const knownCategories = new Set(CATEGORY_OPTIONS.map((item) => item.value));
-  const extraCategories = [
-    ...new Set(
-      transactions
-        .map((transaction) => transaction.category)
-        .filter((category) => category && !knownCategories.has(category)),
-    ),
-  ].sort((a, b) => a.localeCompare(b, "id-ID"));
-
   return [
     { value: "all", label: "Semua kategori" },
     { value: "income", label: "Pemasukan" },
     { value: "exchange", label: "Transfer / Exchange" },
     ...CATEGORY_OPTIONS.map((category) => ({
-      value: category.value,
+      value: getBudgetCategoryKey(category.value),
       label: category.label,
-    })),
-    ...extraCategories.map((category) => ({
-      value: category,
-      label: category,
     })),
   ];
 }
@@ -107,10 +97,11 @@ function getTransactionGroupLabel(dayKey) {
   const yesterdayDate = new Date();
   yesterdayDate.setDate(yesterdayDate.getDate() - 1);
   const yesterdayKey = getLocalDayKey(yesterdayDate);
+  const dateLabel = formatLongDate(`${dayKey}T00:00:00`);
 
-  if (dayKey === todayKey) return "Hari Ini";
-  if (dayKey === yesterdayKey) return "Kemarin";
-  return formatLongDate(`${dayKey}T00:00:00`);
+  if (dayKey === todayKey) return `Hari ini \u00b7 ${dateLabel}`;
+  if (dayKey === yesterdayKey) return `Kemarin \u00b7 ${dateLabel}`;
+  return dateLabel;
 }
 
 export function getTransactionRangeLabel(filters) {
@@ -294,5 +285,3 @@ export function filterAndSortTransactions(transactions, filters) {
       return compareTransactionsByDate(b, a);
     });
 }
-
-

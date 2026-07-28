@@ -1,7 +1,15 @@
 import React, { useEffect, useState } from "https://esm.sh/react@18.3.1";
 import htm from "https://esm.sh/htm@3.1.1";
-import { CATEGORY_OPTIONS, DEFAULT_CATEGORY } from "../../domain/budgets.js";
-import { settleExchangeCalculation } from "../../domain/exchange.js";
+import {
+  CATEGORY_OPTIONS,
+  DEFAULT_CATEGORY,
+  normalizeBudgetCategory,
+} from "../../domain/budgets.js";
+import {
+  deriveStoredExchangeRateOrientation,
+  settleExchangeCalculation,
+  validateExchangeRate,
+} from "../../domain/exchange.js";
 import {
   getTransactionAmountValue,
   getTransactionCurrency,
@@ -12,6 +20,7 @@ import {
 import {
   DEFAULT_BASE_CURRENCY,
   formatCurrency,
+  formatMoney,
   formatNumericInput,
   formatRate,
   normalizeCurrencyCode,
@@ -52,16 +61,39 @@ function formatEditNumericValue(value) {
   return numericValue > 0 ? formatNumericInput(String(numericValue)) : "";
 }
 
+function formatExchangeRateOrientation({
+  rateBaseCurrency,
+  rateQuoteCurrency,
+  exchangeRate,
+}) {
+  const rate = Number(exchangeRate || 0);
+  if (!Number.isFinite(rate) || rate <= 0) return "-";
+  return `1 ${rateBaseCurrency} = ${formatMoney(rate, rateQuoteCurrency, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
 function getTransactionEditForm(transaction) {
   const flow = getTransactionFlow(transaction);
   const currency = getTransactionCurrency(transaction);
   const rate = Number(transaction.rate || transaction.locked_rate || 0);
+  const rateOrientation =
+    flow === "exchange"
+      ? deriveStoredExchangeRateOrientation(transaction)
+      : null;
 
   return {
     type: flow,
     occurred_at: toInputDateTime(new Date(transaction.occurred_at || Date.now())),
     description: transaction.description || "",
-    category: transaction.category || DEFAULT_CATEGORY,
+    category:
+      flow === "expense"
+        ? normalizeBudgetCategory(
+            transaction.category,
+            transaction.category_group,
+          )
+        : transaction.category || DEFAULT_CATEGORY,
     currency,
     expense_currency: currency,
     from_currency: normalizeCurrencyCode(transaction.from_currency),
@@ -71,7 +103,12 @@ function getTransactionEditForm(transaction) {
     amount_idr: formatEditNumericValue(transaction.amount_idr),
     amount_thb: formatEditNumericValue(transaction.amount_thb),
     amount: formatEditNumericValue(getTransactionAmountValue(transaction)),
-    locked_rate: formatEditNumericValue(rate),
+    locked_rate: formatEditNumericValue(
+      rateOrientation?.exchangeRate || rate,
+    ),
+    rate_base_currency: rateOrientation?.rateBaseCurrency || "",
+    rate_quote_currency: rateOrientation?.rateQuoteCurrency || "",
+    rate_type: transaction.rate_type || "legacy",
   };
 }
 function TransactionEditForm({
@@ -99,11 +136,13 @@ function TransactionEditForm({
     ? settleExchangeCalculation(form, "locked_rate", {
         rateField: "locked_rate",
         preferredTarget: exchangeAutoTarget,
+        rateBaseCurrency: form.rate_base_currency,
+        rateQuoteCurrency: form.rate_quote_currency,
       })
     : form;
   const fromAmount = Number(normalizeNumericInput(settledEditForm.from_amount));
   const toAmount = Number(normalizeNumericInput(settledEditForm.to_amount));
-  const lockedRate = Number(normalizeNumericInput(form.locked_rate));
+  const rateValidation = validateExchangeRate(form.locked_rate);
   const activeCurrencies = mergeCurrencyLists(
     baseCurrency,
     availableCurrencies,
@@ -120,7 +159,7 @@ function TransactionEditForm({
     (isExchange &&
       (fromAmount <= 0 ||
         toAmount <= 0 ||
-        lockedRate <= 0 ||
+        !rateValidation.valid ||
         form.from_currency === form.to_currency));
   const typeOptions = [
     { value: "income", label: "Uang Masuk" },
@@ -137,6 +176,26 @@ function TransactionEditForm({
     if (field === "from_amount") setExchangeAutoTarget("to_amount");
     if (field === "to_amount") setExchangeAutoTarget("from_amount");
     const next = { ...form, [field]: value };
+    if (
+      isExchange &&
+      (field === "from_currency" || field === "to_currency")
+    ) {
+      const nextFrom =
+        field === "from_currency"
+          ? normalizeCurrencyCode(value)
+          : normalizeCurrencyCode(form.from_currency);
+      const nextTo =
+        field === "to_currency"
+          ? normalizeCurrencyCode(value)
+          : normalizeCurrencyCode(form.to_currency);
+      next.rate_base_currency =
+        nextFrom === baseCurrency ? nextTo : nextFrom;
+      next.rate_quote_currency =
+        next.rate_base_currency === nextFrom ? nextTo : nextFrom;
+      next.locked_rate = "";
+      next.to_amount = "";
+      next.rate_type = "custom";
+    }
     onChange(next);
   }
 
@@ -145,6 +204,8 @@ function TransactionEditForm({
       settleExchangeCalculation(form, field, {
         rateField: "locked_rate",
         preferredTarget: exchangeAutoTarget,
+        rateBaseCurrency: form.rate_base_currency,
+        rateQuoteCurrency: form.rate_quote_currency,
       }),
     );
   }
@@ -155,6 +216,8 @@ function TransactionEditForm({
       ? settleExchangeCalculation(form, "locked_rate", {
           rateField: "locked_rate",
           preferredTarget: exchangeAutoTarget,
+          rateBaseCurrency: form.rate_base_currency,
+          rateQuoteCurrency: form.rate_quote_currency,
         })
       : form;
     if (isExchange) onChange(finalForm);
@@ -266,7 +329,10 @@ function TransactionEditForm({
 
             <label className="block space-y-2">
               <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                Kurs ${form.from_currency} / 1 ${form.to_currency}
+                Kurs money changer
+              </span>
+              <span className="mb-2 block text-xs font-bold text-emerald-600 dark:text-emerald-300">
+                1 ${form.rate_base_currency} sama dengan berapa ${form.rate_quote_currency}
               </span>
               <input
                 type="text"
@@ -280,6 +346,13 @@ function TransactionEditForm({
                 required
                 className=${INPUT_CLASS}
               />
+              ${!rateValidation.valid
+                ? html`
+                    <span className="block text-xs font-bold text-rose-500">
+                      ${rateValidation.message}
+                    </span>
+                  `
+                : null}
             </label>
 
             <div className="rounded-2xl border border-sky-300/25 bg-sky-400/10 px-4 py-3 text-sm font-black text-sky-800 dark:border-sky-300/20 dark:bg-sky-500/10 dark:text-sky-100">
@@ -509,13 +582,18 @@ export function TransactionDetailSheet({
     : `${signedPrefix}${formatCurrency(mainAmount, currency)}`;
   const currencyLabel = isExchange ? "Transfer / Exchange" : currency.toUpperCase();
   const showValuation = valuationIdr != null;
-  const rateText = transaction.rate || transaction.locked_rate
-    ? formatRate(
-        transaction.rate || transaction.locked_rate,
-        isExchange ? transaction.from_currency : DEFAULT_BASE_CURRENCY,
-        isExchange ? transaction.to_currency : currency,
-      )
-    : "-";
+  const exchangeRateOrientation = isExchange
+    ? deriveStoredExchangeRateOrientation(transaction)
+    : null;
+  const rateText = isExchange
+    ? formatExchangeRateOrientation(exchangeRateOrientation)
+    : transaction.rate || transaction.locked_rate
+      ? formatRate(
+          transaction.rate || transaction.locked_rate,
+          DEFAULT_BASE_CURRENCY,
+          currency,
+        )
+      : "-";
   const receiptMeta = isExchange
     ? [
         ["Dari", transaction.from_currency],

@@ -7,10 +7,13 @@ import { BudgetWorkspacePage } from "./components/budget/index.js";
 import { AuthScreen, CurrencyOnboarding } from "./components/auth/index.js";
 import { WealthGoalsPage } from "./components/assets/index.js";
 import { ControlCenterPage } from "./components/control/index.js";
+import { HomeDashboardPage } from "./components/home/index.js";
+import { DesktopRightPanel } from "./components/layout/index.js";
 import {
-  DesktopRightPanel,
-  DesktopTopTabs,
-} from "./components/layout/index.js";
+  DesktopNavigation,
+  MobileNavigation,
+  QuickActionMenu,
+} from "./components/navigation/index.js";
 import { MonthlyReportPage } from "./components/reports/index.js";
 import { SettingsPanel } from "./components/settings/index.js";
 import {
@@ -24,7 +27,6 @@ import {
   RecentTransactionsPreview,
   TransactionForm,
   TransactionHistoryPage,
-  getTransactionCategoryKey,
   getTransactionCategoryLabel,
   getTransactionDisplayTitle,
   getTransactionPreview,
@@ -52,15 +54,30 @@ import {
   getBudgetCategoryMeta,
   getCategoryMeta,
   getDefaultGroupForCategory,
-  normalizeBudget,
   normalizeBudgetCategory,
+  normalizeBudgets,
 } from "./domain/budgets.js";
 import {
+  addExchangeDecimals,
+  calculateExchangeTargetAmount,
+  compareExchangeDecimals,
+  getDirectionalExchangeRate,
   getExchangeBaseVolume,
   getLatestRateForCurrencyUntil,
   getLockedExchange,
   resolveTransactionCurrentBaseValue,
+  serializeExchangeRate,
+  validateExchangeRate,
 } from "./domain/exchange.js";
+import {
+  GOAL_TYPE_HOLD_BALANCE,
+  computeGoalAllocationState,
+  normalizeGoal,
+  normalizeGoalActivities,
+  normalizeGoalActivity,
+  syncGoalActivityForTransaction,
+  validateGoalActivity,
+} from "./domain/goals.js";
 import { getLatestReportRateUntil } from "./domain/reports.js";
 import {
   computeCurrencyBalances,
@@ -125,6 +142,7 @@ const STORAGE_KEYS = {
   demoTransactions: "monefy-demo-transactions",
   demoBudgets: "monefy-demo-budgets",
   demoGoals: "monefy-demo-goals",
+  demoGoalActivities: "cuansync-demo-goal-activities",
   demoAssetAccounts: "cuansync-demo-asset-accounts",
   profilePhotos: "monefy-profile-photos",
   profile: "cuansync-profile",
@@ -141,6 +159,7 @@ const LEGACY_STORAGE_KEYS = {
   demoTransactions: "kas-poipet-demo-transactions",
   demoBudgets: "kas-poipet-demo-budgets",
   demoGoals: "kas-poipet-demo-goals",
+  demoGoalActivities: "kas-poipet-demo-goal-activities",
   demoAssetAccounts: "kas-poipet-demo-asset-accounts",
   profilePhotos: "kas-poipet-profile-photos",
   profile: "kas-poipet-profile",
@@ -188,9 +207,6 @@ const inputSurface =
   "cuan-input";
 
 const mutedText = "text-slate-700 dark:text-slate-300/80";
-
-const navSurface =
-  "cuan-nav";
 
 const PREMIUM_PANEL =
   `relative overflow-hidden rounded-[30px] ${cardSurface}`;
@@ -531,33 +547,6 @@ async function resizeProfileImage(file) {
   });
 }
 
-function createLegacyGoalId(row, index = 0) {
-  const seed = [
-    row.created_at,
-    row.name,
-    row.target_amount_idr,
-    row.saved_amount_idr,
-    row.deadline,
-    index,
-  ]
-    .map((part) => String(part ?? ""))
-    .join("|");
-  let hash = 0;
-  for (let indexSeed = 0; indexSeed < seed.length; indexSeed += 1) {
-    hash = (hash * 31 + seed.charCodeAt(indexSeed)) >>> 0;
-  }
-  return `legacy-goal-${hash.toString(36)}-${index}`;
-}
-
-function normalizeGoal(row, index = 0) {
-  return {
-    ...row,
-    id: row.id || createLegacyGoalId(row, index),
-    target_amount_idr: Number(row.target_amount_idr || 0),
-    saved_amount_idr: Number(row.saved_amount_idr || 0),
-  };
-}
-
 function buildExpenseChart(transactions, monthKey) {
   const now = new Date();
   const [year, month] = String(monthKey).split("-");
@@ -637,80 +626,11 @@ function buildOverviewDailyExpenses(transactions, monthKey) {
   return days;
 }
 
-function computeGoalInsights(goals) {
-  return [...goals]
-    .map((goal) => {
-      const targetAmount = Number(goal.target_amount_idr || 0);
-      const savedAmount = Number(goal.saved_amount_idr || 0);
-      const remainingIdr = Math.max(targetAmount - savedAmount, 0);
-      const progress = targetAmount > 0 ? Math.min(savedAmount / targetAmount, 1) : 0;
-      const daysLeft =
-        goal.deadline && String(goal.deadline).trim()
-          ? Math.ceil(
-              (new Date(`${goal.deadline}T00:00:00`).getTime() - Date.now()) /
-                86400000,
-            )
-          : null;
-
-      let status = "steady";
-      let statusLabel = "Bertumbuh";
-      let tone =
-        "border-sky-300/20 bg-sky-400/10 text-sky-900 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-200";
-      let barClass = "from-sky-300 to-indigo-500";
-
-      if (progress >= 1) {
-        status = "done";
-        statusLabel = "Target Tercapai";
-        tone =
-          "border-emerald-300/20 bg-emerald-400/10 text-emerald-900 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-200";
-        barClass = "from-emerald-400 to-emerald-500";
-      } else if (daysLeft != null && daysLeft < 0) {
-        status = "overdue";
-        statusLabel = "Deadline Lewat";
-        tone =
-          "border-rose-300/20 bg-rose-400/10 text-rose-900 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200";
-        barClass = "from-rose-400 to-rose-500";
-      } else if (daysLeft != null && daysLeft <= 14) {
-        status = "soon";
-        statusLabel = "Perlu Didorong";
-        tone =
-          "border-amber-300/20 bg-amber-400/10 text-amber-900 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200";
-        barClass = "from-amber-300 to-orange-500";
-      } else if (progress >= 0.75) {
-        status = "strong";
-        statusLabel = "On Track";
-        tone =
-          "border-emerald-300/20 bg-emerald-400/10 text-emerald-900 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-200";
-        barClass = "from-emerald-400 to-sky-500";
-      }
-
-      return {
-        ...goal,
-        targetAmount,
-        savedAmount,
-        remainingIdr,
-        progress,
-        daysLeft,
-        status,
-        statusLabel,
-        tone,
-        barClass,
-      };
-    })
-    .sort((a, b) => {
-      if (a.status === "done" && b.status !== "done") return 1;
-      if (a.status !== "done" && b.status === "done") return -1;
-      if (a.daysLeft != null && b.daysLeft != null) return a.daysLeft - b.daysLeft;
-      if (a.daysLeft != null) return -1;
-      if (b.daysLeft != null) return 1;
-      return a.progress - b.progress;
-    });
-}
-
 function computeMetrics(
   transactions,
   budgets,
   goals,
+  goalActivities = [],
   assetAccounts = [],
   globalRateSnapshot = null,
 ) {
@@ -789,7 +709,10 @@ function computeMetrics(
   const categoryAccumulator = {};
 
   currentMonthExpenses.forEach((item) => {
-    const categoryName = item.category || "Lainnya";
+    const categoryName = normalizeBudgetCategory(
+      item.category,
+      item.category_group,
+    );
     if (!categoryAccumulator[categoryName]) {
       categoryAccumulator[categoryName] = {
         valueThb: 0,
@@ -885,7 +808,12 @@ function computeMetrics(
   const budgetUsageTotal =
     budgetLimitTotal > 0 ? budgetSpentTotal / budgetLimitTotal : 0;
 
-  const goalInsights = computeGoalInsights(goals);
+  const goalAllocationState = computeGoalAllocationState({
+    goals,
+    activities: goalActivities,
+    accounts: assetAccounts,
+  });
+  const goalInsights = goalAllocationState.goals;
   const totalGoalTarget = goalInsights.reduce(
     (sum, item) => sum + Number(item.targetAmount || 0),
     0,
@@ -897,10 +825,16 @@ function computeMetrics(
   const goalProgressTotal =
     totalGoalTarget > 0 ? totalGoalSaved / totalGoalTarget : 0;
   const nextGoal =
-    goalInsights.find((item) => item.status !== "done") || goalInsights[0] || null;
+    goalInsights.find(
+      (item) => !["completed", "used", "archived"].includes(item.status),
+    ) ||
+    goalInsights[0] ||
+    null;
   const balanceIdrBase = Number(currencyBalances.IDR || 0);
-  const allocatedToGoalsIdr = totalGoalSaved;
-  const availableBalanceIdr = balanceIdrBase - allocatedToGoalsIdr;
+  const allocatedToGoalsIdr = Number(
+    goalAllocationState.allocatedByCurrency.IDR || 0,
+  );
+  const availableBalanceIdr = balanceIdrBase;
 
   const activeExchange =
     [...ordered].reverse().find((item) => item.type === "exchange") || null;
@@ -925,7 +859,7 @@ function computeMetrics(
     },
     0,
   );
-  const netWorthIdr = netWorthBeforeGoalsIdr - allocatedToGoalsIdr;
+  const netWorthIdr = netWorthBeforeGoalsIdr;
   const foreignBalanceItems = activeCurrencies
     .filter((currency) => currency !== DEFAULT_BASE_CURRENCY)
     .map((currency) => {
@@ -1030,6 +964,8 @@ function computeMetrics(
     totalGoalSaved,
     goalProgressTotal,
     nextGoal,
+    goalAllocationState,
+    goalAllocationSummaries: goalAllocationState.summaries,
     assetAccountInsights: assetAccountSummary.accountInsights,
     assetAccountCount: assetAccountSummary.accountCount,
     assetAccountTotalsByCurrency: assetAccountSummary.totalsByCurrency,
@@ -2250,7 +2186,9 @@ function BudgetForm({
 }) {
   const [monthKey, setMonthKey] = useState(currentMonthKey);
   const [currency, setCurrency] = useState(normalizeCurrencyCode(initialCurrency));
-  const [category, setCategory] = useState(initialCategory);
+  const [category, setCategory] = useState(() =>
+    normalizeBudgetCategory(initialCategory, UNIVERSAL_BUDGET_GROUP),
+  );
   const [limitAmount, setLimitAmount] = useState("");
   const normalizedActiveCurrencies = normalizeCurrencyList(activeCurrencies);
   const currencyOptions = getCurrencyOptions(normalizedActiveCurrencies);
@@ -2264,7 +2202,12 @@ function BudgetForm({
   }, [currentMonthKey]);
 
   useEffect(() => {
-    setCategory(initialCategory || DEFAULT_CATEGORY);
+    setCategory(
+      normalizeBudgetCategory(
+        initialCategory || DEFAULT_CATEGORY,
+        UNIVERSAL_BUDGET_GROUP,
+      ),
+    );
   }, [initialCategory]);
 
   useEffect(() => {
@@ -2439,85 +2382,6 @@ function ToastMessage({ toast, onDismiss }) {
   `;
 }
 
-function MobileBottomNav({ activeTab, onChange }) {
-  const items = [
-    { key: "overview", label: "Kontrol" },
-    { key: "history", label: "Riwayat" },
-    { key: "budget", label: "Anggaran" },
-    { key: "investment", label: "Keuangan" },
-  ];
-
-  return html`
-    <nav
-      className="mobile-bottom-nav fixed inset-x-3 z-40 transition duration-300 lg:hidden"
-      style=${{ bottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
-    >
-      <div
-        className=${`grid grid-cols-4 items-end gap-1 rounded-[26px] p-1.5 transition duration-300 ease-out ${navSurface}`}
-      >
-        ${items.map((item) => {
-          const active =
-            activeTab === item.key ||
-            (activeTab === "report" && item.key === "investment");
-          const tabClass = active
-            ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.26)] dark:bg-emerald-500 dark:text-white"
-            : "text-slate-500 hover:bg-slate-900/[0.05] hover:text-slate-950 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-white";
-          return html`
-            <button
-              key=${item.key}
-              type="button"
-              aria-current=${active ? "page" : undefined}
-              onClick=${() => onChange(item.key)}
-              className=${`flex min-h-[3.25rem] min-w-0 flex-col items-center justify-center rounded-[20px] px-1 text-[9px] font-bold transition duration-300 ease-out min-[390px]:text-[10px] ${tabClass}`}
-            >
-              <span className="truncate">${item.label}</span>
-            </button>
-          `;
-        })}
-      </div>
-    </nav>
-  `;
-}
-
-function FloatingTransactionButton({ visible = true, showHint = false, onClick, onDismissHint }) {
-  if (!visible) return null;
-
-  return html`
-    <div className="fixed right-5 z-50 flex justify-end md:right-7 lg:hidden" style=${{ bottom: "calc(5.35rem + env(safe-area-inset-bottom))" }}>
-      <div className="relative flex flex-col items-end">
-        ${showHint
-          ? html`
-              <div className="mb-2 w-[min(17rem,calc(100vw-2rem))] rounded-[18px] border border-brand-300/30 bg-white/94 p-3 text-slate-950 shadow-[0_20px_58px_rgba(15,23,42,0.16)] backdrop-blur-2xl dark:border-emerald-300/20 dark:bg-slate-950/94 dark:text-white dark:shadow-black/40">
-                <p className="text-sm font-black">Catat transaksi di sini</p>
-                <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
-                  Tekan tombol + untuk menambah pemasukan, pengeluaran, atau exchange.
-                </p>
-                <button
-                  type="button"
-                  onClick=${onDismissHint}
-                  className="mt-2 min-h-8 rounded-xl bg-brand-600 px-3 text-xs font-black text-white transition hover:bg-brand-700 dark:bg-emerald-500"
-                >
-                  Oke
-                </button>
-              </div>
-            `
-          : null}
-        <button
-          type="button"
-          aria-label="Catat transaksi"
-          onClick=${onClick}
-          className="inline-flex h-10 min-h-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-brand-600 px-3.5 text-[13px] font-black leading-none text-white shadow-[0_14px_32px_rgba(16,185,129,0.26)] transition duration-300 hover:-translate-y-0.5 hover:bg-brand-700 focus:outline-none focus:ring-4 focus:ring-emerald-300/45 dark:bg-emerald-500 dark:hover:bg-emerald-400"
-        >
-          <span className="grid h-5 w-5 place-items-center rounded-full bg-white/18 pb-[1px] text-base font-black leading-none">
-            +
-          </span>
-          <span className="pt-px leading-none">Transaksi</span>
-        </button>
-      </div>
-    </div>
-  `;
-}
-
 function App() {
   const [theme, setTheme] = useState(() =>
     normalizeThemeMode(readAppStorage("theme", "system")),
@@ -2533,6 +2397,7 @@ function App() {
   const [transactions, setTransactions] = useState([]);
   const [budgets, setBudgets] = useState([]);
   const [goals, setGoals] = useState([]);
+  const [goalActivities, setGoalActivities] = useState([]);
   const [assetAccounts, setAssetAccounts] = useState([]);
   const [profilePhotos, setProfilePhotos] = useState(() =>
     readAppStorage("profilePhotos", {}),
@@ -2557,6 +2422,15 @@ function App() {
   );
   const [selectedWalletCurrency, setSelectedWalletCurrency] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [quickActionOpen, setQuickActionOpen] = useState(false);
+  const [transactionEntryType, setTransactionEntryType] = useState("expense");
+  const [transactionTargetDraft, setTransactionTargetDraft] = useState({
+    id: "",
+    currency: "",
+  });
+  const [transactionReturnTab, setTransactionReturnTab] = useState("overview");
+  const [movementInitialMode, setMovementInitialMode] = useState("exchange");
+  const [assetFormRequest, setAssetFormRequest] = useState(0);
   const [transactionFabHintDismissed, setTransactionFabHintDismissed] = useState(() =>
     Boolean(readAppStorage("transactionFabHintDismissed", false)),
   );
@@ -2580,10 +2454,19 @@ function App() {
       transactions,
       budgets,
       goals,
+      goalActivities,
       assetAccounts,
       globalRateSnapshot,
     ),
-    [transactions, budgets, goals, assetAccounts, currencySettings, globalRateSnapshot],
+    [
+      transactions,
+      budgets,
+      goals,
+      goalActivities,
+      assetAccounts,
+      currencySettings,
+      globalRateSnapshot,
+    ],
   );
 
   useEffect(() => {
@@ -2711,6 +2594,7 @@ function App() {
       setTransactions([]);
       setBudgets([]);
       setGoals([]);
+      setGoalActivities([]);
       setAssetAccounts([]);
       setProfile(null);
       setCurrencySettings(null);
@@ -2740,11 +2624,15 @@ function App() {
         writeAppStorage("demoTransactions", normalizedDemoTransactions);
         setTransactions(normalizedDemoTransactions);
         setBudgets(
-          readAppStorage("demoBudgets", []).map((budget) =>
-            normalizeBudget(budget, getBaseCurrency()),
+          normalizeBudgets(
+            readAppStorage("demoBudgets", []),
+            getBaseCurrency(),
           ),
         );
         setGoals(readAppStorage("demoGoals", []).map(normalizeGoal));
+        setGoalActivities(
+          normalizeGoalActivities(readAppStorage("demoGoalActivities", [])),
+        );
         setAssetAccounts(
           normalizeAssetAccounts(readAppStorage("demoAssetAccounts", [])),
         );
@@ -2767,6 +2655,7 @@ function App() {
         transactionResult,
         budgetResult,
         goalResult,
+        goalActivityResult,
         assetAccountResult,
         settingsResult,
         profileResult,
@@ -2786,6 +2675,11 @@ function App() {
           .order("group_key", { ascending: true }),
         supabase
           .from("goals")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("goal_allocations")
           .select("*")
           .eq("user_id", user.id)
           .order("created_at", { ascending: true }),
@@ -2838,9 +2732,7 @@ function App() {
         });
       } else {
         setBudgets(
-          (budgetResult.data || []).map((budget) =>
-            normalizeBudget(budget, getBaseCurrency()),
-          ),
+          normalizeBudgets(budgetResult.data || [], getBaseCurrency()),
         );
       }
 
@@ -2855,6 +2747,26 @@ function App() {
         });
       } else {
         setGoals((goalResult.data || []).map(normalizeGoal));
+      }
+
+      if (goalActivityResult.error) {
+        setGoalActivities([]);
+        notices.push({
+          tone:
+            goalActivityResult.error.code === "42P01" ||
+            goalActivityResult.error.code === "PGRST205"
+              ? "info"
+              : "error",
+          text:
+            goalActivityResult.error.code === "42P01" ||
+            goalActivityResult.error.code === "PGRST205"
+              ? "Aktivitas alokasi belum tersedia. Jalankan migrasi target terbaru agar alokasi dapat disimpan."
+              : goalActivityResult.error.message,
+        });
+      } else {
+        setGoalActivities(
+          normalizeGoalActivities(goalActivityResult.data || []),
+        );
       }
 
       if (assetAccountResult.error) {
@@ -3060,11 +2972,12 @@ function App() {
     setMode("demo");
     setTransactions(normalizedDemoTransactions);
     setBudgets(
-      readAppStorage("demoBudgets", []).map((budget) =>
-        normalizeBudget(budget, getBaseCurrency()),
-      ),
+      normalizeBudgets(readAppStorage("demoBudgets", []), getBaseCurrency()),
     );
     setGoals(readAppStorage("demoGoals", []).map(normalizeGoal));
+    setGoalActivities(
+      normalizeGoalActivities(readAppStorage("demoGoalActivities", [])),
+    );
     setProfile(localProfile);
     setTheme(localProfile.theme_mode);
     setBalanceVisible(!localProfile.hide_balances);
@@ -3084,6 +2997,7 @@ function App() {
       setTransactions([]);
       setBudgets([]);
       setGoals([]);
+      setGoalActivities([]);
       setProfile(null);
       setCurrencySettings(null);
       setRuntimeCurrencySettings(null);
@@ -3107,15 +3021,20 @@ function App() {
   }
 
   async function persistDemoBudgets(nextBudgets) {
-    writeAppStorage("demoBudgets", nextBudgets);
-    setBudgets(
-      nextBudgets.map((budget) => normalizeBudget(budget, getBaseCurrency())),
-    );
+    const normalized = normalizeBudgets(nextBudgets, getBaseCurrency());
+    writeAppStorage("demoBudgets", normalized);
+    setBudgets(normalized);
   }
 
   async function persistDemoGoals(nextGoals) {
     writeAppStorage("demoGoals", nextGoals);
     setGoals(nextGoals.map(normalizeGoal));
+  }
+
+  async function persistDemoGoalActivities(nextActivities) {
+    const normalized = normalizeGoalActivities(nextActivities);
+    writeAppStorage("demoGoalActivities", normalized);
+    setGoalActivities(normalized);
   }
 
   async function persistDemoAssetAccounts(nextAccounts) {
@@ -3173,8 +3092,15 @@ function App() {
         from_amount: null,
         to_amount: null,
         rate: null,
+        rate_base_currency: null,
+        rate_quote_currency: null,
+        exchange_rate: null,
+        rate_type: null,
+        fee_amount: null,
+        fee_currency: null,
         source_account_id: null,
         destination_account_id: null,
+        target_id: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -3200,11 +3126,77 @@ function App() {
       if (payload.type === "exchange") {
         const fromCurrency = normalizeCurrencyCode(payload.from_currency);
         const toCurrency = normalizeCurrencyCode(payload.to_currency, "THB");
-        const fromAmount = Number(payload.from_amount);
-        const toAmount = Number(payload.to_amount);
-        const rate = Number(payload.rate || payload.exchange_rate);
-        if (fromCurrency === toCurrency) {
-          throw new Error("Dari mata uang dan ke mata uang tidak boleh sama.");
+        const fromAmountValue = normalizeNumericInput(payload.from_amount);
+        const exchangeRateValue = serializeExchangeRate(payload.exchange_rate);
+        const feeAmountValue = normalizeNumericInput(payload.fee_amount) || "0";
+        const fromAmount = Number(fromAmountValue);
+        const feeAmount = Number(feeAmountValue);
+        const rateBaseCurrency = normalizeCurrencyCode(
+          payload.rate_base_currency || fromCurrency,
+        );
+        const rateQuoteCurrency = normalizeCurrencyCode(
+          payload.rate_quote_currency || toCurrency,
+        );
+        const rateType = ["realtime", "custom", "transfer"].includes(
+          payload.rate_type,
+        )
+          ? payload.rate_type
+          : "legacy";
+        const ratePair = new Set([rateBaseCurrency, rateQuoteCurrency]);
+        const rateValidation = validateExchangeRate(exchangeRateValue);
+        const calculatedToAmountValue = calculateExchangeTargetAmount({
+          sourceCurrency: fromCurrency,
+          targetCurrency: toCurrency,
+          sourceAmount: fromAmountValue,
+          rateBaseCurrency,
+          rateQuoteCurrency,
+          exchangeRate: exchangeRateValue,
+        });
+        const toAmount = Number(calculatedToAmountValue);
+        const rate = Number(
+          getDirectionalExchangeRate({
+            sourceCurrency: fromCurrency,
+            targetCurrency: toCurrency,
+            rateBaseCurrency,
+            rateQuoteCurrency,
+            exchangeRate: exchangeRateValue,
+          }),
+        );
+        const sourceAccountId = payload.source_account_id || null;
+        const destinationAccountId = payload.destination_account_id || null;
+        const sourceAccount = assetAccounts.find((account) => account.id === sourceAccountId);
+        const destinationAccount = assetAccounts.find(
+          (account) => account.id === destinationAccountId,
+        );
+        const isInternalTransfer = fromCurrency === toCurrency;
+        if (isInternalTransfer && (!sourceAccountId || !destinationAccountId)) {
+          throw new Error("Pilih dompet asal dan tujuan untuk transfer.");
+        }
+        if (isInternalTransfer && sourceAccountId === destinationAccountId) {
+          throw new Error("Dompet asal dan tujuan tidak boleh sama.");
+        }
+        if (isInternalTransfer && Number(exchangeRateValue) !== 1) {
+          throw new Error("Rate transfer antar dompet harus bernilai 1.");
+        }
+        if (
+          !isInternalTransfer &&
+          (ratePair.size !== 2 ||
+            !ratePair.has(fromCurrency) ||
+            !ratePair.has(toCurrency))
+        ) {
+          throw new Error("Orientasi kurs tidak sesuai dengan pasangan mata uang.");
+        }
+        if (
+          sourceAccount &&
+          normalizeCurrencyCode(sourceAccount.currency) !== fromCurrency
+        ) {
+          throw new Error("Mata uang dompet asal tidak sesuai.");
+        }
+        if (
+          destinationAccount &&
+          normalizeCurrencyCode(destinationAccount.currency) !== toCurrency
+        ) {
+          throw new Error("Mata uang dompet tujuan tidak sesuai.");
         }
         if (!fromAmount || fromAmount <= 0) {
           throw new Error("Jumlah yang ditukar harus lebih besar dari 0.");
@@ -3212,18 +3204,26 @@ function App() {
         if (!toAmount || toAmount <= 0) {
           throw new Error("Jumlah diterima harus lebih besar dari 0.");
         }
-        if (!rate || rate <= 0) {
-          throw new Error("Kurs exchange harus lebih besar dari 0.");
+        if (!rateValidation.valid || !rate || rate <= 0) {
+          throw new Error(rateValidation.message || "Kurs exchange harus lebih besar dari 0.");
         }
         const balances = computeCurrencyBalances(
           transactions,
           getActiveCurrencies(),
         );
         const availableFromBalance =
-          fromCurrency === getBaseCurrency()
-            ? metrics.balanceIdr
-            : Number(balances[fromCurrency] || 0);
-        if (availableFromBalance < fromAmount) {
+          sourceAccount
+            ? Number(sourceAccount.balance_amount || sourceAccount.balanceAmount || 0)
+            : fromCurrency === getBaseCurrency()
+              ? metrics.balanceIdr
+              : Number(balances[fromCurrency] || 0);
+        const totalDebit = addExchangeDecimals(fromAmountValue, feeAmountValue);
+        if (
+          compareExchangeDecimals(
+            totalDebit,
+            String(availableFromBalance),
+          ) > 0
+        ) {
           throw new Error(`Saldo ${fromCurrency} tidak mencukupi.`);
         }
         record.from_currency = fromCurrency;
@@ -3232,6 +3232,14 @@ function App() {
         record.to_amount = toAmount;
         record.rate = rate;
         record.locked_rate = rate;
+        record.rate_base_currency = rateBaseCurrency;
+        record.rate_quote_currency = rateQuoteCurrency;
+        record.exchange_rate = exchangeRateValue;
+        record.rate_type = isInternalTransfer ? "transfer" : rateType;
+        record.fee_amount = feeAmount || null;
+        record.fee_currency = feeAmount > 0 ? fromCurrency : null;
+        record.source_account_id = sourceAccountId;
+        record.destination_account_id = destinationAccountId;
         record.base_amount =
           fromCurrency === getBaseCurrency()
             ? fromAmount
@@ -3256,9 +3264,29 @@ function App() {
         const expenseCurrency = normalizeCurrencyCode(payload.expense_currency || payload.currency);
         const amount = Number(payload.amount || payload.amount_idr || payload.amount_thb);
         const sourceAccountId = payload.source_account_id || null;
+        const targetId = payload.target_id || null;
+        const selectedGoal = targetId
+          ? metrics.goalInsights.find((goal) => goal.id === targetId)
+          : null;
 
         if (!amount || amount <= 0) {
           throw new Error(`Jumlah pengeluaran ${expenseCurrency} harus lebih besar dari 0.`);
+        }
+        if (targetId && !selectedGoal) {
+          throw new Error("Target yang dipilih tidak ditemukan.");
+        }
+        if (selectedGoal && selectedGoal.currency !== expenseCurrency) {
+          throw new Error(
+            `Target ${selectedGoal.name} hanya dapat digunakan untuk transaksi ${selectedGoal.currency}.`,
+          );
+        }
+        if (
+          selectedGoal &&
+          amount > Number(selectedGoal.availableAmount || 0) + 0.0001
+        ) {
+          throw new Error(
+            `Dana tersedia pada ${selectedGoal.name} tidak mencukupi.`,
+          );
         }
         if (!sourceAccountId) {
           const balances = computeCurrencyBalances(
@@ -3307,6 +3335,7 @@ function App() {
         record.category = payload.category;
         record.category_group = getDefaultGroupForCategory(payload.category);
         record.source_account_id = sourceAccountId;
+        record.target_id = targetId;
       }
 
       const accountBalancePlan = buildAssetAccountBalancePlan(
@@ -3318,19 +3347,71 @@ function App() {
       if (mode === "demo") {
         await persistDemoTransactions([...transactions, record]);
         await persistAssetAccountBalancePlan(accountBalancePlan);
+        await persistDemoGoalActivities(
+          syncGoalActivityForTransaction(goalActivities, savedTransaction),
+        );
       } else {
-        const { data, error } = await supabase
-          .from("transactions")
-          .insert(record)
-          .select()
-          .single();
-        if (error) throw error;
-        await persistAssetAccountBalancePlan(accountBalancePlan);
-        savedTransaction = normalizeTransaction(data);
+        const shouldUseAtomicExchange =
+          record.type === "exchange" &&
+          record.source_account_id &&
+          record.destination_account_id;
+        let savedData = null;
+        let usedAtomicExchange = false;
+
+        if (shouldUseAtomicExchange) {
+          const { data, error } = await supabase.rpc(
+            "create_exchange_transaction_atomic",
+            { p_transaction: record },
+          );
+          const missingRpc =
+            error &&
+            (error.code === "PGRST202" ||
+              error.code === "42883" ||
+              String(error.message || "").includes(
+                "create_exchange_transaction_atomic",
+              ));
+          if (missingRpc) {
+            throw new Error(
+              "Pembaruan database tukar valas belum dipasang. Jalankan migrasi kurs terbaru sebelum menyimpan transaksi.",
+            );
+          }
+          if (error) throw error;
+          if (!error) {
+            savedData = Array.isArray(data) ? data[0] : data;
+            usedAtomicExchange = true;
+            setAssetAccounts(accountBalancePlan.nextAccounts);
+          }
+        }
+
+        if (!usedAtomicExchange) {
+          const {
+            rate_base_currency: _rateBaseCurrency,
+            rate_quote_currency: _rateQuoteCurrency,
+            exchange_rate: _exchangeRate,
+            rate_type: _rateType,
+            ...legacyCompatibleRecord
+          } = record;
+          const insertRecord =
+            record.type === "exchange" ? record : legacyCompatibleRecord;
+          const { data, error } = await supabase
+            .from("transactions")
+            .insert(insertRecord)
+            .select()
+            .single();
+          if (error) throw error;
+          await persistAssetAccountBalancePlan(accountBalancePlan);
+          savedData = data;
+        }
+
+        savedTransaction = normalizeTransaction(savedData);
         setTransactions((current) =>
           orderTransactions([...current, savedTransaction]),
         );
+        setGoalActivities((current) =>
+          syncGoalActivityForTransaction(current, savedTransaction),
+        );
       }
+      await markOneTimeGoalUsed(savedTransaction);
 
       const budgetWarning = buildBudgetOverspendWarning(
         savedTransaction,
@@ -3373,8 +3454,8 @@ function App() {
       const amount = Number(normalizeNumericInput(payload.amount));
       const amountIdr = Number(normalizeNumericInput(payload.amount_idr));
       const amountThb = Number(normalizeNumericInput(payload.amount_thb));
-      const fromAmount = Number(normalizeNumericInput(payload.from_amount));
-      const toAmount = Number(normalizeNumericInput(payload.to_amount));
+      const fromAmountValue = normalizeNumericInput(payload.from_amount);
+      const fromAmount = Number(fromAmountValue);
       const lockedRate = Number(normalizeNumericInput(payload.locked_rate));
       const record = {
         type: nextType,
@@ -3394,8 +3475,15 @@ function App() {
         from_amount: null,
         to_amount: null,
         rate: null,
+        rate_base_currency: null,
+        rate_quote_currency: null,
+        exchange_rate: null,
+        rate_type: null,
+        fee_amount: null,
+        fee_currency: null,
         source_account_id: null,
         destination_account_id: null,
+        target_id: null,
         updated_at: new Date().toISOString(),
       };
 
@@ -3422,8 +3510,48 @@ function App() {
       if (nextType === "exchange") {
         const fromCurrency = normalizeCurrencyCode(payload.from_currency);
         const toCurrency = normalizeCurrencyCode(payload.to_currency, "THB");
-        if (fromCurrency === toCurrency) {
-          throw new Error("Dari mata uang dan ke mata uang tidak boleh sama.");
+        const isInternalTransfer = fromCurrency === toCurrency;
+        const exchangeRateValue = serializeExchangeRate(
+          payload.exchange_rate || payload.locked_rate,
+        );
+        const rateBaseCurrency = normalizeCurrencyCode(
+          payload.rate_base_currency || fromCurrency,
+        );
+        const rateQuoteCurrency = normalizeCurrencyCode(
+          payload.rate_quote_currency || toCurrency,
+        );
+        const rateType = isInternalTransfer
+          ? "transfer"
+          : ["realtime", "custom", "legacy"].includes(payload.rate_type)
+            ? payload.rate_type
+            : "legacy";
+        const calculatedToAmountValue = isInternalTransfer
+          ? fromAmountValue
+          : calculateExchangeTargetAmount({
+              sourceCurrency: fromCurrency,
+              targetCurrency: toCurrency,
+              sourceAmount: fromAmountValue,
+              rateBaseCurrency,
+              rateQuoteCurrency,
+              exchangeRate: exchangeRateValue,
+            });
+        const toAmount = Number(calculatedToAmountValue);
+        const directionalRateValue = getDirectionalExchangeRate({
+          sourceCurrency: fromCurrency,
+          targetCurrency: toCurrency,
+          rateBaseCurrency,
+          rateQuoteCurrency,
+          exchangeRate: exchangeRateValue,
+        });
+        const rateValidation = validateExchangeRate(exchangeRateValue);
+        const ratePair = new Set([rateBaseCurrency, rateQuoteCurrency]);
+        if (
+          isInternalTransfer &&
+          (!transaction.source_account_id ||
+            !transaction.destination_account_id ||
+            transaction.source_account_id === transaction.destination_account_id)
+        ) {
+          throw new Error("Transfer membutuhkan dompet asal dan tujuan yang berbeda.");
         }
         if (!fromAmount || fromAmount <= 0) {
           throw new Error("Jumlah ditukar harus lebih besar dari 0.");
@@ -3431,16 +3559,37 @@ function App() {
         if (!toAmount || toAmount <= 0) {
           throw new Error("Jumlah diterima harus lebih besar dari 0.");
         }
-        if (!lockedRate || lockedRate <= 0) {
-          throw new Error("Kurs exchange wajib diisi.");
+        if (!rateValidation.valid || !directionalRateValue) {
+          throw new Error(
+            rateValidation.message || "Kurs exchange wajib diisi.",
+          );
+        }
+        if (isInternalTransfer && Number(exchangeRateValue) !== 1) {
+          throw new Error("Rate transfer antar dompet harus bernilai 1.");
+        }
+        if (
+          !isInternalTransfer &&
+          (ratePair.size !== 2 ||
+            !ratePair.has(fromCurrency) ||
+            !ratePair.has(toCurrency))
+        ) {
+          throw new Error("Orientasi kurs tidak sesuai dengan pasangan mata uang.");
         }
 
         record.from_currency = fromCurrency;
         record.to_currency = toCurrency;
         record.from_amount = fromAmount;
         record.to_amount = toAmount;
-        record.rate = lockedRate;
-        record.locked_rate = lockedRate;
+        record.rate = Number(directionalRateValue);
+        record.locked_rate = Number(directionalRateValue);
+        record.rate_base_currency = rateBaseCurrency;
+        record.rate_quote_currency = rateQuoteCurrency;
+        record.exchange_rate = exchangeRateValue;
+        record.rate_type = rateType;
+        record.fee_amount = transaction.fee_amount || null;
+        record.fee_currency = transaction.fee_currency || null;
+        record.source_account_id = transaction.source_account_id || null;
+        record.destination_account_id = transaction.destination_account_id || null;
         record.base_amount =
           fromCurrency === getBaseCurrency()
             ? fromAmount
@@ -3462,11 +3611,43 @@ function App() {
       if (nextType === "expense") {
         const expenseCurrency = normalizeCurrencyCode(payload.expense_currency || payload.currency);
         const nextAmount = amount || amountIdr || amountThb;
+        const targetId =
+          payload.target_id !== undefined
+            ? payload.target_id || null
+            : transaction.target_id || null;
+        const allocationStateWithoutCurrentSpend = computeGoalAllocationState({
+          goals,
+          activities: goalActivities.filter(
+            (activity) => activity.transaction_id !== transaction.id,
+          ),
+          accounts: assetAccounts,
+        });
+        const selectedGoal = targetId
+          ? allocationStateWithoutCurrentSpend.goals.find(
+              (goal) => goal.id === targetId,
+            )
+          : null;
         record.category = payload.category || DEFAULT_CATEGORY;
         record.category_group = getDefaultGroupForCategory(record.category);
 
         if (!nextAmount || nextAmount <= 0) {
           throw new Error(`Jumlah pengeluaran ${expenseCurrency} harus lebih besar dari 0.`);
+        }
+        if (targetId && !selectedGoal) {
+          throw new Error("Target yang dipilih tidak ditemukan.");
+        }
+        if (selectedGoal && selectedGoal.currency !== expenseCurrency) {
+          throw new Error(
+            `Target ${selectedGoal.name} hanya dapat digunakan untuk transaksi ${selectedGoal.currency}.`,
+          );
+        }
+        if (
+          selectedGoal &&
+          nextAmount > Number(selectedGoal.availableAmount || 0) + 0.0001
+        ) {
+          throw new Error(
+            `Dana tersedia pada ${selectedGoal.name} tidak mencukupi.`,
+          );
         }
         const autoRate =
           expenseCurrency === getBaseCurrency()
@@ -3500,6 +3681,7 @@ function App() {
         record.amount_idr = record.base_amount;
         record.amount_thb = expenseCurrency === "THB" ? nextAmount : null;
         record.source_account_id = transaction.source_account_id || null;
+        record.target_id = targetId;
       }
 
       const updatedTransactionForMovement = normalizeTransaction({
@@ -3527,10 +3709,22 @@ function App() {
           ),
         );
         await persistAssetAccountBalancePlan(accountBalancePlan);
+        await persistDemoGoalActivities(
+          syncGoalActivityForTransaction(goalActivities, updatedTransaction),
+        );
       } else {
+        const {
+          rate_base_currency: _rateBaseCurrency,
+          rate_quote_currency: _rateQuoteCurrency,
+          exchange_rate: _exchangeRate,
+          rate_type: _rateType,
+          ...legacyCompatibleRecord
+        } = record;
+        const updateRecord =
+          nextType === "exchange" ? record : legacyCompatibleRecord;
         const { data, error } = await supabase
           .from("transactions")
-          .update(record)
+          .update(updateRecord)
           .eq("id", transaction.id)
           .eq("user_id", user.id)
           .select()
@@ -3545,7 +3739,11 @@ function App() {
             ),
           ),
         );
+        setGoalActivities((current) =>
+          syncGoalActivityForTransaction(current, normalizedUpdated),
+        );
       }
+      await markOneTimeGoalUsed(updatedTransaction);
 
       const nextTransactionsForBudget = transactions.map((item) =>
         item.id === transaction.id ? updatedTransaction : item,
@@ -3590,6 +3788,11 @@ function App() {
           transactions.filter((item) => item.id !== transactionId),
         );
         await persistAssetAccountBalancePlan(accountBalancePlan);
+        await persistDemoGoalActivities(
+          goalActivities.filter(
+            (activity) => activity.transaction_id !== transactionId,
+          ),
+        );
       } else {
         const { error } = await supabase
           .from("transactions")
@@ -3600,6 +3803,11 @@ function App() {
         await persistAssetAccountBalancePlan(accountBalancePlan);
         setTransactions((current) =>
           current.filter((item) => item.id !== transactionId),
+        );
+        setGoalActivities((current) =>
+          current.filter(
+            (activity) => activity.transaction_id !== transactionId,
+          ),
         );
       }
 
@@ -3638,7 +3846,7 @@ function App() {
       const existing =
         matchingBudgets.find(
           (item) => normalizeCurrencyCode(item.currency || getBaseCurrency()) === budgetCurrency,
-        ) || matchingBudgets[0];
+        ) || null;
 
       const record = {
         id: existing?.id || crypto.randomUUID(),
@@ -3680,11 +3888,30 @@ function App() {
         const { data, error } = await query.select().single();
         if (error) throw error;
 
+        const mergedSourceIds = (existing?.sourceBudgetIds || []).filter(
+          (id) => id && id !== data.id,
+        );
+        if (mergedSourceIds.length) {
+          const { error: cleanupError } = await supabase
+            .from("budgets")
+            .delete()
+            .eq("user_id", user.id)
+            .in("id", mergedSourceIds);
+          if (cleanupError) throw cleanupError;
+        }
+
         setBudgets((current) => {
-          const next = [
-            ...current.filter((item) => item.id !== data.id),
-            normalizeBudget(data, getBaseCurrency()),
-          ];
+          const replacedIds = new Set([
+            data.id,
+            ...(existing?.sourceBudgetIds || []),
+          ]);
+          const next = normalizeBudgets(
+            [
+              ...current.filter((item) => !replacedIds.has(item.id)),
+              data,
+            ],
+            getBaseCurrency(),
+          );
           return next.sort((a, b) => String(a.month_key).localeCompare(String(b.month_key)));
         });
       }
@@ -3712,15 +3939,30 @@ function App() {
       setMessage("");
 
       if (mode === "demo") {
-        await persistDemoBudgets(budgets.filter((item) => item.id !== budget.id));
+        const sourceIds = new Set([
+          budget.id,
+          ...(budget.sourceBudgetIds || []),
+        ]);
+        await persistDemoBudgets(
+          budgets.filter((item) => !sourceIds.has(item.id)),
+        );
       } else {
+        const sourceIds = [
+          ...new Set([
+            budget.id,
+            ...(budget.sourceBudgetIds || []),
+          ]),
+        ].filter(Boolean);
         const { error } = await supabase
           .from("budgets")
           .delete()
-          .eq("id", budget.id)
-          .eq("user_id", user.id);
+          .eq("user_id", user.id)
+          .in("id", sourceIds);
         if (error) throw error;
-        setBudgets((current) => current.filter((item) => item.id !== budget.id));
+        const deletedIds = new Set(sourceIds);
+        setBudgets((current) =>
+          current.filter((item) => !deletedIds.has(item.id)),
+        );
       }
 
       setMessage("Anggaran dihapus.");
@@ -3760,6 +4002,10 @@ function App() {
         account_type: accountType,
         currency,
         balance_amount: balanceAmount,
+        is_allocatable:
+          typeof payload.is_allocatable === "boolean"
+            ? payload.is_allocatable
+            : ["bank", "cash", "ewallet"].includes(accountType),
         note: String(payload.note || "").trim(),
         created_at: new Date().toISOString(),
       };
@@ -3824,52 +4070,136 @@ function App() {
     }
   }
 
+  function getCurrentGoalAllocationState(
+    nextGoals = goals,
+    nextActivities = goalActivities,
+    nextAccounts = assetAccounts,
+  ) {
+    return computeGoalAllocationState({
+      goals: nextGoals,
+      activities: nextActivities,
+      accounts: nextAccounts,
+    });
+  }
+
+  async function persistGoalActivityRecord(record) {
+    const normalized = normalizeGoalActivity(record);
+    if (mode === "demo") {
+      await persistDemoGoalActivities([...goalActivities, normalized]);
+      return normalized;
+    }
+    const { data, error } = await supabase
+      .from("goal_allocations")
+      .insert(normalized)
+      .select()
+      .single();
+    if (error) throw error;
+    const saved = normalizeGoalActivity(data);
+    setGoalActivities((current) =>
+      normalizeGoalActivities([...current, saved]),
+    );
+    return saved;
+  }
+
   async function handleCreateGoal(payload) {
     try {
       setLoading(true);
       setMessage("");
 
-      const targetAmount = Number(payload.target_amount_idr);
-      const savedAmount = Number(payload.saved_amount_idr || 0);
+      const name = String(payload.name || "").trim();
+      const currency = normalizeCurrencyCode(
+        payload.currency || getBaseCurrency(),
+      );
+      const targetAmount = Number(
+        payload.target_amount ?? payload.target_amount_idr,
+      );
+      const initialAllocation = Number(
+        payload.initial_allocation ?? payload.saved_amount_idr ?? 0,
+      );
+      const targetType =
+        payload.target_type === "collect_by_date"
+          ? "collect_by_date"
+          : GOAL_TYPE_HOLD_BALANCE;
 
-      if (!payload.name.trim()) {
-        throw new Error("Nama target wajib diisi.");
-      }
+      if (!name) throw new Error("Nama target wajib diisi.");
       if (!targetAmount || targetAmount <= 0) {
-        throw new Error("Target IDR harus lebih besar dari 0.");
+        throw new Error(`Nominal target ${currency} harus lebih besar dari 0.`);
       }
-      if (savedAmount < 0) {
-        throw new Error("Saldo awal tidak boleh negatif.");
-      }
-      if (savedAmount > metrics.balanceIdr) {
-        throw new Error("Saldo utama IDR tidak cukup untuk menaruh saldo awal sebesar itu.");
+      if (initialAllocation < 0) {
+        throw new Error("Alokasi awal tidak boleh negatif.");
       }
 
-      const record = {
+      const currentSummary =
+        getCurrentGoalAllocationState().summaries[currency] || {
+          unallocatedAmount: 0,
+        };
+      if (initialAllocation > currentSummary.unallocatedAmount + 0.0001) {
+        throw new Error(
+          `Alokasi awal melebihi dana ${currency} yang belum dialokasikan.`,
+        );
+      }
+
+      const now = new Date().toISOString();
+      const record = normalizeGoal({
         id: crypto.randomUUID(),
         user_id: user.id,
-        name: payload.name.trim(),
+        name,
+        currency,
+        target_amount: targetAmount,
         target_amount_idr: targetAmount,
-        saved_amount_idr: savedAmount,
+        saved_amount_idr: 0,
+        target_type: targetType,
         deadline: payload.deadline || null,
-        created_at: new Date().toISOString(),
-      };
+        note: String(payload.note || "").trim(),
+        status: "active",
+        created_at: now,
+        updated_at: now,
+      });
+      let savedGoal = record;
 
       if (mode === "demo") {
         await persistDemoGoals([...goals, record]);
       } else {
         const { data, error } = await supabase
           .from("goals")
-          .insert(record)
+          .insert({
+            id: record.id,
+            user_id: record.user_id,
+            name: record.name,
+            currency: record.currency,
+            target_amount: record.targetAmount,
+            target_amount_idr: record.targetAmount,
+            saved_amount_idr: 0,
+            target_type: record.targetType,
+            deadline: record.deadline,
+            note: record.note,
+            status: "active",
+            created_at: record.created_at,
+            updated_at: record.updated_at,
+          })
           .select()
           .single();
         if (error) throw error;
-        setGoals((current) => [...current, normalizeGoal(data)]);
+        savedGoal = normalizeGoal(data);
+        setGoals((current) => [...current, savedGoal]);
+      }
+
+      if (initialAllocation > 0) {
+        await persistGoalActivityRecord({
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          goal_id: savedGoal.id,
+          type: "assign",
+          amount: initialAllocation,
+          currency,
+          note: "Alokasi awal",
+          created_at: now,
+        });
       }
 
       setMessage(
-        savedAmount > 0
-          ? `Target dibuat. ${formatCurrency(savedAmount, "idr")} dipindahkan dari saldo utama ke tabungan.`
+        initialAllocation > 0
+          ? `Target dibuat dan ${formatCurrency(initialAllocation, currency)} dialokasikan tanpa mengubah saldo rekening.`
           : "Target finansial berhasil dibuat.",
       );
       setMessageTone("success");
@@ -3893,6 +4223,9 @@ function App() {
 
       if (mode === "demo") {
         await persistDemoGoals(goals.filter((item) => item.id !== goal.id));
+        await persistDemoGoalActivities(
+          goalActivities.filter((item) => item.goal_id !== goal.id),
+        );
       } else {
         const { error } = await supabase
           .from("goals")
@@ -3913,53 +4246,36 @@ function App() {
     }
   }
 
-  async function handleAddGoalProgress(goal, rawAmount, action = "deposit") {
+  async function handleGoalActivity(goal, rawAmount, type = "assign", note = "") {
     try {
       setLoading(true);
       setMessage("");
 
       const amount = Number(rawAmount);
-      if (!amount || amount <= 0) {
-        throw new Error("Nominal harus lebih besar dari 0.");
-      }
+      const normalizedGoal = normalizeGoal(goal);
+      const validation = validateGoalActivity({
+        goal: normalizedGoal,
+        type,
+        amount,
+        allocationState: getCurrentGoalAllocationState(),
+      });
+      if (!validation.valid) throw new Error(validation.message);
 
-      const currentSavedAmount = Number(goal.saved_amount_idr || goal.savedAmount || 0);
-      const isWithdraw = action === "withdraw";
-      if (!isWithdraw && amount > metrics.balanceIdr) {
-        throw new Error("Saldo utama IDR tidak cukup untuk setor ke tabungan.");
-      }
-      if (isWithdraw && amount > currentSavedAmount) {
-        throw new Error("Saldo tabungan pada target ini tidak mencukupi untuk ditarik.");
-      }
-      const nextSavedAmount = isWithdraw
-        ? currentSavedAmount - amount
-        : currentSavedAmount + amount;
-
-      if (mode === "demo") {
-        const next = goals.map((item) =>
-          item.id === goal.id ? { ...item, saved_amount_idr: nextSavedAmount } : item,
-        );
-        await persistDemoGoals(next);
-      } else {
-        const { data, error } = await supabase
-          .from("goals")
-          .update({ saved_amount_idr: nextSavedAmount })
-          .eq("id", goal.id)
-          .eq("user_id", user.id)
-          .select()
-          .single();
-        if (error) throw error;
-        setGoals((current) =>
-          current.map((item) =>
-            item.id === goal.id ? normalizeGoal(data) : item,
-          ),
-        );
-      }
+      await persistGoalActivityRecord({
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        goal_id: normalizedGoal.id,
+        type,
+        amount,
+        currency: normalizedGoal.currency,
+        note,
+        created_at: new Date().toISOString(),
+      });
 
       setMessage(
-        isWithdraw
-          ? `${formatCurrency(amount, "idr")} ditarik dari tabungan ke saldo utama.`
-          : `${formatCurrency(amount, "idr")} dipindahkan dari saldo utama ke tabungan.`,
+        type === "release"
+          ? `${formatCurrency(amount, normalizedGoal.currency)} kembali menjadi dana belum dialokasikan.`
+          : `${formatCurrency(amount, normalizedGoal.currency)} dialokasikan ke ${normalizedGoal.name} tanpa mengubah saldo rekening.`,
       );
       setMessageTone("success");
       return true;
@@ -3970,6 +4286,235 @@ function App() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleMoveGoalAllocation(
+    sourceGoal,
+    destinationGoal,
+    rawAmount,
+  ) {
+    try {
+      setLoading(true);
+      setMessage("");
+      const source = normalizeGoal(sourceGoal);
+      const destination = normalizeGoal(destinationGoal);
+      const amount = Number(rawAmount);
+      if (source.id === destination.id) {
+        throw new Error("Pilih target tujuan yang berbeda.");
+      }
+      if (source.currency !== destination.currency) {
+        throw new Error("Alokasi hanya dapat dipindahkan dalam mata uang yang sama.");
+      }
+      const state = getCurrentGoalAllocationState();
+      const releaseValidation = validateGoalActivity({
+        goal: source,
+        type: "release",
+        amount,
+        allocationState: state,
+      });
+      if (!releaseValidation.valid) throw new Error(releaseValidation.message);
+
+      const timestamp = new Date().toISOString();
+      const records = [
+        normalizeGoalActivity({
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          goal_id: source.id,
+          type: "release",
+          amount,
+          currency: source.currency,
+          note: `Dipindahkan ke ${destination.name}`,
+          created_at: timestamp,
+        }),
+        normalizeGoalActivity({
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          goal_id: destination.id,
+          type: "assign",
+          amount,
+          currency: destination.currency,
+          note: `Dipindahkan dari ${source.name}`,
+          created_at: timestamp,
+        }),
+      ];
+
+      if (mode === "demo") {
+        await persistDemoGoalActivities([...goalActivities, ...records]);
+      } else {
+        const { data, error } = await supabase
+          .from("goal_allocations")
+          .insert(records)
+          .select();
+        if (error) throw error;
+        setGoalActivities((current) =>
+          normalizeGoalActivities([...current, ...(data || [])]),
+        );
+      }
+
+      setMessage(
+        `${formatCurrency(amount, source.currency)} dipindahkan dari ${source.name} ke ${destination.name}.`,
+      );
+      setMessageTone("success");
+      return true;
+    } catch (error) {
+      setMessage(error.message || "Gagal memindahkan alokasi.");
+      setMessageTone("error");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleUpdateGoal(goal, payload) {
+    try {
+      setLoading(true);
+      setMessage("");
+      const normalizedGoal = normalizeGoal(goal);
+      const name = String(payload.name || normalizedGoal.name).trim();
+      const targetAmount = Number(
+        payload.target_amount ?? payload.target_amount_idr,
+      );
+      if (!name) throw new Error("Nama target wajib diisi.");
+      if (!targetAmount || targetAmount <= 0) {
+        throw new Error("Nominal target harus lebih besar dari 0.");
+      }
+      const update = {
+        name,
+        target_amount: targetAmount,
+        target_amount_idr: targetAmount,
+        target_type:
+          payload.target_type === "collect_by_date"
+            ? "collect_by_date"
+            : GOAL_TYPE_HOLD_BALANCE,
+        deadline: payload.deadline || null,
+        note: String(payload.note || "").trim(),
+        updated_at: new Date().toISOString(),
+      };
+      if (mode === "demo") {
+        await persistDemoGoals(
+          goals.map((item) =>
+            item.id === normalizedGoal.id ? { ...item, ...update } : item,
+          ),
+        );
+      } else {
+        const { data, error } = await supabase
+          .from("goals")
+          .update(update)
+          .eq("id", normalizedGoal.id)
+          .eq("user_id", user.id)
+          .select()
+          .single();
+        if (error) throw error;
+        setGoals((current) =>
+          current.map((item) =>
+            item.id === normalizedGoal.id ? normalizeGoal(data) : item,
+          ),
+        );
+      }
+      setMessage("Target diperbarui.");
+      setMessageTone("success");
+      return true;
+    } catch (error) {
+      setMessage(error.message || "Gagal memperbarui target.");
+      setMessageTone("error");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleArchiveGoal(goal) {
+    try {
+      setLoading(true);
+      const normalizedGoal = normalizeGoal(goal);
+      if (Number(goal.availableAmount || 0) > 0.0001) {
+        throw new Error(
+          "Lepaskan atau pindahkan seluruh alokasi sebelum mengarsipkan target.",
+        );
+      }
+      const update = {
+        status: "archived",
+        archived_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      if (mode === "demo") {
+        await persistDemoGoals(
+          goals.map((item) =>
+            item.id === normalizedGoal.id ? { ...item, ...update } : item,
+          ),
+        );
+      } else {
+        const { data, error } = await supabase
+          .from("goals")
+          .update(update)
+          .eq("id", normalizedGoal.id)
+          .eq("user_id", user.id)
+          .select()
+          .single();
+        if (error) throw error;
+        setGoals((current) =>
+          current.map((item) =>
+            item.id === normalizedGoal.id ? normalizeGoal(data) : item,
+          ),
+        );
+      }
+      setMessage("Target diarsipkan.");
+      setMessageTone("info");
+      return true;
+    } catch (error) {
+      setMessage(error.message || "Gagal mengarsipkan target.");
+      setMessageTone("error");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function markOneTimeGoalUsed(transaction) {
+    if (transaction?.type !== "expense" || !transaction?.target_id) return;
+    const goal = metrics.goalInsights.find(
+      (item) => item.id === transaction.target_id,
+    );
+    if (
+      !goal ||
+      goal.targetType !== "collect_by_date" ||
+      Number(goal.availableAmount || 0) + 0.0001 < Number(goal.targetAmount || 0)
+    ) {
+      return;
+    }
+    const completedAt = goal.completed_at || new Date().toISOString();
+    const update = {
+      status: "used",
+      completed_at: completedAt,
+      updated_at: new Date().toISOString(),
+    };
+    if (mode === "demo") {
+      await persistDemoGoals(
+        goals.map((item) =>
+          item.id === goal.id ? { ...item, ...update } : item,
+        ),
+      );
+      return;
+    }
+    const { data, error } = await supabase
+      .from("goals")
+      .update(update)
+      .eq("id", goal.id)
+      .eq("user_id", user.id)
+      .select()
+      .single();
+    if (error) throw error;
+    setGoals((current) =>
+      current.map((item) => (item.id === goal.id ? normalizeGoal(data) : item)),
+    );
+  }
+
+  async function handleAddGoalProgress(goal, rawAmount, action = "deposit") {
+    return handleGoalActivity(
+      goal,
+      rawAmount,
+      action === "withdraw" ? "release" : "assign",
+    );
   }
 
   async function persistUserSettings(nextSettings, overrides = {}) {
@@ -4242,8 +4787,9 @@ function App() {
     "";
   const resolvedTheme = resolveThemeMode(theme, systemPrefersDark);
   const isDark = resolvedTheme === "dark";
+  const menuActiveTab = activeTab === "control" ? "overview" : activeTab;
   const menuTabClass = (tab) =>
-    tab === activeTab
+    tab === menuActiveTab
       ? "bg-brand-600 text-white shadow-[0_16px_40px_rgba(16,185,129,0.22)] dark:bg-emerald-500 dark:text-white"
       : isDark
         ? "bg-slate-900/88 text-slate-100 hover:bg-slate-800 hover:text-white"
@@ -4253,10 +4799,10 @@ function App() {
   const menuProfileCardClass =
     "cuan-menu-card flex items-center gap-3 rounded-2xl p-3";
   const navigationTabs = [
-    { key: "overview", label: "Kontrol" },
-    { key: "history", label: "Riwayat" },
+    { key: "overview", label: "Beranda" },
+    { key: "investment", label: "Dompet" },
     { key: "budget", label: "Anggaran" },
-    { key: "investment", label: "Keuangan" },
+    { key: "history", label: "Riwayat" },
     { key: "settings", label: "Pengaturan" },
   ];
   const historyTransactions = [...orderTransactions(transactions)].reverse();
@@ -4433,10 +4979,12 @@ function App() {
   function navigateAppTab(tab) {
     if (tab === "add") {
       setTransactionFabHintDismissed(true);
+      setTransactionEntryType("expense");
       writeAppStorage("transactionFabHintDismissed", true);
     }
     setActiveTab(tab);
     setMenuOpen(false);
+    setQuickActionOpen(false);
   }
 
   function dismissTransactionFabHint() {
@@ -4444,9 +4992,44 @@ function App() {
     writeAppStorage("transactionFabHintDismissed", true);
   }
 
-  function openTransactionForm() {
+  function openTransactionForm(entryType = "expense", target = null) {
     dismissTransactionFabHint();
-    navigateAppTab("add");
+    setTransactionReturnTab((current) =>
+      activeTab === "add" ? current || "overview" : activeTab,
+    );
+    setTransactionEntryType(entryType);
+    setTransactionTargetDraft({
+      id: target?.id || "",
+      currency: target?.currency || "",
+    });
+    setActiveTab("add");
+    setMenuOpen(false);
+    setQuickActionOpen(false);
+  }
+
+  function openMovementWorkspace(initialMode = "exchange") {
+    dismissTransactionFabHint();
+    setMovementInitialMode(initialMode === "transfer" ? "transfer" : "exchange");
+    setTransactionEntryType("exchange");
+    setActiveTab("movement");
+    setMenuOpen(false);
+    setQuickActionOpen(false);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function closeTransactionForm() {
+    setTransactionTargetDraft({ id: "", currency: "" });
+    navigateAppTab(transactionReturnTab || "overview");
+  }
+
+  function openQuickActionMenu() {
+    dismissTransactionFabHint();
+    setQuickActionOpen(true);
+  }
+
+  function openAssetFormFromQuickAction() {
+    setAssetFormRequest((current) => current + 1);
+    navigateAppTab("investment");
   }
 
   const recentTodayTransactions = orderTransactions(transactions)
@@ -4484,14 +5067,23 @@ function App() {
           <section>
             <${BudgetWorkspacePage}
               metrics=${metrics}
+              transactions=${transactions}
+              activeCurrencies=${dashboardActiveCurrencies}
               baseCurrency=${walletBaseCurrency}
               loading=${loading}
               onBudgetDelete=${handleDeleteBudget}
               onBudgetSubmit=${handleSaveBudget}
+              onCreateGoal=${handleCreateGoal}
+              onUpdateGoal=${handleUpdateGoal}
+              onDeleteGoal=${handleDeleteGoal}
+              onArchiveGoal=${handleArchiveGoal}
+              onGoalActivity=${handleGoalActivity}
+              onMoveAllocation=${handleMoveGoalAllocation}
+              onUseGoal=${(goal) => openTransactionForm("expense", goal)}
             />
           </section>
         `
-      : activeTab === "add"
+      : activeTab === "movement"
         ? html`
             <section>
               <${TransactionForm}
@@ -4503,7 +5095,33 @@ function App() {
                 baseCurrency=${walletBaseCurrency}
                 assetAccounts=${assetAccounts}
                 budgetInsights=${metrics.budgetInsights}
+                goalInsights=${metrics.goalInsights}
                 globalRateSnapshot=${globalRateSnapshot}
+                initialEntryType="exchange"
+                initialMovementMode=${movementInitialMode}
+                workspace=${true}
+                onClose=${() => navigateAppTab("overview")}
+              />
+            </section>
+          `
+        : activeTab === "add"
+        ? html`
+            <section>
+              <${TransactionForm}
+                transactions=${transactions}
+                onSubmit=${handleCreateTransaction}
+                loading=${loading}
+                activeCurrencies=${dashboardActiveCurrencies}
+                dailyCurrency=${dailyExpenseCurrency}
+                baseCurrency=${walletBaseCurrency}
+                assetAccounts=${assetAccounts}
+                budgetInsights=${metrics.budgetInsights}
+                goalInsights=${metrics.goalInsights}
+                globalRateSnapshot=${globalRateSnapshot}
+                initialEntryType=${transactionEntryType}
+                initialTargetId=${transactionTargetDraft.id}
+                initialExpenseCurrency=${transactionTargetDraft.currency}
+                onClose=${closeTransactionForm}
               />
             </section>
           `
@@ -4516,6 +5134,7 @@ function App() {
                   onUpdate=${handleUpdateTransaction}
                   loading=${loading}
                   activeCurrencies=${dashboardActiveCurrencies}
+                  assetAccounts=${assetAccounts}
                   baseCurrency=${walletBaseCurrency}
                   emptyMessage="Belum ada transaksi."
                   emptyHint="Mulai dari satu transaksi kecil. Setelah itu, CUANSYNC bisa menampilkan riwayat dan laporan yang lebih berguna."
@@ -4527,16 +5146,35 @@ function App() {
           : activeTab === "overview"
             ? html`
                 <section>
-                  <${ControlCenterPage}
+                  <${HomeDashboardPage}
                     metrics=${metrics}
-                    transactions=${transactions}
                     activeCurrencies=${dashboardActiveCurrencies}
+                    dailyCurrency=${dailyExpenseCurrency}
                     baseCurrency=${walletBaseCurrency}
+                    valuationsByCurrency=${walletValuationsByCurrency}
+                    totalValueBase=${walletTotalValueBase}
+                    visible=${balanceVisible}
+                    fallbackRate=${latestTransactionRate}
                     onNavigate=${navigateAppTab}
+                    canExchange=${dashboardActiveCurrencies.length > 1}
+                    onAddTransaction=${() => openTransactionForm("expense")}
+                    onExchange=${(mode) => openMovementWorkspace(mode)}
                   />
                 </section>
               `
-            : activeTab === "report"
+            : activeTab === "control"
+              ? html`
+                  <section>
+                    <${ControlCenterPage}
+                      metrics=${metrics}
+                      transactions=${transactions}
+                      activeCurrencies=${dashboardActiveCurrencies}
+                      baseCurrency=${walletBaseCurrency}
+                      onNavigate=${navigateAppTab}
+                    />
+                  </section>
+                `
+              : activeTab === "report"
               ? html`
                   <section>
                     <${MonthlyReportPage}
@@ -4571,6 +5209,7 @@ function App() {
                     <section>
                       <${WealthGoalsPage}
                         metrics=${metrics}
+                        transactions=${transactions}
                         loading=${loading}
                         activeCurrencies=${dashboardActiveCurrencies}
                         baseCurrency=${walletBaseCurrency}
@@ -4579,16 +5218,29 @@ function App() {
                         onCreateGoal=${handleCreateGoal}
                         onDeleteGoal=${handleDeleteGoal}
                         onContribute=${handleAddGoalProgress}
+                        onOpenGoals=${() => navigateAppTab("budget")}
                         onOpenReport=${() => navigateAppTab("report")}
+                        openAssetFormRequest=${assetFormRequest}
                       />
                     </section>
                   `;
+  const fullWidthWorkspace =
+    activeTab === "overview" ||
+    activeTab === "control" ||
+    activeTab === "movement" ||
+    activeTab === "budget";
 
   return html`
-    <main className="app-shell relative isolate min-h-screen overflow-hidden px-4 pt-5 md:px-6 md:py-6 lg:px-8 lg:pt-6">
+    <main className="app-shell relative isolate min-h-screen overflow-hidden px-3 pt-3 md:px-5 md:py-5 lg:px-6 lg:pt-6">
       <${PremiumMeshBackground} />
       <${ToastMessage} toast=${toast} onDismiss=${() => setToast(null)} />
-      <div className="relative z-10 mx-auto max-w-[1180px]">
+      <div className="cs-workspace relative z-10 mx-auto max-w-[1440px] lg:grid lg:grid-cols-[76px_minmax(0,1fr)] lg:items-start lg:gap-4">
+        <${DesktopNavigation}
+          activeTab=${activeTab}
+          onChange=${navigateAppTab}
+          onAdd=${openQuickActionMenu}
+        />
+        <div className="min-w-0">
         <${WalletHeader}
           appName=${APP_NAME}
           balances=${walletBalances}
@@ -4604,12 +5256,13 @@ function App() {
           avatarSrc=${profilePhoto}
           avatarInitials=${userInitials}
           onAvatarClick=${() => setMenuOpen((current) => !current)}
-          compact=${activeTab === "settings"}
-        />
-
-        <${DesktopTopTabs}
-          activeTab=${activeTab}
-          onChange=${navigateAppTab}
+          compact=${activeTab === "settings" ||
+          activeTab === "overview" ||
+          activeTab === "investment" ||
+          activeTab === "movement" ||
+          activeTab === "budget" ||
+          activeTab === "history"}
+          historyCompact=${activeTab === "history"}
         />
 
         ${menuOpen
@@ -4649,7 +5302,7 @@ function App() {
                         className=${`flex min-h-11 w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${menuTabClass(tab.key)}`}
                       >
                         <span>${tab.label}</span>
-                        ${activeTab === tab.key ? html`<span>Aktif</span>` : null}
+                        ${menuActiveTab === tab.key ? html`<span>Aktif</span>` : null}
                       </button>
                     `,
                   )}
@@ -4666,31 +5319,45 @@ function App() {
             `
           : null}
 
-        <div className="mt-5 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-5 xl:grid-cols-[minmax(0,760px)_320px] xl:justify-center">
+        <div className=${fullWidthWorkspace
+          ? activeTab === "movement" || activeTab === "budget"
+            ? "mx-auto mt-4 max-w-[34rem]"
+            : "mx-auto mt-4 max-w-[1024px]"
+          : "mt-5 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-5 xl:grid-cols-[minmax(0,760px)_320px] xl:justify-center"}>
           <div className="min-w-0">
             ${activeContent}
           </div>
-          <${DesktopRightPanel}
-            assetAccounts=${metrics.assetAccountInsights}
-            budget=${activeBudgetInsight}
-            todaySpentCurrency=${todaySpentCurrency}
-            todaySpentIdr=${todaySpentIdr}
-            dailyCurrency=${dailyExpenseCurrency}
-            baseCurrency=${walletBaseCurrency}
-            visible=${balanceVisible}
-            onNavigate=${navigateAppTab}
-          />
+          ${fullWidthWorkspace
+            ? null
+            : html`
+                <${DesktopRightPanel}
+                  assetAccounts=${metrics.assetAccountInsights}
+                  budget=${activeBudgetInsight}
+                  todaySpentCurrency=${todaySpentCurrency}
+                  todaySpentIdr=${todaySpentIdr}
+                  dailyCurrency=${dailyExpenseCurrency}
+                  baseCurrency=${walletBaseCurrency}
+                  visible=${balanceVisible}
+                  onNavigate=${navigateAppTab}
+                />
+              `}
+        </div>
         </div>
       </div>
-      <${FloatingTransactionButton}
-        visible=${activeTab !== "add" && activeTab !== "budget"}
-        showHint=${!transactionFabHintDismissed && activeTab !== "add" && activeTab !== "budget"}
-        onClick=${openTransactionForm}
-        onDismissHint=${dismissTransactionFabHint}
-      />
-      <${MobileBottomNav}
+      <${MobileNavigation}
         activeTab=${activeTab}
         onChange=${navigateAppTab}
+        onAdd=${openQuickActionMenu}
+        showHint=${!transactionFabHintDismissed && activeTab !== "add" && activeTab !== "movement"}
+        onDismissHint=${dismissTransactionFabHint}
+      />
+      <${QuickActionMenu}
+        open=${quickActionOpen}
+        canExchange=${assetAccounts.length >= 2}
+        onClose=${() => setQuickActionOpen(false)}
+        onAddTransaction=${() => openTransactionForm("expense")}
+        onExchange=${() => openMovementWorkspace("exchange")}
+        onAddWallet=${openAssetFormFromQuickAction}
       />
     </main>
   `;

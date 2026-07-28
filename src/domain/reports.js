@@ -1,4 +1,9 @@
-import { computeBudgetInsights, getCategoryMeta, normalizeBudget } from "./budgets.js";
+import {
+  computeBudgetInsights,
+  getCategoryMeta,
+  normalizeBudgetCategory,
+  normalizeBudgets,
+} from "./budgets.js";
 import { getExchangeBaseVolume, getLatestRateForCurrencyUntil } from "./exchange.js";
 import {
   getTransactionAmountValue,
@@ -228,7 +233,10 @@ export function buildMonthlyReport(transactions, budgets, selectedMonthKey, base
   const categoryAccumulator = {};
 
   expenseTransactions.forEach((transaction) => {
-    const category = transaction.category || "Lainnya";
+    const category = normalizeBudgetCategory(
+      transaction.category,
+      transaction.category_group,
+    );
     const valueIdr = resolveReportValueIdr(transaction, transactions, baseCurrency);
     const currency = getTransactionCurrency(transaction);
     if (!categoryAccumulator[category]) {
@@ -349,8 +357,8 @@ export function buildMonthlyReport(transactions, budgets, selectedMonthKey, base
       ...Object.keys(summary.expenseByCurrency),
       ...Object.keys(summary.exchangeInByCurrency),
       ...Object.keys(summary.exchangeOutByCurrency),
-      ...budgets.map(
-        (budget) => normalizeBudget(budget, baseCurrency).currency,
+      ...normalizeBudgets(budgets, baseCurrency).map(
+        (budget) => budget.currency,
       ),
     ],
     { baseCurrency },

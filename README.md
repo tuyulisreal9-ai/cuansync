@@ -9,11 +9,11 @@ Aplikasi web pengatur keuangan pribadi untuk alur multi-mata uang:
 - Expense foreign currency tetap masuk pengeluaran dengan valuasi base currency
 - Google OAuth melalui Supabase
 - Dashboard responsif dengan dark mode
-- Tab terpisah: `Utama` untuk transaksi harian dan `Investasi & Tabungan` untuk target IDR
+- Tab `Anggaran & Target` untuk batas kategori dan rencana dana per mata uang
 - Budget tracker universal `uang keluar` dengan indikator overspending
 - Overspending canggih: limit bulanan otomatis dipecah jadi batas aman harian dinamis (`sisa budget / sisa hari`)
-- Goal tracker untuk target seperti dana darurat (fokus IDR)
-- Dana investasi/tabungan terhubung dengan saldo utama (setor mengurangi, tarik menambah)
+- Target seperti dana darurat, mudik, dan liburan memakai alokasi dana per mata uang
+- Alokasi target tidak mengubah saldo rekening dan tidak menambah total aset
 - Bank & wallet tracker untuk mencatat beberapa akun seperti BCA IDR, Wise USD, Cash, atau bank luar negeri
 - Valuasi aset multi-currency memakai global current rate, bukan rate tukar historis
 
@@ -55,6 +55,12 @@ http://localhost:4173
 
 5. Salin `Project URL` dan `anon public key` ke `src/config.js`.
 
+Untuk database yang sudah memiliki data lama, jalankan
+`supabase/safe_expense_category_migration.sql`. Migrasi ini memindahkan
+`Internet & Pulsa` ke `Tagihan`, mengubah `Transport` menjadi `Transportasi`,
+dan menggabungkan limit budget yang bertabrakan tanpa mengubah nominal
+transaksi.
+
 ## Logika exchange dan kurs terkunci
 
 1. Tukar mata uang dicatat sebagai `type = exchange`, bukan income dan bukan expense.
@@ -70,13 +76,16 @@ http://localhost:4173
 - `Dashboard Interaktif`: chart harian dan insight kategori berubah otomatis setiap kali transaksi ditambah atau dihapus.
 - `Tab Operasional Harian`: transaksi + chart + budget universal uang keluar ada di tab utama.
 - `Overspending Guard`: satu limit uang keluar per bulan akan berubah jadi warning atau merah saat terlewati.
-- `Tab Keuangan`: hub ringkas untuk bank, cash, e-wallet, target dana, dan laporan bulanan kecil dengan detail dibuka saat dibutuhkan.
+- `Anggaran & Target`: batas pengeluaran bulanan, ringkasan dana likuid, dan tujuan alokasi per mata uang.
 
 ## Tabel database
 
 - `transactions`: menyimpan pemasukan, exchange, dan expense harian.
 - `budgets`: limit budget bulanan universal untuk uang keluar.
-- `goals`: target tabungan/investasi dengan saldo saat ini dan deadline opsional.
+- Kategori pengeluaran aktif: Makan Harian, Belanja Kebutuhan, Transportasi,
+  Tagihan, Kesehatan, Tempat Tinggal, Hiburan & Gaya Hidup, dan Lainnya.
+- `goals`: tujuan, nominal, jenis target, mata uang, status, dan batas waktu opsional.
+- `goal_allocations`: riwayat alokasi, pelepasan, penggunaan, dan penyesuaian dana target.
 - `asset_accounts`: daftar bank, cash, e-wallet, dan akun investasi per mata uang.
 - `transactions.source_account_id` / `transactions.destination_account_id`: relasi opsional agar pengeluaran dan pemasukan bisa mengubah saldo akun.
 

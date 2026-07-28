@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.3.1";
 import htm from "https://esm.sh/htm@3.1.1";
+import {
+  Download,
+  Search,
+  SlidersHorizontal,
+  X,
+} from "https://esm.sh/lucide-react@0.468.0?deps=react@18.3.1";
 import { getLatestRateForCurrencyUntil } from "../../domain/exchange.js";
+import { transactionBelongsToAccount } from "../../domain/transactions.js";
 import {
   DEFAULT_BASE_CURRENCY,
   normalizeCurrencyCode,
@@ -8,10 +15,13 @@ import {
 import { getMonthKey } from "../../lib/dates.js";
 import { TransactionDetailSheet } from "./TransactionDetailSheet.js";
 import {
-  TransactionFilter,
   TransactionFilterTabs,
   TransactionItem,
 } from "./HistoryListParts.js";
+import {
+  HistoryFilterSheet,
+  StatementExportSheet,
+} from "./HistoryToolSheets.js";
 import {
   DEFAULT_TRANSACTION_FILTERS,
   HISTORY_VISIBLE_LIMIT,
@@ -25,14 +35,20 @@ import {
 } from "./history.js";
 
 const html = htm.bind(React.createElement);
-const INPUT_CLASS =
-  "w-full min-h-12 rounded-2xl px-4 py-3.5 text-sm transition cuan-input";
+
+const HISTORY_SORT_LABELS = {
+  oldest: "Terlama",
+  largest: "Nominal terbesar",
+  smallest: "Nominal terkecil",
+};
+
 export function TransactionHistoryPage({
   transactions,
   onDelete,
   onUpdate,
   loading = false,
   activeCurrencies = [],
+  assetAccounts = [],
   baseCurrency = DEFAULT_BASE_CURRENCY,
   title = "Aktivitas Terakhir",
   description = "",
@@ -43,8 +59,10 @@ export function TransactionHistoryPage({
 }) {
   const [filters, setFilters] = useState(() => ({ ...DEFAULT_TRANSACTION_FILTERS }));
   const [exportMonthKey, setExportMonthKey] = useState(getMonthKey(new Date()));
+  const [exportAccountId, setExportAccountId] = useState("all");
   const [showAllHistory, setShowAllHistory] = useState(false);
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [filterSheetOpen, setFilterSheetOpen] = useState(false);
+  const [exportSheetOpen, setExportSheetOpen] = useState(false);
   const [selectedTransaction, setSelectedTransaction] = useState(null);
   const categoryOptions = useMemo(
     () => getHistoryCategoryOptions(transactions),
@@ -70,6 +88,10 @@ export function TransactionHistoryPage({
     () => groupTransactionsByDay(visibleTransactions),
     [visibleTransactions],
   );
+  const accountById = useMemo(
+    () => new Map(assetAccounts.map((account) => [account.id, account])),
+    [assetAccounts],
+  );
   const latestRate = useMemo(
     () => getLatestRateForCurrencyUntil(
       transactions,
@@ -79,13 +101,22 @@ export function TransactionHistoryPage({
     ),
     [transactions, baseCurrency],
   );
-  const exportCount = useMemo(
+  const exportTransactions = useMemo(
     () =>
       transactions.filter(
         (transaction) =>
+          exportAccountId === "all" ||
+          transactionBelongsToAccount(transaction, exportAccountId),
+      ),
+    [transactions, exportAccountId],
+  );
+  const exportCount = useMemo(
+    () =>
+      exportTransactions.filter(
+        (transaction) =>
           exportMonthKey && getMonthKey(transaction.occurred_at) === exportMonthKey,
       ).length,
-    [transactions, exportMonthKey],
+    [exportTransactions, exportMonthKey],
   );
   const hiddenTransactionCount = Math.max(
     filteredTransactions.length - visibleTransactions.length,
@@ -100,6 +131,70 @@ export function TransactionHistoryPage({
       : hiddenTransactionCount
         ? `${visibleTransactions.length} terbaru dari ${transactions.length} transaksi`
         : `${filteredTransactions.length} transaksi`;
+  const categoryLabelByValue = useMemo(
+    () => new Map(categoryOptions.map((option) => [option.value, option.label])),
+    [categoryOptions],
+  );
+  const currencyLabelByValue = useMemo(
+    () => new Map(currencyOptions.map((option) => [option.value, option.label])),
+    [currencyOptions],
+  );
+  const activeFilterChips = useMemo(() => {
+    const chips = [];
+    if (filters.startDate || filters.endDate) {
+      chips.push({
+        key: "date",
+        label: getTransactionRangeLabel(filters),
+        clear: () =>
+          setFilters((current) => ({
+            ...current,
+            startDate: "",
+            endDate: "",
+          })),
+      });
+    }
+    if (filters.category !== "all") {
+      chips.push({
+        key: "category",
+        label: categoryLabelByValue.get(filters.category) || filters.category,
+        clear: () => updateFilter("category", "all"),
+      });
+    }
+    if (filters.currency !== "all") {
+      chips.push({
+        key: "currency",
+        label: currencyLabelByValue.get(filters.currency) || filters.currency,
+        clear: () => updateFilter("currency", "all"),
+      });
+    }
+    if (filters.minAmount) {
+      chips.push({
+        key: "min",
+        label: `Min. ${filters.minAmount}`,
+        clear: () => updateFilter("minAmount", ""),
+      });
+    }
+    if (filters.maxAmount) {
+      chips.push({
+        key: "max",
+        label: `Maks. ${filters.maxAmount}`,
+        clear: () => updateFilter("maxAmount", ""),
+      });
+    }
+    if (filters.sortBy !== "newest") {
+      chips.push({
+        key: "sort",
+        label: HISTORY_SORT_LABELS[filters.sortBy] || "Urutan khusus",
+        clear: () => updateFilter("sortBy", "newest"),
+      });
+    }
+    return chips;
+  }, [
+    filters,
+    categoryLabelByValue,
+    currencyLabelByValue,
+  ]);
+  const advancedFilterCount = activeFilterChips.length;
 
   useEffect(() => {
     setFilters((current) => {
@@ -117,6 +212,15 @@ export function TransactionHistoryPage({
     setShowAllHistory(false);
   }, [filters]);
 
+  useEffect(() => {
+    if (
+      exportAccountId !== "all" &&
+      !assetAccounts.some((account) => account.id === exportAccountId)
+    ) {
+      setExportAccountId("all");
+    }
+  }, [assetAccounts, exportAccountId]);
+
   function updateFilter(field, value) {
     setFilters((current) => ({ ...current, [field]: value }));
   }
@@ -127,57 +231,59 @@ export function TransactionHistoryPage({
 
   function handleDownloadMonth() {
     if (!exportMonthKey || exportCount === 0) return;
-    downloadMonthlyStatement(transactions, exportMonthKey, latestRate);
+    downloadMonthlyStatement(exportTransactions, exportMonthKey, latestRate);
+    setExportSheetOpen(false);
   }
 
   return html`
-    <div className="grid gap-3">
-      <section className="history-filter-panel sticky top-3 z-20 rounded-[24px] border border-slate-200/70 bg-white/82 p-2.5 shadow-[0_18px_50px_rgba(15,23,42,0.10)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/82 dark:shadow-black/30">
-        <div className="grid gap-3">
-          <input
-            type="search"
-            autoComplete="off"
-            placeholder="Cari transaksi"
-            value=${filters.search}
-            onChange=${(event) => updateFilter("search", event.target.value)}
-            className=${INPUT_CLASS}
-          />
+    <div className="history-page grid gap-2.5 pb-[calc(5.75rem+env(safe-area-inset-bottom))] lg:pb-0">
+      <section
+        className="history-filter-panel rounded-2xl border p-2.5"
+        aria-label="Pencarian dan penyaring transaksi"
+      >
+        <div className="grid gap-2.5">
+          <label className="relative block">
+            <span className="sr-only">Cari transaksi</span>
+            <${Search}
+              aria-hidden="true"
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+            />
+            <input
+              type="search"
+              autoComplete="off"
+              placeholder="Cari transaksi"
+              value=${filters.search}
+              onChange=${(event) => updateFilter("search", event.target.value)}
+              className="cuan-input min-h-10 w-full rounded-xl py-2 pl-9 pr-10 text-sm transition"
+            />
+            ${filters.search
+              ? html`
+                  <button
+                    type="button"
+                    onClick=${() => updateFilter("search", "")}
+                    aria-label="Hapus pencarian"
+                    className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-200/70 dark:hover:bg-white/10"
+                  >
+                    <${X} aria-hidden="true" className="h-4 w-4" />
+                  </button>
+                `
+              : null}
+          </label>
           <${TransactionFilterTabs}
             value=${filters.type}
             onChange=${(value) => updateFilter("type", value)}
           />
-          <div className="grid gap-2 rounded-[20px] border border-slate-200/70 bg-white/56 p-2 dark:border-white/10 dark:bg-slate-900/36 sm:grid-cols-[1fr_auto] sm:items-end">
-            <label className="block">
-              <span className="mb-1.5 block text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                Mutasi
-              </span>
-              <input
-                type="month"
-                value=${exportMonthKey}
-                onChange=${(event) => setExportMonthKey(event.target.value)}
-                className=${`${INPUT_CLASS} min-h-11 py-2.5`}
-              />
-            </label>
-            <button
-              type="button"
-              onClick=${handleDownloadMonth}
-              disabled=${!exportMonthKey || exportCount === 0}
-              className="history-action-primary min-h-11 rounded-2xl px-4 py-2.5 text-xs font-black disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              Unduh CSV
-            </button>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <div className="flex min-h-9 items-center justify-between gap-2 border-t border-slate-200/70 pt-2 dark:border-white/10">
+            <p className="min-w-0 truncate text-[11px] font-bold text-slate-500 dark:text-slate-400">
               ${historyCountLabel}
             </p>
-            <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex shrink-0 items-center gap-1.5">
               ${!hasFilters && filteredTransactions.length > HISTORY_VISIBLE_LIMIT
                 ? html`
                     <button
                       type="button"
                       onClick=${() => setShowAllHistory((current) => !current)}
-                      className="cuan-secondary min-h-10 rounded-2xl px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
+                      className="min-h-9 rounded-lg px-2 text-[10px] font-black text-emerald-600 transition hover:bg-emerald-500/10 dark:text-emerald-300"
                     >
                       ${showAllHistory ? "Ringkas" : "Lihat semua"}
                     </button>
@@ -185,42 +291,67 @@ export function TransactionHistoryPage({
                 : null}
               <button
                 type="button"
-                onClick=${() => setShowAdvancedFilters((current) => !current)}
-                className="cuan-secondary min-h-10 rounded-2xl px-3 py-2 text-xs font-black transition hover:-translate-y-0.5"
+                onClick=${() => setFilterSheetOpen(true)}
+                className="cuan-secondary inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-[10px] font-black transition"
               >
-                ${showAdvancedFilters ? "Tutup penyaring" : "Penyaring lanjutan"}
+                <${SlidersHorizontal} aria-hidden="true" className="h-3.5 w-3.5" />
+                ${advancedFilterCount ? `Filter (${advancedFilterCount})` : "Filter"}
+              </button>
+              <button
+                type="button"
+                onClick=${() => setExportSheetOpen(true)}
+                aria-label="Unduh mutasi"
+                title="Unduh mutasi"
+                className="cuan-secondary inline-flex h-9 min-h-9 w-9 items-center justify-center rounded-lg transition"
+              >
+                <${Download} aria-hidden="true" className="h-4 w-4" />
               </button>
             </div>
           </div>
+          ${activeFilterChips.length
+            ? html`
+                <div className="flex flex-wrap gap-1.5" aria-label="Filter aktif">
+                  ${activeFilterChips.map(
+                    (chip) => html`
+                      <button
+                        key=${chip.key}
+                        type="button"
+                        onClick=${chip.clear}
+                        className="inline-flex min-h-8 max-w-full items-center gap-1 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2 text-[10px] font-bold text-emerald-700 dark:text-emerald-300"
+                        aria-label=${`Hapus filter ${chip.label}`}
+                      >
+                        <span className="truncate">${chip.label}</span>
+                        <${X} aria-hidden="true" className="h-3 w-3 shrink-0" />
+                      </button>
+                    `,
+                  )}
+                  <button
+                    type="button"
+                    onClick=${resetFilters}
+                    className="min-h-8 rounded-lg px-2 text-[10px] font-black text-slate-500 transition hover:bg-slate-200/60 dark:text-slate-400 dark:hover:bg-white/10"
+                  >
+                    Reset filter
+                  </button>
+                </div>
+              `
+            : null}
         </div>
       </section>
 
-      ${showAdvancedFilters
-        ? html`
-            <${TransactionFilter}
-              filters=${filters}
-              onChange=${setFilters}
-              onReset=${resetFilters}
-              categoryOptions=${categoryOptions}
-              currencyOptions=${currencyOptions}
-              showSearch=${false}
-            />
-          `
-        : null}
-
-      <section className="history-list-panel relative overflow-hidden rounded-[30px] p-3 md:p-5">
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
+      <section className="history-list-panel rounded-2xl p-2">
         ${visibleTransactions.length
           ? html`
-              <div className="relative grid gap-5">
+              <div className="grid gap-3">
                 ${groupedTransactions.map(
                   (group) => html`
-                    <div key=${group.key} className="grid gap-3">
-                      <div className="history-date-header relative z-0 mt-1 flex items-center justify-between rounded-2xl border border-slate-200/65 bg-white/80 px-3 py-2 text-xs font-black text-slate-600 shadow-[0_10px_28px_rgba(15,23,42,0.06)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/78 dark:text-slate-300">
-                        <span>${group.label}</span>
-                        <span>${group.transactions.length}</span>
+                    <div key=${group.key} className="grid gap-1.5">
+                      <div className="history-date-header flex min-h-7 items-center justify-between border-b px-1.5 py-1 text-[10px] font-black text-slate-600 dark:text-slate-300">
+                        <span className="truncate">${group.label}</span>
+                        <span className="shrink-0 text-slate-400">
+                          ${group.transactions.length} transaksi
+                        </span>
                       </div>
-                      <div className="grid gap-2.5">
+                      <div className="grid gap-1.5">
                         ${group.transactions.map(
                           (transaction) => html`
                             <${TransactionItem}
@@ -228,6 +359,7 @@ export function TransactionHistoryPage({
                               transaction=${transaction}
                               onOpen=${setSelectedTransaction}
                               fallbackRate=${latestRate}
+                              accountById=${accountById}
                             />
                           `,
                         )}
@@ -238,14 +370,14 @@ export function TransactionHistoryPage({
               </div>
             `
           : html`
-              <div className="relative rounded-[24px] border border-dashed border-slate-300/70 bg-white/52 p-6 text-center backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/25 md:p-8">
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-brand-300/25 bg-brand-500/10 text-xl font-black text-brand-700 dark:border-brand-300/20 dark:text-brand-300">
+              <div className="rounded-xl border border-dashed border-slate-300/70 p-5 text-center dark:border-white/10">
+                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full border border-brand-300/25 bg-brand-500/10 text-sm font-black text-brand-700 dark:border-brand-300/20 dark:text-brand-300">
                   0
                 </div>
-                <h4 className="mt-4 font-display text-xl font-bold text-slate-950 dark:text-white">
+                <h4 className="mt-3 font-display text-base font-bold text-slate-950 dark:text-white">
                   ${transactions.length ? "Tidak ada transaksi yang cocok" : emptyMessage}
                 </h4>
-                <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-slate-300/80">
+                <p className="mx-auto mt-1.5 max-w-md text-xs leading-5 text-slate-600 dark:text-slate-300/80">
                   ${transactions.length
                     ? "Coba longgarkan tanggal, kategori, nominal, atau kata kunci pencarian."
                     : emptyHint}
@@ -255,7 +387,7 @@ export function TransactionHistoryPage({
                       <button
                         type="button"
                         onClick=${onEmptyAction}
-                        className="history-action-primary mt-5 min-h-12 rounded-2xl px-5 py-3 text-sm font-semibold"
+                        className="history-action-primary mt-4 min-h-11 rounded-xl px-4 py-2.5 text-sm font-semibold"
                       >
                         ${emptyActionLabel}
                       </button>
@@ -266,15 +398,37 @@ export function TransactionHistoryPage({
                       <button
                         type="button"
                         onClick=${resetFilters}
-                        className="mt-5 min-h-12 rounded-2xl border border-white/10 bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(16,185,129,0.18)] transition hover:-translate-y-0.5 hover:bg-brand-700"
+                        className="mt-4 min-h-11 rounded-xl border border-white/10 bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-brand-700"
                       >
-                        Reset penyaring
+                        Reset filter
                       </button>
                     ` 
                   : null}
               </div>
             `}
       </section>
+
+      <${HistoryFilterSheet}
+        open=${filterSheetOpen}
+        filters=${filters}
+        onChange=${setFilters}
+        onReset=${resetFilters}
+        onClose=${() => setFilterSheetOpen(false)}
+        categoryOptions=${categoryOptions}
+        currencyOptions=${currencyOptions}
+      />
+
+      <${StatementExportSheet}
+        open=${exportSheetOpen}
+        monthKey=${exportMonthKey}
+        onMonthChange=${setExportMonthKey}
+        accountId=${exportAccountId}
+        onAccountChange=${setExportAccountId}
+        accounts=${assetAccounts}
+        transactionCount=${exportCount}
+        onDownload=${handleDownloadMonth}
+        onClose=${() => setExportSheetOpen(false)}
+      />
 
       <${TransactionDetailSheet}
         transaction=${selectedTransaction}
@@ -289,5 +443,3 @@ export function TransactionHistoryPage({
     </div>
   `;
 }
-
-

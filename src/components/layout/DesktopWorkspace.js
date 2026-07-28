@@ -10,50 +10,7 @@ import { AmountFormatter } from "../shared/AmountFormatter.js";
 
 const html = htm.bind(React.createElement);
 const PANEL_SOFT_CLASS =
-  "relative overflow-hidden rounded-[26px] cuan-card-soft";
-
-const DESKTOP_NAV_TABS = [
-  { key: "overview", label: "Kontrol" },
-  { key: "history", label: "Riwayat" },
-  { key: "budget", label: "Anggaran" },
-  { key: "investment", label: "Aset" },
-  { key: "settings", label: "Pengaturan" },
-];
-
-function getDesktopActiveTab(activeTab) {
-  if (activeTab === "report") return "investment";
-  if (activeTab === "add" || activeTab === "today") return "overview";
-  return activeTab;
-}
-
-export function DesktopTopTabs({ activeTab, onChange }) {
-  const activeKey = getDesktopActiveTab(activeTab);
-
-  return html`
-    <nav className="mt-4 hidden items-center justify-center rounded-[28px] border border-slate-200/70 bg-white/64 p-1.5 shadow-[0_18px_54px_rgba(15,23,42,0.08)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/58 dark:shadow-black/22 lg:flex">
-      <div className="grid w-full grid-cols-5 gap-1">
-        ${DESKTOP_NAV_TABS.map((tab) => {
-          const active = activeKey === tab.key;
-          return html`
-            <button
-              key=${tab.key}
-              type="button"
-              aria-current=${active ? "page" : undefined}
-              onClick=${() => onChange(tab.key)}
-              className=${`min-h-[46px] rounded-[22px] px-4 text-sm font-black transition duration-300 ${
-                active
-                  ? "bg-brand-600 text-white shadow-[0_16px_36px_rgba(16,185,129,0.24)] dark:bg-emerald-500"
-                  : "text-slate-600 hover:bg-white/70 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"
-              }`}
-            >
-              ${tab.label}
-            </button>
-          `;
-        })}
-      </div>
-    </nav>
-  `;
-}
+  "relative overflow-hidden rounded-lg cuan-card-soft";
 
 function DesktopPanelStat({ label, value, helper = "" }) {
   return html`
@@ -109,11 +66,6 @@ export function DesktopRightPanel({
         : HIDDEN_BALANCE_TEXT
       : "-";
   const walletRows = assetAccounts.slice(0, 5);
-  const quickActions = [
-    { label: "Transaksi", target: "add" },
-    { label: "Wallet", target: "investment" },
-  ];
-
   return html`
     <aside className="hidden lg:block">
       <div className="sticky top-6 grid gap-4">
@@ -206,28 +158,6 @@ export function DesktopRightPanel({
           </div>
         </section>
 
-        <section className=${`${PANEL_SOFT_CLASS} p-5`}>
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.10),transparent_55%)] opacity-80"></div>
-          <div className="relative">
-            <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
-              Aksi Cepat
-            </h3>
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              ${quickActions.map(
-                (action) => html`
-                  <button
-                    key=${action.label}
-                    type="button"
-                    onClick=${() => onNavigate(action.target)}
-                    className="cuan-secondary min-h-11 rounded-2xl px-3 py-2 text-xs font-black"
-                  >
-                    ${action.label}
-                  </button>
-                `,
-              )}
-            </div>
-          </div>
-        </section>
       </div>
     </aside>
   `;

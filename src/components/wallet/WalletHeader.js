@@ -467,6 +467,84 @@ function WalletBottomSheet({
   `;
 }
 
+function HistoryBalanceSummary({
+  currencies,
+  selectedCurrency,
+  dailyCurrency,
+  baseCurrency,
+  focusBalance,
+  totalValueBase,
+  visible,
+  onSelectCurrency,
+  onOpenAll,
+}) {
+  const railCurrencies = getRailCurrencies(currencies, selectedCurrency);
+
+  return html`
+    <div className="mt-3 border-t border-slate-200/60 pt-2.5 dark:border-white/10">
+      <div className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-display text-[22px] font-black leading-none text-slate-950 dark:text-white">
+            <${AmountFormatter}
+              amount=${focusBalance}
+              currency=${selectedCurrency}
+              visible=${visible}
+            />
+          </p>
+          <p className="mt-1 truncate text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+            <${AmountFormatter}
+              amount=${totalValueBase}
+              currency=${baseCurrency}
+              visible=${visible}
+              compact=${true}
+            />
+            total aset
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-1 text-[9px] font-bold text-slate-500 dark:text-slate-300">
+          <span className="rounded-lg border border-slate-300/60 bg-white/55 px-2 py-1 dark:border-white/10 dark:bg-white/5">
+            Harian ${dailyCurrency}
+          </span>
+          <span className="rounded-lg border border-slate-300/60 bg-white/55 px-2 py-1 dark:border-white/10 dark:bg-white/5">
+            Utama ${baseCurrency}
+          </span>
+        </div>
+      </div>
+      <div className="mt-2 grid grid-cols-3 gap-1.5">
+        ${railCurrencies.map((currency) => {
+          const selected = currency === selectedCurrency;
+          return html`
+            <button
+              key=${currency}
+              type="button"
+              onClick=${() => onSelectCurrency(currency)}
+              aria-current=${selected ? "true" : undefined}
+              className=${`min-h-9 rounded-lg border px-2 text-[11px] font-black transition ${
+                selected
+                  ? "border-emerald-400/70 bg-emerald-500 text-white shadow-[0_8px_22px_rgba(16,185,129,0.18)]"
+                  : "border-slate-300/60 bg-white/55 text-slate-700 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-200 dark:hover:bg-white/10"
+              }`}
+            >
+              ${currency}
+            </button>
+          `;
+        })}
+        ${currencies.length > 3
+          ? html`
+              <button
+                type="button"
+                onClick=${onOpenAll}
+                className="min-h-9 rounded-lg border border-slate-300/60 bg-white/55 px-2 text-[11px] font-black text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
+              >
+                Lainnya
+              </button>
+            `
+          : null}
+      </div>
+    </div>
+  `;
+}
+
 export function WalletHeader({
   appName,
   balances = {},
@@ -483,6 +561,7 @@ export function WalletHeader({
   avatarInitials,
   onAvatarClick,
   compact = false,
+  historyCompact = false,
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const currencies = normalizeCurrencyList(activeCurrencies, { baseCurrency });
@@ -504,20 +583,38 @@ export function WalletHeader({
 
   return html`
     <${React.Fragment}>
-    <header className=${`wallet-header relative isolate overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/88 px-4 ${compact ? "pb-3 lg:pb-3" : "pb-4 lg:pb-3"} pt-[calc(1rem+env(safe-area-inset-top))] text-slate-950 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur-2xl md:px-5 lg:px-5 lg:pt-3 dark:border-white/10 dark:bg-slate-950/75 dark:text-white dark:shadow-[0_22px_70px_rgba(0,0,0,0.38)]`}>
+    <header className=${`wallet-header cs-topbar relative isolate overflow-hidden rounded-lg px-4 ${compact ? "pb-2.5 lg:pb-3" : "pb-4 lg:pb-3"} ${compact ? "pt-[calc(.625rem+env(safe-area-inset-top))]" : "pt-[calc(1rem+env(safe-area-inset-top))]"} text-slate-950 md:px-5 lg:px-5 lg:pt-3 dark:text-white`}>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-300/70 to-transparent dark:via-cyan-200/35"></div>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.10),transparent_40%,rgba(34,211,238,0.08))] dark:bg-[linear-gradient(135deg,rgba(16,185,129,0.15),transparent_42%,rgba(34,211,238,0.10))]"></div>
 
       <div className="relative">
         <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2" aria-label=${wordmark}>
+          <div className="flex min-w-0 items-center gap-2.5" aria-label=${wordmark}>
             <img
-  src="./branding/logo-icon.png"
-  alt="CUANSYNC"
-              className="h-9 w-9 shrink-0 rounded-2xl object-contain lg:h-8 lg:w-8"
-/>
-            <span className="truncate font-display text-base font-bold text-slate-950 dark:text-white">
-              ${wordmark}
+              src="./branding/logo-icon.png"
+              alt=""
+              className=${`shrink-0 object-contain ${compact ? "h-8 w-8 rounded-lg" : "h-9 w-9 rounded-2xl"} lg:h-8 lg:w-8`}
+            />
+            <span className="min-w-0">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate font-display text-sm font-bold text-slate-950 dark:text-white sm:text-base">
+                  ${wordmark}
+                </span>
+                ${compact
+                  ? html`
+                      <span className="shrink-0 rounded-md bg-emerald-500/12 px-1.5 py-0.5 text-[8px] font-extrabold text-emerald-500 md:hidden">
+                        Aset & Valas
+                      </span>
+                    `
+                  : null}
+              </span>
+              ${compact
+                ? html`
+                    <span className="mt-0.5 block truncate text-[9px] font-medium text-slate-500 dark:text-slate-400 md:hidden">
+                      Wallet multi-mata uang
+                    </span>
+                  `
+                : null}
             </span>
           </div>
 
@@ -535,7 +632,21 @@ export function WalletHeader({
         </div>
 
         ${compact
-          ? null
+          ? historyCompact
+            ? html`
+                <${HistoryBalanceSummary}
+                  currencies=${currencies}
+                  selectedCurrency=${normalizedSelectedCurrency}
+                  dailyCurrency=${normalizedDailyCurrency}
+                  baseCurrency=${normalizedBaseCurrency}
+                  focusBalance=${focusBalance}
+                  totalValueBase=${normalizedTotalValueBase}
+                  visible=${visible}
+                  onSelectCurrency=${onSelectCurrency}
+                  onOpenAll=${() => setSheetOpen(true)}
+                />
+              `
+            : null
           : html`
               <${PrimaryBalanceHero}
                 focusCurrency=${normalizedSelectedCurrency}

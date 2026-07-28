@@ -1,5 +1,6 @@
 import {
   CATEGORY_OPTIONS,
+  getBudgetCategoryKey,
   getCategoryMeta,
 } from "../../domain/budgets.js";
 import {
@@ -20,7 +21,17 @@ const TRANSACTION_TYPE_LABELS = {
   expense: "Uang Keluar",
 };
 
+function isAccountTransfer(transaction) {
+  return (
+    getTransactionFlow(transaction) === "exchange" &&
+    transaction.from_currency === transaction.to_currency &&
+    transaction.source_account_id &&
+    transaction.destination_account_id
+  );
+}
+
 export function getExchangeTitle(transaction) {
+  if (isAccountTransfer(transaction)) return "Transfer antar dompet";
   if (transaction.from_currency && transaction.to_currency) {
     return `${transaction.from_currency} ke ${transaction.to_currency}`;
   }
@@ -42,7 +53,9 @@ export function getTransactionPreview(transaction) {
 
 export function getTransactionTypeLabel(transaction) {
   const flow = getTransactionFlow(transaction);
-  if (flow === "exchange") return "Tukar Mata Uang";
+  if (flow === "exchange") {
+    return isAccountTransfer(transaction) ? "Transfer antar dompet" : "Tukar Mata Uang";
+  }
   return flow === "income" ? "Uang masuk" : "Uang keluar";
 }
 
@@ -50,7 +63,7 @@ export function getTransactionIconLabel(transaction) {
   const flow = getTransactionFlow(transaction);
   if (flow === "income") return "IN";
   if (flow === "exchange") return "FX";
-  const category = String(transaction.category || "");
+  const category = getCategoryMeta(transaction.category).value;
   const match = CATEGORY_OPTIONS.find((item) => item.value === category);
   if (!match) return "OUT";
   return match.label
@@ -142,14 +155,17 @@ export function getTransactionCompactAmount(transaction, fallbackRate = 0) {
 }
 
 export function getTransactionCategoryKey(transaction) {
-  if (transaction.category) return transaction.category;
-  if (transaction.type === "expense") return "Lainnya";
+  if (transaction.type === "expense") {
+    return getBudgetCategoryKey(transaction.category || "Lainnya");
+  }
   return transaction.type === "exchange" ? "exchange" : "income";
 }
 
 export function getTransactionCategoryLabel(transaction) {
   if (transaction.category) return getCategoryMeta(transaction.category).label;
-  if (transaction.type === "exchange") return "Transfer / Exchange";
+  if (transaction.type === "exchange") {
+    return isAccountTransfer(transaction) ? "Transfer antar dompet" : "Tukar Mata Uang";
+  }
   if (transaction.type === "income") {
     return `Pemasukan ${getTransactionCurrency(transaction)}`;
   }

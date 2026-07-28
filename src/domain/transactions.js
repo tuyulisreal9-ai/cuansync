@@ -2,6 +2,8 @@ import {
   DEFAULT_BASE_CURRENCY,
   normalizeCurrencyCode,
 } from "../lib/currency.js";
+import { normalizeExpenseCategory } from "./categories.js";
+import { deriveStoredExchangeRateOrientation } from "./exchangeRate.js";
 
 const LEGACY_EXCHANGE_KEYWORDS = [
   "beli thb",
@@ -90,6 +92,23 @@ export function normalizeTransaction(row, index = 0) {
         ? null
         : Number(row.to_amount ?? row.toAmount),
     rate: row.rate == null ? null : Number(row.rate),
+    fee_amount: row.fee_amount == null ? null : Number(row.fee_amount),
+    fee_currency: row.fee_currency
+      ? normalizeCurrencyCode(row.fee_currency)
+      : null,
+    rate_base_currency: row.rate_base_currency
+      ? normalizeCurrencyCode(row.rate_base_currency)
+      : null,
+    rate_quote_currency: row.rate_quote_currency
+      ? normalizeCurrencyCode(row.rate_quote_currency)
+      : null,
+    exchange_rate:
+      row.exchange_rate == null ? null : Number(row.exchange_rate),
+    rate_type: ["realtime", "custom", "transfer", "legacy"].includes(
+      row.rate_type,
+    )
+      ? row.rate_type
+      : null,
   };
 
   if (looksLikeLegacyExchange(normalized)) {
@@ -142,9 +161,14 @@ export function normalizeTransaction(row, index = 0) {
             ? inferredToAmount
             : null,
     };
+    const orientation = deriveStoredExchangeRateOrientation(exchange);
 
     return {
       ...exchange,
+      rate_base_currency: orientation.rateBaseCurrency,
+      rate_quote_currency: orientation.rateQuoteCurrency,
+      exchange_rate: Number(orientation.exchangeRate || 0) || null,
+      rate_type: exchange.rate_type || "legacy",
       fromCurrency: exchange.from_currency,
       toCurrency: exchange.to_currency,
       fromAmount: exchange.from_amount,
@@ -181,6 +205,10 @@ export function normalizeTransaction(row, index = 0) {
 
   return {
     ...normalized,
+    category:
+      normalized.type === "expense"
+        ? normalizeExpenseCategory(normalized.category, "Lainnya")
+        : normalized.category,
     currency,
     amount: inferredAmount,
     base_amount: inferredBaseAmount,
@@ -262,6 +290,10 @@ export function computeCurrencyBalances(transactions = [], activeCurrencies = []
     if (item.type === "exchange") {
       add(item.from_currency, -Math.abs(Number(item.from_amount || 0)));
       add(item.to_currency, Math.abs(Number(item.to_amount || 0)));
+      const feeAmount = Math.abs(Number(item.fee_amount || 0));
+      if (feeAmount > 0) {
+        add(item.fee_currency || item.from_currency, -feeAmount);
+      }
       return;
     }
 
@@ -282,6 +314,7 @@ export function getTransactionAccountMovements(transaction, options = {}) {
   if (flow === "exchange") {
     const fromAmount = Math.abs(Number(transaction.from_amount || 0));
     const toAmount = Math.abs(Number(transaction.to_amount || 0));
+    const feeAmount = Math.abs(Number(transaction.fee_amount || 0));
     const movements = [];
     if (fromAmount > 0 && transaction.source_account_id) {
       movements.push({
@@ -297,6 +330,16 @@ export function getTransactionAccountMovements(transaction, options = {}) {
         currency: normalizeCurrencyCode(transaction.to_currency),
         amount: reverse ? -toAmount : toAmount,
         label: "akun tujuan",
+      });
+    }
+    if (feeAmount > 0 && transaction.source_account_id) {
+      movements.push({
+        accountId: transaction.source_account_id,
+        currency: normalizeCurrencyCode(
+          transaction.fee_currency || transaction.from_currency,
+        ),
+        amount: reverse ? feeAmount : -feeAmount,
+        label: "biaya transfer",
       });
     }
     return movements;
@@ -327,4 +370,47 @@ export function getTransactionAccountMovements(transaction, options = {}) {
   }
 
   return [];
+}
+
+export function transactionBelongsToAccount(transaction, accountId) {
+  if (!accountId) return false;
+  const flow = getTransactionFlow(transaction);
+  if (flow === "exchange") {
+    return (
+      transaction.source_account_id === accountId ||
+      transaction.destination_account_id === accountId
+    );
+  }
+  if (flow === "income") {
+    return transaction.destination_account_id === accountId;
+  }
+  return transaction.source_account_id === accountId;
+}
+
+export function getTransactionAccountActivity(transaction, accountId) {
+  const flow = getTransactionFlow(transaction);
+  if (flow === "exchange") {
+    const outgoing = transaction.source_account_id === accountId;
+    return {
+      amount: Math.abs(
+        Number(
+          outgoing
+            ? Number(transaction.from_amount || 0) + Number(transaction.fee_amount || 0)
+            : transaction.to_amount || 0,
+        ),
+      ),
+      currency: normalizeCurrencyCode(
+        outgoing ? transaction.from_currency : transaction.to_currency,
+      ),
+      direction: outgoing ? "out" : "in",
+      flow,
+    };
+  }
+
+  return {
+    amount: getTransactionAmountValue(transaction),
+    currency: getTransactionCurrency(transaction),
+    direction: flow === "income" ? "in" : "out",
+    flow,
+  };
 }
