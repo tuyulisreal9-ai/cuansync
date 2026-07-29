@@ -1,4 +1,4 @@
-import React, { useState } from "https://esm.sh/react@18.3.1";
+import React, { useEffect, useState } from "https://esm.sh/react@18.3.1";
 import htm from "https://esm.sh/htm@3.1.1";
 import {
   PiggyBank,
@@ -38,6 +38,7 @@ function BudgetSection({
   loading,
   onBudgetDelete,
   onBudgetSubmit,
+  focusCategoryKey = null,
 }) {
   const [showForm, setShowForm] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(
@@ -59,6 +60,14 @@ function BudgetSection({
       (budget) =>
         budget.categoryKey === getBudgetCategoryKey(selectedCategory),
     ) || null;
+
+  useEffect(() => {
+    if (!focusCategoryKey) return;
+    const target = document.querySelector(
+      `[data-budget-category="${focusCategoryKey}"]`,
+    );
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusCategoryKey, activeBudgets.length]);
 
   function openForm(budget = null) {
     if (budget) {
@@ -211,7 +220,12 @@ function BudgetSection({
               return html`
                 <article
                   key=${budget.id}
-                  className="rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/75 dark:shadow-none"
+                  data-budget-category=${budget.categoryKey}
+                  className=${`rounded-xl border bg-white/80 p-3 shadow-sm transition dark:bg-slate-900/75 dark:shadow-none ${
+                    focusCategoryKey === budget.categoryKey
+                      ? "border-emerald-400 ring-2 ring-emerald-400/20"
+                      : "border-slate-200 dark:border-slate-800"
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-2.5">
@@ -301,6 +315,7 @@ export function BudgetWorkspacePage({
   onGoalActivity,
   onMoveAllocation,
   onUseGoal,
+  focusCategoryKey = null,
   loading = false,
 }) {
   const budgetCurrency = normalizeCurrencyCode(baseCurrency);
@@ -322,6 +337,7 @@ export function BudgetWorkspacePage({
         loading=${loading}
         onBudgetDelete=${onBudgetDelete}
         onBudgetSubmit=${onBudgetSubmit}
+        focusCategoryKey=${focusCategoryKey}
       />
 
       <${TargetPlanningSection}

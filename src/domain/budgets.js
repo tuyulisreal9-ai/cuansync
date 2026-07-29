@@ -4,10 +4,10 @@ import {
   normalizeCurrencyCode,
 } from "../lib/currency.js";
 import { getLocalDayKey, getMonthKey } from "../lib/dates.js";
-import { resolveTransactionCurrentBaseValue } from "./exchange.js";
 import {
   getTransactionAmountValue,
   getTransactionCurrency,
+  resolveTransactionHistoricalBaseValue,
 } from "./transactions.js";
 import {
   CATEGORY_OPTIONS,
@@ -162,7 +162,7 @@ export function resolveBudgetActivityAmount(
   transaction,
   budgetCurrency,
   baseCurrency = DEFAULT_BASE_CURRENCY,
-  globalRateSnapshot = null,
+  _globalRateSnapshot = null,
 ) {
   if (transaction?.type !== "expense") return null;
   const code = normalizeCurrencyCode(budgetCurrency);
@@ -174,14 +174,13 @@ export function resolveBudgetActivityAmount(
 
   const base = normalizeCurrencyCode(baseCurrency);
   if (code === base) {
-    const baseAmount = Number(transaction.base_amount || 0);
-    if (baseAmount > 0) return baseAmount;
-    const fallbackBaseValue = resolveTransactionCurrentBaseValue(
+    const historicalBaseValue = resolveTransactionHistoricalBaseValue(
       transaction,
-      globalRateSnapshot,
       base,
     );
-    return fallbackBaseValue > 0 ? fallbackBaseValue : null;
+    return historicalBaseValue != null && historicalBaseValue > 0
+      ? historicalBaseValue
+      : null;
   }
 
   return null;
@@ -246,6 +245,7 @@ export function computeBudgetInsights(
           ),
         0,
       );
+      const transactionCount = currencyExpenses.length;
       let spentBeforeToday = 0;
       let spentToday = 0;
       currencyExpenses.forEach((item) => {
@@ -326,6 +326,7 @@ export function computeBudgetInsights(
         currency,
         limitAmount,
         spentAmount,
+        transactionCount,
         remainingAmount,
         usage,
         daysInMonth,

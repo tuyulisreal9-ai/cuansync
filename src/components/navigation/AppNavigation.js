@@ -54,7 +54,13 @@ function NavigationItem({
         className=${desktop ? "h-[18px] w-[18px]" : "h-[19px] w-[19px]"}
         strokeWidth=${active ? 2.4 : 2}
       />
-      <span className="max-w-full whitespace-nowrap leading-tight">${item.label}</span>
+      <span
+        className=${desktop
+          ? "max-w-full text-center leading-tight"
+          : "max-w-full text-center leading-[1.05]"}
+      >
+        ${item.label}
+      </span>
     </button>
   `;
 }

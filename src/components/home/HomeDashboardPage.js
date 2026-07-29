@@ -13,7 +13,7 @@ import {
   Target,
   WalletCards,
 } from "https://esm.sh/lucide-react@0.468.0?deps=react@18.3.1";
-import { buildControlCenter } from "../../domain/control.js";
+import { formatControlMoney } from "../../domain/control.js";
 import { getTransactionFlow } from "../../domain/transactions.js";
 import {
   DEFAULT_BASE_CURRENCY,
@@ -31,12 +31,6 @@ import {
 } from "../transactions/presentation.js";
 
 const html = htm.bind(React.createElement);
-
-function getRunwayMonths(metrics) {
-  const averageMonthlyExpense = Number(metrics.averageDailyExpenseIdr || 0) * 30;
-  if (averageMonthlyExpense <= 0) return null;
-  return Math.max(Number(metrics.netWorthIdr || 0) / averageMonthlyExpense, 0);
-}
 
 function getWalletCount(metrics, currencyValuations) {
   if (metrics.assetAccountCount > 0) return metrics.assetAccountCount;
@@ -168,21 +162,31 @@ function AssetHero({
 }
 
 function ControlSummary({
-  metrics,
-  dailyCurrency,
+  summary,
+  visible,
   onOpen,
 }) {
-  const control = buildControlCenter(metrics, dailyCurrency);
-  const runwayMonths = getRunwayMonths(metrics);
   const runwayLabel =
-    runwayMonths == null
+    summary.runway.months == null
       ? "Belum terbaca"
-      : `${runwayMonths.toLocaleString("id-ID", {
+      : `${summary.runway.months.toLocaleString("id-ID", {
           minimumFractionDigits: 1,
           maximumFractionDigits: 1,
         })} bulan`;
-  const runwayProgress =
-    runwayMonths == null ? 0 : Math.min((runwayMonths / 6) * 100, 100);
+  const safeLabel = summary.safeToSpend.available
+    ? formatControlMoney(
+        summary.safeToSpend.amount,
+        summary.baseCurrency,
+        visible,
+      )
+    : "Belum dapat dihitung";
+  const issueCount = summary.budget.attentionCount;
+  const statusLabel =
+    issueCount > 0
+      ? `${issueCount} kategori perlu dilihat`
+      : summary.budget.available
+        ? "Anggaran sesuai ritme"
+        : "Anggaran belum diatur";
 
   return html`
     <button
@@ -198,56 +202,39 @@ function ControlSummary({
           </span>
           <span className="min-w-0">
             <span className="block text-sm font-extrabold text-slate-950 dark:text-white md:text-base">
-              Kesehatan finansial
+              Pusat Kontrol
             </span>
             <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
-              Ringkasan kondisi aset dan ritme pengeluaranmu.
+              ${statusLabel}
             </span>
           </span>
         </span>
         <${ChevronRight} aria-hidden="true" className="h-5 w-5 shrink-0 text-slate-400" />
       </span>
 
-      <span className="cs-home-control-metrics mt-3 grid gap-2.5 md:mt-4 md:grid-cols-2 md:gap-3">
+      <span className="cs-home-control-metrics mt-3 grid grid-cols-2 gap-2.5 md:mt-4 md:gap-3">
         <span className="cs-home-metric cs-home-control-metric block rounded-lg p-3 md:p-3.5">
-          <span className="flex items-center justify-between gap-3">
-            <span className="flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-              <${Gauge} aria-hidden="true" className="h-4 w-4 text-emerald-400" />
-              Skor Kontrol
-            </span>
-            <span className="text-xs font-bold text-emerald-500">${control.controlLabel}</span>
+          <span className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+            <${Gauge} aria-hidden="true" className="h-3.5 w-3.5 text-emerald-400" />
+            Sisa aman
           </span>
-          <span className="mt-1.5 flex items-end gap-1.5">
-            <strong className="text-xl font-black text-slate-950 dark:text-white md:text-2xl">
-              ${control.controlScore}
-            </strong>
-            <span className="pb-1 text-xs font-bold text-slate-500 dark:text-slate-400">
-              / 100
-            </span>
-          </span>
-          <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800 md:mt-2 md:h-1.5">
-            <span
-              className="block h-full rounded-full bg-emerald-500"
-              style=${{ width: `${control.controlScore}%` }}
-            ></span>
+          <strong className="mt-2 block truncate text-sm font-black text-slate-950 dark:text-white md:text-base">
+            ${safeLabel}
+          </strong>
+          <span className="mt-1 block truncate text-[10px] text-slate-500 dark:text-slate-400">
+            ${summary.safeToSpend.status}
           </span>
         </span>
 
         <span className="cs-home-metric cs-home-control-metric block rounded-lg p-3 md:p-3.5">
-          <span className="flex items-center justify-between gap-3">
-            <span className="text-[10px] font-extrabold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-              Daya tahan aset
-            </span>
-            <span className="text-xs font-bold text-amber-500">${runwayLabel}</span>
+          <span className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
+            Daya tahan dana
           </span>
-          <span className="mt-2 block h-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800 md:mt-3 md:h-1.5">
-            <span
-              className="block h-full rounded-full bg-amber-400"
-              style=${{ width: `${runwayProgress}%` }}
-            ></span>
-          </span>
-          <span className="mt-2 hidden text-[11px] text-slate-500 dark:text-slate-400 sm:block">
-            Berdasarkan pengeluaran rata-rata bulan ini.
+          <strong className="mt-2 block truncate text-sm font-black text-amber-600 dark:text-amber-300 md:text-base">
+            ${runwayLabel}
+          </strong>
+          <span className="mt-1 block truncate text-[10px] text-slate-500 dark:text-slate-400">
+            ${summary.runway.status}
           </span>
         </span>
       </span>
@@ -520,6 +507,7 @@ function RecentTransactions({
 
 export function HomeDashboardPage({
   metrics,
+  controlSummary,
   activeCurrencies = [],
   dailyCurrency = DEFAULT_BASE_CURRENCY,
   baseCurrency = DEFAULT_BASE_CURRENCY,
@@ -548,8 +536,8 @@ export function HomeDashboardPage({
         onExchange=${onExchange}
       />
       <${ControlSummary}
-        metrics=${metrics}
-        dailyCurrency=${dailyCurrency}
+        summary=${controlSummary}
+        visible=${visible}
         onOpen=${() => onNavigate("control")}
       />
       <${PlanningSummary}

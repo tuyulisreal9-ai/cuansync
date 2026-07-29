@@ -57,6 +57,7 @@ import {
   normalizeBudgetCategory,
   normalizeBudgets,
 } from "./domain/budgets.js";
+import { buildBudgetControlSummary } from "./domain/control.js";
 import {
   addExchangeDecimals,
   calculateExchangeTargetAmount,
@@ -2433,6 +2434,7 @@ function App() {
   const [transactionReturnTab, setTransactionReturnTab] = useState("overview");
   const [movementInitialMode, setMovementInitialMode] = useState("exchange");
   const [assetFormRequest, setAssetFormRequest] = useState(0);
+  const [budgetFocusCategoryKey, setBudgetFocusCategoryKey] = useState(null);
   const [transactionFabHintDismissed, setTransactionFabHintDismissed] = useState(() =>
     Boolean(readAppStorage("transactionFabHintDismissed", false)),
   );
@@ -4746,6 +4748,11 @@ function App() {
   const dailyExpenseCurrency =
     focusedWalletCurrency || dashboardCurrencySettings.dailyCurrency;
   const walletBaseCurrency = dashboardCurrencySettings.baseCurrency;
+  const controlSummary = buildBudgetControlSummary({
+    metrics,
+    transactions,
+    baseCurrency: walletBaseCurrency,
+  });
   const activeBudgetInsight =
     metrics.budgetInsights.find((item) => item.currency === dailyExpenseCurrency) || null;
   const todayKey = getLocalDayKey(new Date());
@@ -4997,6 +5004,12 @@ function App() {
     setQuickActionOpen(false);
   }
 
+  function openBudgetWorkspace(categoryKey = null) {
+    setBudgetFocusCategoryKey(categoryKey || null);
+    navigateAppTab("budget");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   function dismissTransactionFabHint() {
     setTransactionFabHintDismissed(true);
     writeAppStorage("transactionFabHintDismissed", true);
@@ -5094,6 +5107,7 @@ function App() {
               onGoalActivity=${handleGoalActivity}
               onMoveAllocation=${handleMoveGoalAllocation}
               onUseGoal=${(goal) => openTransactionForm("expense", goal)}
+              focusCategoryKey=${budgetFocusCategoryKey}
             />
           </section>
         `
@@ -5162,6 +5176,7 @@ function App() {
                 <section>
                   <${HomeDashboardPage}
                     metrics=${metrics}
+                    controlSummary=${controlSummary}
                     activeCurrencies=${dashboardActiveCurrencies}
                     dailyCurrency=${dailyExpenseCurrency}
                     baseCurrency=${walletBaseCurrency}
@@ -5180,11 +5195,10 @@ function App() {
               ? html`
                   <section>
                     <${ControlCenterPage}
-                      metrics=${metrics}
-                      transactions=${transactions}
-                      activeCurrencies=${dashboardActiveCurrencies}
-                      baseCurrency=${walletBaseCurrency}
+                      summary=${controlSummary}
+                      visible=${balanceVisible}
                       onNavigate=${navigateAppTab}
+                      onOpenBudget=${openBudgetWorkspace}
                     />
                   </section>
                 `
@@ -5272,6 +5286,7 @@ function App() {
           onAvatarClick=${() => setMenuOpen((current) => !current)}
           compact=${activeTab === "settings" ||
           activeTab === "overview" ||
+          activeTab === "control" ||
           activeTab === "investment" ||
           activeTab === "movement" ||
           activeTab === "budget" ||
