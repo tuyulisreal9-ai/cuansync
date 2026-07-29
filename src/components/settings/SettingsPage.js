@@ -3,13 +3,6 @@ import htm from "https://esm.sh/htm@3.1.1";
 import { AvatarBadge } from "../shared/AvatarBadge.js";
 import { SheetShell } from "../shared/SheetShell.js";
 import {
-  DEFAULT_ACTIVE_CURRENCIES,
-  DEFAULT_BASE_CURRENCY,
-  DEFAULT_SELECTED_CURRENCIES,
-  normalizeCurrencyList,
-} from "../../lib/currency.js";
-import { normalizeCurrencySettings } from "../../lib/currencySettings.js";
-import {
   getProfileDisplayName,
   getProfileEmail,
   getUserInitials,
@@ -119,15 +112,6 @@ function SettingsSection({ title, children }) {
       </div>
     </section>
   `;
-}
-
-function formatCurrencySummary(currencies = []) {
-  const normalized = normalizeCurrencyList(currencies, {
-    baseCurrency: currencies[0] || DEFAULT_BASE_CURRENCY,
-  });
-  const visible = normalized.slice(0, 3).join(", ");
-  const hiddenCount = Math.max(normalized.length - 3, 0);
-  return hiddenCount ? `${visible} +${hiddenCount}` : visible;
 }
 
 function ProfileSummaryRow({ profile, user, avatarSrc, onClick }) {
@@ -259,200 +243,6 @@ function ProfileDetailSheet({ open, profile, user, avatarSrc, onClose, onSave })
   `;
 }
 
-function CurrencySetupChip({ currency, active, base, daily, onToggle }) {
-  return html`
-    <button
-      type="button"
-      onClick=${() => onToggle(currency)}
-      aria-pressed=${active}
-      className=${`inline-flex min-h-10 items-center gap-2 rounded-2xl border px-3 text-sm font-black transition ${
-        active
-          ? "border-emerald-400/50 bg-emerald-500 text-white shadow-[0_12px_28px_rgba(16,185,129,0.22)]"
-          : "border-slate-300/70 bg-white/60 text-slate-700 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"
-      }`}
-    >
-      <span>${currency}</span>
-      ${base
-        ? html`<span className="rounded-full bg-white/18 px-1.5 py-0.5 text-[10px]">Utama</span>`
-        : null}
-      ${daily
-        ? html`<span className="rounded-full bg-white/18 px-1.5 py-0.5 text-[10px]">Harian</span>`
-        : null}
-    </button>
-  `;
-}
-
-function MoneySetupSheet({ open, settings, onClose, onSave }) {
-  const normalizedSettings = normalizeCurrencySettings(settings || DEFAULT_SELECTED_CURRENCIES, {
-    configured: true,
-  });
-  const [query, setQuery] = useState("");
-  const [selectedCurrencies, setSelectedCurrencies] = useState(normalizedSettings.activeCurrencies);
-  const [baseCurrency, setBaseCurrency] = useState(normalizedSettings.baseCurrency);
-  const [dailyCurrency, setDailyCurrency] = useState(normalizedSettings.dailyCurrency);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    const next = normalizeCurrencySettings(settings || DEFAULT_SELECTED_CURRENCIES, {
-      configured: true,
-    });
-    setSelectedCurrencies(next.activeCurrencies);
-    setBaseCurrency(next.baseCurrency);
-    setDailyCurrency(next.dailyCurrency);
-    setQuery("");
-    setSaving(false);
-  }, [open, settings]);
-
-  const cleanQuery = String(query || "")
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z]/g, "")
-    .slice(0, 3);
-  const currencyPool = normalizeCurrencyList(
-    [...DEFAULT_ACTIVE_CURRENCIES, ...selectedCurrencies, cleanQuery].filter(Boolean),
-    { ensureBase: false, baseCurrency },
-  );
-  const filteredCurrencies = currencyPool.filter((currency) =>
-    currency.includes(cleanQuery),
-  );
-  const effectiveSelectedCurrencies = normalizeCurrencyList(selectedCurrencies, {
-    baseCurrency,
-  });
-  const effectiveBaseCurrency = effectiveSelectedCurrencies.includes(baseCurrency)
-    ? baseCurrency
-    : effectiveSelectedCurrencies[0] || DEFAULT_BASE_CURRENCY;
-  const effectiveDailyCurrency = effectiveSelectedCurrencies.includes(dailyCurrency)
-    ? dailyCurrency
-    : effectiveSelectedCurrencies[0] || effectiveBaseCurrency;
-
-  function toggleCurrency(currency) {
-    setSelectedCurrencies((current) => {
-      const normalizedCurrent = normalizeCurrencyList(current, {
-        baseCurrency,
-      });
-      if (normalizedCurrent.includes(currency) && normalizedCurrent.length > 1) {
-        const next = normalizedCurrent.filter((item) => item !== currency);
-        if (baseCurrency === currency) setBaseCurrency(next[0] || DEFAULT_BASE_CURRENCY);
-        if (dailyCurrency === currency) setDailyCurrency(next[0] || DEFAULT_BASE_CURRENCY);
-        return next;
-      }
-      return normalizeCurrencyList([...normalizedCurrent, currency], {
-        baseCurrency: currency === baseCurrency ? currency : baseCurrency,
-      });
-    });
-  }
-
-  async function handleSave() {
-    setSaving(true);
-    const succeeded = await onSave({
-      activeCurrencies: effectiveSelectedCurrencies,
-      baseCurrency: effectiveBaseCurrency,
-      dailyCurrency: effectiveDailyCurrency,
-    });
-    setSaving(false);
-    if (succeeded !== false) onClose();
-  }
-
-  return html`
-    <${SheetShell}
-      open=${open}
-      onClose=${onClose}
-      title="Atur mata uang"
-      helper="Atur mata uang aktif, mata uang laporan, dan bawaan pengeluaran harian."
-      labelledBy="money-setup-sheet-title"
-    >
-      <div className="grid gap-4">
-        <label className="block">
-          <span className="mb-2 block text-sm font-black text-slate-700 dark:text-slate-200">
-            Cari / tambah mata uang
-          </span>
-          <input
-            type="text"
-            inputMode="text"
-            maxLength=${3}
-            value=${query}
-            onChange=${(event) =>
-              setQuery(
-                String(event.target.value || "")
-                  .toUpperCase()
-                  .replace(/[^A-Z]/g, "")
-                  .slice(0, 3),
-              )}
-            placeholder="USD"
-            className=${INPUT_CLASS}
-          />
-        </label>
-
-        <div>
-          <p className="mb-2 text-sm font-black text-slate-700 dark:text-slate-200">
-            Mata uang aktif
-          </p>
-          <div className="flex flex-wrap gap-2">
-            ${filteredCurrencies.map((currency) => html`
-              <${CurrencySetupChip}
-                key=${currency}
-                currency=${currency}
-                active=${effectiveSelectedCurrencies.includes(currency)}
-                base=${currency === effectiveBaseCurrency}
-                daily=${currency === effectiveDailyCurrency}
-                onToggle=${toggleCurrency}
-              />
-            `)}
-          </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-2 block text-sm font-black text-slate-700 dark:text-slate-200">
-              Mata uang laporan
-            </span>
-            <select
-              value=${effectiveBaseCurrency}
-              onChange=${(event) => setBaseCurrency(event.target.value)}
-              className=${INPUT_CLASS}
-            >
-              ${effectiveSelectedCurrencies.map((currency) => html`
-                <option key=${currency} value=${currency}>${currency}</option>
-              `)}
-            </select>
-            <span className="mt-2 block text-xs leading-5 text-slate-500 dark:text-slate-400">
-              Dipakai untuk laporan dan valuasi saldo.
-            </span>
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-black text-slate-700 dark:text-slate-200">
-              Mata uang harian
-            </span>
-            <select
-              value=${effectiveDailyCurrency}
-              onChange=${(event) => setDailyCurrency(event.target.value)}
-              className=${INPUT_CLASS}
-            >
-              ${effectiveSelectedCurrencies.map((currency) => html`
-                <option key=${currency} value=${currency}>${currency}</option>
-              `)}
-            </select>
-            <span className="mt-2 block text-xs leading-5 text-slate-500 dark:text-slate-400">
-              Dipakai sebagai bawaan pengeluaran harian.
-            </span>
-          </label>
-        </div>
-
-        <button
-          type="button"
-          onClick=${handleSave}
-          disabled=${saving}
-          className="history-action-primary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          ${saving ? "Menyimpan..." : "Simpan pengaturan uang"}
-        </button>
-      </div>
-    <//>
-  `;
-}
-
 function ThemeSegmentedControl({ value, onChange }) {
   const normalizedValue = normalizeThemeMode(value);
 
@@ -511,22 +301,13 @@ export function SettingsPage({
   profilePhoto,
   theme,
   onThemeChange,
-  currencySettings,
   balanceVisible,
   onToggleBalanceVisibility,
-  onCurrencySettingsChange,
   onSaveProfile,
   onSignOut,
 }) {
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
-  const [moneySheetOpen, setMoneySheetOpen] = useState(false);
   const [logoutSheetOpen, setLogoutSheetOpen] = useState(false);
-  const normalizedSettings = normalizeCurrencySettings(
-    currencySettings || DEFAULT_SELECTED_CURRENCIES,
-    { configured: true },
-  );
-  const activeCurrencies = normalizedSettings.activeCurrencies;
-  const activeCurrencySummary = formatCurrencySummary(activeCurrencies);
 
   return html`
     <div className="settings-page mx-auto grid max-w-2xl gap-4 pb-[calc(110px+env(safe-area-inset-bottom))] md:pb-6">
@@ -546,25 +327,7 @@ export function SettingsPage({
         onClick=${() => setProfileSheetOpen(true)}
       />
 
-      <${SettingsSection} title="Pengaturan uang">
-        <${SettingsRow}
-          label="Mata uang aktif"
-          helper="Mata uang yang tampil di wallet dan formulir"
-          value=${activeCurrencySummary}
-          onClick=${() => setMoneySheetOpen(true)}
-        />
-        <${SettingsRow}
-          label="Mata uang harian"
-          helper="Bawaan untuk pengeluaran harian"
-          value=${normalizedSettings.dailyCurrency}
-          onClick=${() => setMoneySheetOpen(true)}
-        />
-        <${SettingsRow}
-          label="Mata uang laporan"
-          helper="Laporan dan valuasi saldo"
-          value=${normalizedSettings.baseCurrency}
-          onClick=${() => setMoneySheetOpen(true)}
-        />
+      <${SettingsSection} title="Tampilan">
         <${SettingsRow}
           label="Sembunyikan saldo"
           helper="Sembunyikan nominal sensitif"
@@ -576,9 +339,6 @@ export function SettingsPage({
             />
           `}
         />
-      <//>
-
-      <${SettingsSection} title="Preferensi">
         <${SettingsRow}
           label="Mode tema"
           helper="Simpan otomatis saat berubah"
@@ -624,12 +384,6 @@ export function SettingsPage({
         onClose=${() => setProfileSheetOpen(false)}
         onSave=${onSaveProfile}
       />
-      <${MoneySetupSheet}
-        open=${moneySheetOpen}
-        settings=${normalizedSettings}
-        onClose=${() => setMoneySheetOpen(false)}
-        onSave=${onCurrencySettingsChange}
-      />
       <${ConfirmLogoutSheet}
         open=${logoutSheetOpen}
         onClose=${() => setLogoutSheetOpen(false)}
@@ -645,5 +399,4 @@ export function SettingsPage({
 export function SettingsPanel(props) {
   return html`<${SettingsPage} ...${props} />`;
 }
-
 

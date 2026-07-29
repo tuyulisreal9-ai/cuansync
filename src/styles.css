@@ -1032,6 +1032,12 @@ body:has(.settings-bottom-sheet) .mobile-bottom-nav {
   transform: translateY(calc(120% + env(safe-area-inset-bottom)));
 }
 
+body:has(.cs-entry-dialog) .mobile-bottom-nav {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(calc(120% + env(safe-area-inset-bottom)));
+}
+
 @media (min-width: 768px) {
   .history-detail-sheet {
     padding-bottom: 1.25rem;

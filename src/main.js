@@ -636,7 +636,7 @@ function computeMetrics(
 ) {
   const ordered = orderTransactions(transactions);
   const baseCurrency = getBaseCurrency();
-  const configuredCurrencies = getActiveCurrencies();
+  const configuredCurrencies = [baseCurrency];
   const currentMonthKey = getMonthKey(new Date());
   const currentMonthTransactions = ordered.filter(
     (item) => getMonthKey(item.occurred_at) === currentMonthKey,
@@ -660,11 +660,13 @@ function computeMetrics(
     globalRateSnapshot,
     baseCurrency,
   );
-  const activeCurrencies = normalizeCurrencyList([
-    ...getActiveCurrencies(),
-    ...Object.keys(transactionCurrencyBalances),
-    ...Object.keys(assetAccountSummary.totalsByCurrency),
-  ]);
+  const discoveredCurrencies =
+    assetAccountSummary.accountCount > 0
+      ? Object.keys(assetAccountSummary.totalsByCurrency)
+      : Object.keys(transactionCurrencyBalances);
+  const activeCurrencies = normalizeCurrencyList(discoveredCurrencies, {
+    baseCurrency,
+  });
   const currencyBalanceDefaults = Object.fromEntries(
     activeCurrencies.map((currency) => [currency, 0]),
   );
@@ -4734,7 +4736,15 @@ function App() {
     dailyCurrency: currencySettings?.dailyCurrency,
   });
   const dashboardActiveCurrencies = dashboardCurrencySettings.activeCurrencies;
-  const dailyExpenseCurrency = dashboardCurrencySettings.dailyCurrency;
+  const focusedWalletCurrency =
+    selectedWalletCurrency &&
+    dashboardActiveCurrencies.includes(
+      normalizeCurrencyCode(selectedWalletCurrency),
+    )
+      ? normalizeCurrencyCode(selectedWalletCurrency)
+      : null;
+  const dailyExpenseCurrency =
+    focusedWalletCurrency || dashboardCurrencySettings.dailyCurrency;
   const walletBaseCurrency = dashboardCurrencySettings.baseCurrency;
   const activeBudgetInsight =
     metrics.budgetInsights.find((item) => item.currency === dailyExpenseCurrency) || null;
@@ -5032,6 +5042,10 @@ function App() {
     navigateAppTab("investment");
   }
 
+  function handleAssetFormRequestHandled() {
+    setAssetFormRequest(0);
+  }
+
   const recentTodayTransactions = orderTransactions(transactions)
     .filter((item) => getLocalDayKey(item.occurred_at) === todayKey)
     .reverse()
@@ -5196,10 +5210,8 @@ function App() {
                         profilePhoto=${profilePhoto}
                         theme=${theme}
                         onThemeChange=${handleThemeChange}
-                        currencySettings=${currencySettings}
                         balanceVisible=${balanceVisible}
                         onToggleBalanceVisibility=${handleSetHideBalances}
-                        onCurrencySettingsChange=${handleSaveCurrencySettings}
                         onSaveProfile=${handleSaveProfile}
                         onSignOut=${handleSignOut}
                       />
@@ -5220,7 +5232,9 @@ function App() {
                         onContribute=${handleAddGoalProgress}
                         onOpenGoals=${() => navigateAppTab("budget")}
                         onOpenReport=${() => navigateAppTab("report")}
+                        onSelectAccountCurrency=${setSelectedWalletCurrency}
                         openAssetFormRequest=${assetFormRequest}
+                        onAssetFormRequestHandled=${handleAssetFormRequestHandled}
                       />
                     </section>
                   `;

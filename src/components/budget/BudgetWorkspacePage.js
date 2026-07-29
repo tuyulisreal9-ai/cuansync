@@ -111,7 +111,7 @@ function BudgetSection({
             aria-hidden="true"
             className="h-4 w-4 shrink-0 text-emerald-400"
           />
-          <h2 className="truncate text-xs font-black text-white sm:text-sm">
+          <h2 className="truncate text-xs font-black text-slate-950 dark:text-white sm:text-sm">
             Batas Anggaran Bulanan (${currency})
           </h2>
         </div>
@@ -120,8 +120,8 @@ function BudgetSection({
           onClick=${showForm ? () => setShowForm(false) : openForm}
           className=${`min-h-9 shrink-0 rounded-lg px-3 text-[11px] font-black ${
             showForm
-              ? "border border-slate-700 text-slate-300"
-              : "bg-emerald-500/12 text-emerald-300"
+              ? "border border-slate-300 text-slate-700 dark:border-slate-700 dark:text-slate-300"
+              : "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
           }`}
         >
           ${showForm ? "Tutup" : "+ Atur Anggaran"}
@@ -131,7 +131,7 @@ function BudgetSection({
       ${showForm
         ? html`
             <form
-              className="mt-3 grid gap-3 rounded-xl border border-slate-800 bg-slate-900/75 p-3"
+              className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/75 dark:shadow-none"
               onSubmit=${submit}
             >
               <label className="block">
@@ -151,7 +151,7 @@ function BudgetSection({
                 </select>
                 ${selectedBudget
                   ? html`
-                      <span className="mt-1.5 block text-[10px] leading-4 text-emerald-300">
+                      <span className="mt-1.5 block text-[10px] leading-4 text-emerald-700 dark:text-emerald-300">
                         Anggaran ini sudah ada. Simpan untuk memperbarui batasnya.
                       </span>
                     `
@@ -175,7 +175,7 @@ function BudgetSection({
                 <button
                   type="button"
                   onClick=${() => setShowForm(false)}
-                  className="min-h-10 rounded-lg px-3 text-[10px] font-bold text-slate-400"
+                  className="min-h-10 rounded-lg px-3 text-[10px] font-bold text-slate-600 dark:text-slate-400"
                 >
                   Batal
                 </button>
@@ -211,7 +211,7 @@ function BudgetSection({
               return html`
                 <article
                   key=${budget.id}
-                  className="rounded-xl border border-slate-800 bg-slate-900/75 p-3"
+                  className="rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/75 dark:shadow-none"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-2.5">
@@ -225,10 +225,10 @@ function BudgetSection({
                           .toUpperCase()}
                       </span>
                       <div className="min-w-0">
-                        <h3 className="truncate text-[11px] font-black text-white">
+                        <h3 className="truncate text-[11px] font-black text-slate-950 dark:text-white">
                           ${budget.categoryLabel}
                         </h3>
-                        <p className="mt-0.5 text-[9px] text-slate-400">
+                        <p className="mt-0.5 text-[9px] text-slate-600 dark:text-slate-400">
                           Batas:
                           ${formatCurrency(limit, currency)}
                         </p>
@@ -238,7 +238,7 @@ function BudgetSection({
                       <button
                         type="button"
                         onClick=${() => openForm(budget)}
-                        className="min-h-8 rounded-lg px-2 text-[9px] font-black text-emerald-300 transition hover:bg-emerald-500/10"
+                        className="min-h-8 rounded-lg px-2 text-[9px] font-black text-emerald-700 transition hover:bg-emerald-500/10 dark:text-emerald-300"
                       >
                         Ubah
                       </button>
@@ -253,17 +253,17 @@ function BudgetSection({
                     </div>
                   </div>
                   <div className="mt-3 flex items-center justify-between gap-3">
-                    <p className="text-[9px] font-bold text-slate-300">
+                    <p className="text-[9px] font-bold text-slate-600 dark:text-slate-300">
                       Terpakai:
-                      <strong className="text-white">
+                      <strong className="text-slate-950 dark:text-white">
                         ${formatCurrency(spent, currency)}
                       </strong>
                     </p>
-                    <p className="text-[9px] font-black text-cyan-300">
+                    <p className="text-[9px] font-black text-cyan-700 dark:text-cyan-300">
                       ${Math.round(usage * 100)}%
                     </p>
                   </div>
-                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-800">
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
                     <div
                       className=${`h-full rounded-full ${statusColor}`}
                       style=${{ width: `${barWidth}%` }}
@@ -273,11 +273,11 @@ function BudgetSection({
               `;
             })
           : html`
-              <div className="rounded-xl border border-dashed border-slate-800 px-4 py-6 text-center">
-                <p className="text-xs font-bold text-slate-300">
+              <div className="rounded-xl border border-dashed border-slate-300 bg-white/35 px-4 py-6 text-center dark:border-slate-800 dark:bg-transparent">
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
                   Belum ada anggaran bulan ini.
                 </p>
-                <p className="mt-1 text-[10px] text-slate-500">
+                <p className="mt-1 text-[10px] text-slate-600 dark:text-slate-500">
                   Atur kategori yang benar-benar ingin kamu batasi.
                 </p>
               </div>
@@ -308,10 +308,10 @@ export function BudgetWorkspacePage({
   return html`
     <div className="mx-auto grid max-w-md gap-4 pb-[calc(7rem+env(safe-area-inset-bottom))] lg:pb-6">
       <header>
-        <h1 className="font-display text-lg font-black text-white">
+        <h1 className="font-display text-lg font-black text-slate-950 dark:text-white">
           Anggaran & Target Tabungan
         </h1>
-        <p className="mt-1 text-[10px] leading-4 text-cyan-300/85">
+        <p className="mt-1 text-[10px] leading-4 text-slate-600 dark:text-cyan-300/85">
           Atur batas pengeluaran bulanan dan pantau progres rencana finansialmu.
         </p>
       </header>

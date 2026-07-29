@@ -828,7 +828,9 @@ export function WealthGoalsPage({
   onContribute,
   onOpenGoals,
   onOpenReport,
+  onSelectAccountCurrency,
   openAssetFormRequest = 0,
+  onAssetFormRequestHandled,
 }) {
   const [activeSection, setActiveSection] = useState("accounts");
   const [showGoalForm, setShowGoalForm] = useState(false);
@@ -838,6 +840,7 @@ export function WealthGoalsPage({
     if (openAssetFormRequest > 0) {
       setActiveSection("accounts");
       setShowAssetForm(true);
+      onAssetFormRequestHandled?.();
     }
   }, [openAssetFormRequest]);
 
@@ -875,6 +878,7 @@ export function WealthGoalsPage({
               baseCurrency=${baseCurrency}
               onOpenGoals=${openGoalForm}
               onOpenReport=${() => setActiveSection("report")}
+              onSelectAccountCurrency=${onSelectAccountCurrency}
             />
           `
         : null}

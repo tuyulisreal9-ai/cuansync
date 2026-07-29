@@ -27,15 +27,15 @@ const INPUT_CLASS =
 
 function getStatusTone(goal) {
   if (!goal.allocationCovered || goal.status === "overdue") {
-    return "border-rose-400/25 bg-rose-500/10 text-rose-300";
+    return "border-rose-400/25 bg-rose-500/10 text-rose-700 dark:text-rose-300";
   }
   if (goal.status === "completed" || goal.status === "used") {
-    return "border-emerald-400/25 bg-emerald-500/10 text-emerald-300";
+    return "border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
   }
   if (goal.daysLeft != null && goal.daysLeft <= 30) {
-    return "border-amber-400/25 bg-amber-500/10 text-amber-300";
+    return "border-amber-400/25 bg-amber-500/10 text-amber-700 dark:text-amber-300";
   }
-  return "border-sky-400/20 bg-sky-500/10 text-sky-300";
+  return "border-sky-400/20 bg-sky-500/10 text-sky-700 dark:text-sky-300";
 }
 
 function getProgressTone(goal) {
@@ -141,8 +141,8 @@ function TargetForm({
                 onClick=${() => updateField("target_type", type.value)}
                 className=${`min-h-11 rounded-lg border px-2 py-2 text-xs font-bold transition ${
                   form.target_type === type.value
-                    ? "border-emerald-400 bg-emerald-500/15 text-emerald-300"
-                    : "border-slate-700 bg-slate-900/50 text-slate-300"
+                    ? "border-emerald-400 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                    : "border-slate-300 bg-white/60 text-slate-700 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300"
                 }`}
               >
                 ${type.label}
@@ -207,7 +207,9 @@ function TargetForm({
               />
               <span
                 className=${`mt-1.5 block text-[10px] ${
-                  allocationInvalid ? "text-rose-300" : "text-slate-400"
+                  allocationInvalid
+                    ? "text-rose-700 dark:text-rose-300"
+                    : "text-slate-600 dark:text-slate-400"
                 }`}
               >
                 Dana belum dialokasikan:
@@ -236,7 +238,7 @@ function TargetForm({
         <button
           type="button"
           onClick=${onCancel}
-          className="min-h-11 rounded-lg border border-slate-700 text-xs font-bold text-slate-300"
+          className="min-h-11 rounded-lg border border-slate-300 text-xs font-bold text-slate-700 dark:border-slate-700 dark:text-slate-300"
         >
           Batal
         </button>
@@ -363,30 +365,30 @@ export function TargetPlanningSection({
   }
 
   return html`
-    <section className="border-t border-slate-800 pt-4">
+    <section className="border-t border-slate-200 pt-4 dark:border-slate-800">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <${Target} aria-hidden="true" className="h-4 w-4 shrink-0 text-emerald-400" />
-          <h2 className="truncate text-xs font-black text-white sm:text-sm">
+          <h2 className="truncate text-xs font-black text-slate-950 dark:text-white sm:text-sm">
             Target Tabungan & Rencana Finansial
           </h2>
         </div>
         <button
           type="button"
           onClick=${() => setShowCreateForm(true)}
-          className="min-h-9 shrink-0 rounded-lg bg-emerald-500/12 px-3 text-[11px] font-black text-emerald-300"
+          className="min-h-9 shrink-0 rounded-lg bg-emerald-500/12 px-3 text-[11px] font-black text-emerald-700 dark:text-emerald-300"
         >
           + Tambah Target
         </button>
       </div>
 
-      <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/75 p-3">
+      <div className="mt-3 rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/75 dark:shadow-none">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-emerald-400">
+            <p className="text-[10px] font-black uppercase tracking-[0.12em] text-emerald-700 dark:text-emerald-400">
               Dana ${selectedCurrency}
             </p>
-            <p className="mt-1 text-[10px] text-slate-400">
+            <p className="mt-1 text-[10px] text-slate-600 dark:text-slate-400">
               Ringkasan dana likuid dan tujuan alokasinya.
             </p>
           </div>
@@ -395,7 +397,7 @@ export function TargetPlanningSection({
                 <select
                   value=${selectedCurrency}
                   onChange=${(event) => setSelectedCurrency(event.target.value)}
-                  className="h-9 rounded-lg border border-slate-700 bg-slate-950 px-2 text-xs font-bold text-white"
+                  className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold text-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                 >
                   ${currencies.map(
                     (currency) =>
@@ -418,16 +420,16 @@ export function TargetPlanningSection({
           ].map(
             ([label, value], index) => html`
               <div key=${label} className="min-w-0">
-                <p className="text-[8px] font-black uppercase leading-3 text-slate-500">
+                <p className="text-[8px] font-black uppercase leading-3 text-slate-600 dark:text-slate-500">
                   ${label}
                 </p>
                 <p
                   className=${`mt-1 truncate text-xs font-black ${
                     index === 2 && !summary.isCovered
-                      ? "text-rose-300"
+                      ? "text-rose-700 dark:text-rose-300"
                       : index === 2
-                        ? "text-emerald-300"
-                        : "text-white"
+                        ? "text-emerald-700 dark:text-emerald-300"
+                        : "text-slate-950 dark:text-white"
                   }`}
                 >
                   ${formatCurrency(value, selectedCurrency)}
@@ -438,7 +440,7 @@ export function TargetPlanningSection({
         </div>
         ${!summary.isCovered
           ? html`
-              <p className="mt-3 rounded-lg bg-rose-500/10 px-3 py-2 text-[10px] leading-4 text-rose-200">
+              <p className="mt-3 rounded-lg bg-rose-500/10 px-3 py-2 text-[10px] leading-4 text-rose-700 dark:text-rose-200">
                 Alokasi melebihi saldo tersedia sebesar
                 ${formatCurrency(summary.overallocatedAmount, selectedCurrency)}.
                 Lepaskan atau pindahkan sebagian alokasi, atau koreksi saldo dompet.
@@ -453,14 +455,14 @@ export function TargetPlanningSection({
               (goal) => html`
                 <article
                   key=${goal.id}
-                  className="relative rounded-xl border border-slate-800 bg-slate-900/75 p-3"
+                  className="relative rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/75 dark:shadow-none"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <h3 className="truncate text-xs font-black text-white">
+                      <h3 className="truncate text-xs font-black text-slate-950 dark:text-white">
                         ${goal.name}
                       </h3>
-                      <p className="mt-1 text-[9px] text-slate-400">
+                      <p className="mt-1 text-[9px] text-slate-600 dark:text-slate-400">
                         ${getGoalTypeLabel(goal)}
                       </p>
                     </div>
@@ -476,7 +478,7 @@ export function TargetPlanningSection({
                           setMenuGoalId((current) =>
                             current === goal.id ? null : goal.id)}
                         aria-label=${`Menu ${goal.name}`}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white"
+                        className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                       >
                         <${MoreHorizontal} aria-hidden="true" className="h-4 w-4" />
                       </button>
@@ -485,14 +487,14 @@ export function TargetPlanningSection({
 
                   ${menuGoalId === goal.id
                     ? html`
-                        <div className="absolute right-3 top-11 z-10 grid min-w-28 gap-1 rounded-lg border border-slate-700 bg-slate-950 p-1.5 shadow-xl">
+                        <div className="absolute right-3 top-11 z-10 grid min-w-28 gap-1 rounded-lg border border-slate-200 bg-white p-1.5 text-slate-950 shadow-xl dark:border-slate-700 dark:bg-slate-950 dark:text-white">
                           <button
                             type="button"
                             onClick=${() => {
                               setEditingGoalId(goal.id);
                               setMenuGoalId(null);
                             }}
-                            className="rounded-md px-2 py-2 text-left text-[10px] font-bold text-slate-200 hover:bg-slate-800"
+                            className="rounded-md px-2 py-2 text-left text-[10px] font-bold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
                           >
                             Ubah
                           </button>
@@ -502,7 +504,7 @@ export function TargetPlanningSection({
                               await onArchiveGoal(goal);
                               setMenuGoalId(null);
                             }}
-                            className="rounded-md px-2 py-2 text-left text-[10px] font-bold text-slate-200 hover:bg-slate-800"
+                            className="rounded-md px-2 py-2 text-left text-[10px] font-bold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
                           >
                             Arsipkan
                           </button>
@@ -512,7 +514,7 @@ export function TargetPlanningSection({
                               onDeleteGoal(goal);
                               setMenuGoalId(null);
                             }}
-                            className="rounded-md px-2 py-2 text-left text-[10px] font-bold text-rose-300 hover:bg-rose-500/10"
+                            className="rounded-md px-2 py-2 text-left text-[10px] font-bold text-rose-700 hover:bg-rose-500/10 dark:text-rose-300"
                           >
                             Hapus
                           </button>
@@ -521,17 +523,17 @@ export function TargetPlanningSection({
                     : null}
 
                   <div className="mt-3 flex items-end justify-between gap-3">
-                    <p className="text-xs font-black text-white">
+                    <p className="text-xs font-black text-slate-950 dark:text-white">
                       ${formatCurrency(goal.availableAmount, goal.currency)}
-                      <span className="font-medium text-slate-400">
+                      <span className="font-medium text-slate-600 dark:text-slate-400">
                         dari ${formatCurrency(goal.targetAmount, goal.currency)}
                       </span>
                     </p>
-                    <span className="text-[10px] font-black text-slate-300">
+                    <span className="text-[10px] font-black text-slate-700 dark:text-slate-300">
                       ${formatPercent(goal.progress)}
                     </span>
                   </div>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800">
+                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
                     <div
                       className=${`h-full rounded-full ${getProgressTone(goal)}`}
                       style=${{ width: `${Math.max(goal.progress * 100, 1)}%` }}
@@ -539,13 +541,13 @@ export function TargetPlanningSection({
                   </div>
 
                   <div className="mt-2 grid grid-cols-2 gap-2 text-[9px]">
-                    <p className="text-slate-400">
+                    <p className="text-slate-600 dark:text-slate-400">
                       Kurang
-                      <strong className="ml-1 text-slate-200">
+                      <strong className="ml-1 text-slate-800 dark:text-slate-200">
                         ${formatCurrency(goal.shortageAmount, goal.currency)}
                       </strong>
                     </p>
-                    <p className="text-right text-slate-400">
+                    <p className="text-right text-slate-600 dark:text-slate-400">
                       ${goal.deadline
                         ? `Target ${formatDateTime(`${goal.deadline}T00:00:00`).replace(
                             ", 00.00",
@@ -556,7 +558,7 @@ export function TargetPlanningSection({
                   </div>
                   ${goal.recommendationAmount > 0
                     ? html`
-                        <p className="mt-1 text-[9px] text-cyan-300">
+                        <p className="mt-1 text-[9px] text-cyan-700 dark:text-cyan-300">
                           Rekomendasi
                           ${formatCurrency(
                             goal.recommendationAmount,
@@ -577,7 +579,7 @@ export function TargetPlanningSection({
                     <button
                       type="button"
                       onClick=${() => setDetailGoalId(goal.id)}
-                      className="min-h-9 rounded-lg border border-slate-700 px-2 text-[10px] font-black text-slate-200"
+                      className="min-h-9 rounded-lg border border-slate-300 px-2 text-[10px] font-black text-slate-700 dark:border-slate-700 dark:text-slate-200"
                     >
                       Detail
                     </button>
@@ -586,11 +588,11 @@ export function TargetPlanningSection({
               `,
             )
           : html`
-              <div className="rounded-xl border border-dashed border-slate-800 px-4 py-6 text-center">
-                <p className="text-xs font-bold text-slate-300">
+              <div className="rounded-xl border border-dashed border-slate-300 bg-white/35 px-4 py-6 text-center dark:border-slate-800 dark:bg-transparent">
+                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
                   Belum ada target ${selectedCurrency}.
                 </p>
-                <p className="mt-1 text-[10px] text-slate-500">
+                <p className="mt-1 text-[10px] text-slate-600 dark:text-slate-500">
                   Buat target untuk memberi tujuan pada dana yang sudah kamu miliki.
                 </p>
               </div>
@@ -651,11 +653,11 @@ export function TargetPlanningSection({
         ${actionGoal
           ? html`
               <form className="grid gap-3" onSubmit=${submitAction}>
-                <div className="rounded-lg border border-slate-800 bg-slate-900/70 p-3 text-[10px] leading-4 text-slate-300">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-[10px] leading-4 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-300">
                   ${action?.type === "assign"
                     ? html`
                         Dana belum dialokasikan:
-                        <strong className="text-emerald-300">
+                        <strong className="text-emerald-700 dark:text-emerald-300">
                           ${formatCurrency(
                             summaries[actionGoal.currency]?.unallocatedAmount || 0,
                             actionGoal.currency,
@@ -664,7 +666,7 @@ export function TargetPlanningSection({
                       `
                     : html`
                         Dana tersedia:
-                        <strong className="text-white">
+                        <strong className="text-slate-950 dark:text-white">
                           ${formatCurrency(
                             actionGoal.availableAmount,
                             actionGoal.currency,
@@ -706,7 +708,7 @@ export function TargetPlanningSection({
                     className=${INPUT_CLASS}
                   />
                 </label>
-                <p className="text-[10px] leading-4 text-slate-400">
+                <p className="text-[10px] leading-4 text-slate-600 dark:text-slate-400">
                   Alokasi hanya mengubah tujuan dana. Saldo rekening tidak akan berubah.
                 </p>
                 <button
@@ -733,7 +735,7 @@ export function TargetPlanningSection({
         ${selectedDetailGoal
           ? html`
               <div className="grid gap-3">
-                <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900/70">
                   <div className="grid grid-cols-2 gap-3">
                     ${[
                       ["Target", selectedDetailGoal.targetAmount],
@@ -743,10 +745,10 @@ export function TargetPlanningSection({
                     ].map(
                       ([label, value]) => html`
                         <div key=${label}>
-                          <p className="text-[9px] font-black uppercase text-slate-500">
+                          <p className="text-[9px] font-black uppercase text-slate-600 dark:text-slate-500">
                             ${label}
                           </p>
-                          <p className="mt-1 text-xs font-black text-white">
+                          <p className="mt-1 text-xs font-black text-slate-950 dark:text-white">
                             ${value == null
                               ? formatPercent(selectedDetailGoal.progress)
                               : formatCurrency(
@@ -758,7 +760,7 @@ export function TargetPlanningSection({
                       `,
                     )}
                   </div>
-                  <p className="mt-3 text-[10px] leading-4 text-slate-400">
+                  <p className="mt-3 text-[10px] leading-4 text-slate-600 dark:text-slate-400">
                     ${selectedDetailGoal.deadline
                       ? `Batas waktu ${formatDateTime(
                           `${selectedDetailGoal.deadline}T00:00:00`,
@@ -785,7 +787,7 @@ export function TargetPlanningSection({
                     type="button"
                     onClick=${() => openAction(selectedDetailGoal, "release")}
                     disabled=${selectedDetailGoal.availableAmount <= 0}
-                    className="min-h-10 rounded-lg border border-slate-700 text-[10px] font-black text-slate-200 disabled:opacity-40"
+                    className="min-h-10 rounded-lg border border-slate-300 text-[10px] font-black text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
                   >
                     Lepaskan Alokasi
                   </button>
@@ -794,7 +796,7 @@ export function TargetPlanningSection({
                     onClick=${() => openAction(selectedDetailGoal, "move")}
                     disabled=${selectedDetailGoal.availableAmount <= 0 ||
                     !detailMoveTargets.length}
-                    className="min-h-10 rounded-lg border border-slate-700 text-[10px] font-black text-slate-200 disabled:opacity-40"
+                    className="min-h-10 rounded-lg border border-slate-300 text-[10px] font-black text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
                   >
                     Pindahkan Alokasi
                   </button>
@@ -805,14 +807,14 @@ export function TargetPlanningSection({
                       onUseGoal(selectedDetailGoal);
                     }}
                     disabled=${selectedDetailGoal.availableAmount <= 0}
-                    className="min-h-10 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-[10px] font-black text-cyan-200 disabled:opacity-40"
+                    className="min-h-10 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-[10px] font-black text-cyan-700 disabled:opacity-40 dark:text-cyan-200"
                   >
                     Gunakan Dana
                   </button>
                 </div>
 
                 <div>
-                  <h3 className="text-xs font-black text-white">Riwayat alokasi</h3>
+                  <h3 className="text-xs font-black text-slate-950 dark:text-white">Riwayat alokasi</h3>
                   <div className="mt-2 grid gap-2">
                     ${selectedDetailGoal.activities.length
                       ? [...selectedDetailGoal.activities]
@@ -821,10 +823,10 @@ export function TargetPlanningSection({
                             (activity) => html`
                               <div
                                 key=${activity.id}
-                                className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 px-3 py-2"
+                                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800"
                               >
                                 <div className="min-w-0">
-                                  <p className="truncate text-[10px] font-bold text-slate-200">
+                                  <p className="truncate text-[10px] font-bold text-slate-800 dark:text-slate-200">
                                     ${getActivityLabel(activity)}
                                   </p>
                                   <p className="mt-0.5 text-[9px] text-slate-500">
@@ -834,8 +836,8 @@ export function TargetPlanningSection({
                                 <p
                                   className=${`text-[10px] font-black ${
                                     getActivitySign(activity) === "+"
-                                      ? "text-emerald-300"
-                                      : "text-rose-300"
+                                      ? "text-emerald-700 dark:text-emerald-300"
+                                      : "text-rose-700 dark:text-rose-300"
                                   }`}
                                 >
                                   ${getActivitySign(activity)}${formatCurrency(
@@ -847,7 +849,7 @@ export function TargetPlanningSection({
                             `,
                           )
                       : html`
-                          <p className="rounded-lg border border-dashed border-slate-800 p-3 text-[10px] text-slate-500">
+                          <p className="rounded-lg border border-dashed border-slate-300 p-3 text-[10px] text-slate-600 dark:border-slate-800 dark:text-slate-500">
                             Belum ada aktivitas baru. Nilai lama tetap dihitung sebagai alokasi awal.
                           </p>
                         `}
@@ -855,7 +857,7 @@ export function TargetPlanningSection({
                 </div>
 
                 <div>
-                  <h3 className="text-xs font-black text-white">
+                  <h3 className="text-xs font-black text-slate-950 dark:text-white">
                     Transaksi yang menggunakan target
                   </h3>
                   <div className="mt-2 grid gap-2">
@@ -864,17 +866,17 @@ export function TargetPlanningSection({
                           (transaction) => html`
                             <div
                               key=${transaction.id}
-                              className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 px-3 py-2"
+                              className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800"
                             >
                               <div className="min-w-0">
-                                <p className="truncate text-[10px] font-bold text-slate-200">
+                                <p className="truncate text-[10px] font-bold text-slate-800 dark:text-slate-200">
                                   ${transaction.description}
                                 </p>
                                 <p className="mt-0.5 text-[9px] text-slate-500">
                                   ${formatDateTime(transaction.occurred_at)}
                                 </p>
                               </div>
-                              <p className="text-[10px] font-black text-rose-300">
+                              <p className="text-[10px] font-black text-rose-700 dark:text-rose-300">
                                 -${formatCurrency(
                                   transaction.amount,
                                   transaction.currency,
@@ -884,7 +886,7 @@ export function TargetPlanningSection({
                           `,
                         )
                       : html`
-                          <p className="rounded-lg border border-dashed border-slate-800 p-3 text-[10px] text-slate-500">
+                          <p className="rounded-lg border border-dashed border-slate-300 p-3 text-[10px] text-slate-600 dark:border-slate-800 dark:text-slate-500">
                             Belum ada transaksi yang memakai target ini.
                           </p>
                         `}

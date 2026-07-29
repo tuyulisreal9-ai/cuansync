@@ -201,7 +201,7 @@ function AvatarButton({ src, initials, onClick }) {
 
 function CurrencyChip({ currency, selected, daily, base, onSelect }) {
   const labelParts = [`Fokuskan saldo ${currency}`];
-  if (daily) labelParts.push("mata uang harian");
+  if (daily) labelParts.push("bawaan transaksi");
   if (base) labelParts.push("mata uang laporan");
 
   return html`
@@ -394,7 +394,7 @@ function WalletBottomSheet({
               Semua mata uang
             </h2>
             <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-              Pilih saldo yang mau difokuskan. Mata uang harian tetap diatur dari Pengaturan.
+              Pilihanmu menjadi bawaan untuk transaksi berikutnya.
             </p>
           </div>
           <button
@@ -420,7 +420,7 @@ function WalletBottomSheet({
                   onSelectCurrency(currency);
                   onClose();
                 }}
-                aria-label=${`Fokuskan saldo ${currency}${daily ? ", mata uang harian" : ""}${base ? ", mata uang laporan" : ""}`}
+                aria-label=${`Fokuskan saldo ${currency}${daily ? ", bawaan transaksi" : ""}${base ? ", mata uang laporan" : ""}`}
                 aria-current=${selected ? "true" : undefined}
                 className=${`flex min-h-14 items-center justify-between gap-3 rounded-2xl border px-3 py-2 text-left transition duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/70 ${
                   selected
