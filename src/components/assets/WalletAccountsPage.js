@@ -288,6 +288,7 @@ export function WalletAccountsPage({
   onDeleteAccount,
   onOpenGoals,
   onOpenReport,
+  onSelectAccountCurrency,
 }) {
   const accounts = metrics.assetAccountInsights || [];
   const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
@@ -338,6 +339,11 @@ export function WalletAccountsPage({
     });
     setPaletteAccountId(null);
   };
+
+  function selectAccount(account) {
+    setSelectedAccountId(account.id);
+    onSelectAccountCurrency?.(account.currency);
+  }
 
   return html`
     <div className="cs-wallet-page grid w-full min-w-0 max-w-full gap-4">
@@ -436,7 +442,7 @@ export function WalletAccountsPage({
                       selected=${account.id === selectedAccount?.id}
                       accent=${getWalletColor(accountColors, account, index)}
                       paletteOpen=${paletteAccountId === account.id}
-                      onSelect=${() => setSelectedAccountId(account.id)}
+                      onSelect=${() => selectAccount(account)}
                       onTogglePalette=${() =>
                         setPaletteAccountId((current) =>
                           current === account.id ? null : account.id,
