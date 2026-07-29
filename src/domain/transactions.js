@@ -276,6 +276,90 @@ export function resolveTransactionBaseValue(transaction, fallbackRate = 0) {
   return amount > 0 && rate > 0 ? amount * rate : 0;
 }
 
+export function resolveTransactionHistoricalBaseValue(
+  transaction,
+  baseCurrency = DEFAULT_BASE_CURRENCY,
+) {
+  if (!transaction || transaction.type === "exchange") return null;
+
+  const requestedBaseCurrency = normalizeCurrencyCode(baseCurrency);
+  const storedBaseCurrency = normalizeCurrencyCode(
+    transaction.base_currency,
+    requestedBaseCurrency,
+  );
+  const currency = getTransactionCurrency(transaction);
+  const amount = getTransactionAmountValue(transaction);
+  const baseAmount = Math.abs(Number(transaction.base_amount || 0));
+  const legacyAmountIdr = Math.abs(Number(transaction.amount_idr || 0));
+  const storedRate = Number(
+    transaction.rate || transaction.locked_rate || 0,
+  );
+
+  if (currency === requestedBaseCurrency) {
+    return amount > 0 ? amount : null;
+  }
+  if (
+    storedBaseCurrency === requestedBaseCurrency &&
+    baseAmount > 0
+  ) {
+    return baseAmount;
+  }
+  if (requestedBaseCurrency === "IDR" && legacyAmountIdr > 0) {
+    return legacyAmountIdr;
+  }
+  if (
+    storedBaseCurrency === requestedBaseCurrency &&
+    amount > 0 &&
+    storedRate > 0
+  ) {
+    return amount * storedRate;
+  }
+  return null;
+}
+
+export function resolveTransactionFeeHistoricalBaseValue(
+  transaction,
+  baseCurrency = DEFAULT_BASE_CURRENCY,
+) {
+  const feeAmount = Math.abs(Number(transaction?.fee_amount || 0));
+  if (feeAmount <= 0) return 0;
+
+  const requestedBaseCurrency = normalizeCurrencyCode(baseCurrency);
+  const feeCurrency = normalizeCurrencyCode(
+    transaction.fee_currency || transaction.from_currency,
+  );
+  if (feeCurrency === requestedBaseCurrency) return feeAmount;
+
+  const fromCurrency = normalizeCurrencyCode(transaction.from_currency);
+  const toCurrency = normalizeCurrencyCode(transaction.to_currency);
+  const fromAmount = Math.abs(Number(transaction.from_amount || 0));
+  const toAmount = Math.abs(Number(transaction.to_amount || 0));
+  const baseAmount = Math.abs(Number(transaction.base_amount || 0));
+  const storedBaseCurrency = normalizeCurrencyCode(
+    transaction.base_currency,
+    requestedBaseCurrency,
+  );
+
+  if (
+    feeCurrency === fromCurrency &&
+    toCurrency === requestedBaseCurrency &&
+    fromAmount > 0 &&
+    toAmount > 0
+  ) {
+    return feeAmount * (toAmount / fromAmount);
+  }
+  if (
+    feeCurrency === fromCurrency &&
+    storedBaseCurrency === requestedBaseCurrency &&
+    fromAmount > 0 &&
+    baseAmount > 0
+  ) {
+    return feeAmount * (baseAmount / fromAmount);
+  }
+
+  return null;
+}
+
 export function computeCurrencyBalances(transactions = [], activeCurrencies = []) {
   const balances = Object.fromEntries(
     activeCurrencies.map((code) => [normalizeCurrencyCode(code), 0]),
