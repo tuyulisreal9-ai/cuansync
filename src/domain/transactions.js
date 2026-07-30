@@ -2,7 +2,10 @@ import {
   DEFAULT_BASE_CURRENCY,
   normalizeCurrencyCode,
 } from "../lib/currency.js";
-import { normalizeExpenseCategory } from "./categories.js";
+import {
+  getDefaultCategoryGroup,
+  normalizeExpenseCategory,
+} from "./categories.js";
 import { deriveStoredExchangeRateOrientation } from "./exchangeRate.js";
 
 const LEGACY_EXCHANGE_KEYWORDS = [
@@ -104,9 +107,15 @@ export function normalizeTransaction(row, index = 0) {
       : null,
     exchange_rate:
       row.exchange_rate == null ? null : Number(row.exchange_rate),
-    rate_type: ["realtime", "custom", "transfer", "legacy"].includes(
-      row.rate_type,
-    )
+    rate_type: [
+      "realtime",
+      "automatic",
+      "custom",
+      "historical",
+      "transfer",
+      "legacy",
+      "base",
+    ].includes(row.rate_type)
       ? row.rate_type
       : null,
   };
@@ -142,10 +151,16 @@ export function normalizeTransaction(row, index = 0) {
           ? inferredFromAmount / inferredToAmount
           : null;
 
+    const feeCategory =
+      Number(normalized.fee_amount || 0) > 0 && normalized.category
+        ? normalizeExpenseCategory(normalized.category, "Lainnya")
+        : null;
     const exchange = {
       ...normalized,
-      category: null,
-      category_group: null,
+      category: feeCategory,
+      category_group: feeCategory
+        ? normalized.category_group || getDefaultCategoryGroup(feeCategory)
+        : null,
       from_currency: normalizeCurrencyCode(inferredFromCurrency),
       to_currency: normalizeCurrencyCode(inferredToCurrency, "THB"),
       from_amount: inferredFromAmount,

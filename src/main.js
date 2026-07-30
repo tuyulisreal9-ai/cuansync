@@ -48,6 +48,7 @@ import {
   DEFAULT_CATEGORY,
   UNIVERSAL_BUDGET_GROUP,
   buildBudgetOverspendWarning,
+  calculateBudgetBaseAmount,
   computeBudgetInsights,
   getBudgetCategoryKey,
   getBudgetCategoryLabel,
@@ -280,6 +281,14 @@ function isMissingDailyCurrencyColumn(error) {
   const message = String(error?.message || "");
   return (
     message.includes("daily_currency") &&
+    (message.includes("schema cache") || error?.code === "PGRST204")
+  );
+}
+
+function isMissingTransactionRateTypeColumn(error) {
+  const message = String(error?.message || "");
+  return (
+    message.includes("rate_type") &&
     (message.includes("schema cache") || error?.code === "PGRST204")
   );
 }
@@ -770,7 +779,7 @@ function computeMetrics(
     .sort((a, b) => b.valueIdr - a.valueIdr || b.valueThb - a.valueThb);
 
   const budgetInsights = computeBudgetInsights(
-    currentMonthExpenses,
+    currentMonthTransactions,
     budgets,
     currentMonthKey,
     getBaseCurrency(),
@@ -778,34 +787,12 @@ function computeMetrics(
   );
   const overspentCount = budgetInsights.filter((item) => item.status === "over").length;
   const warningCount = budgetInsights.filter((item) => item.status === "warning").length;
-  const budgetBaseCurrency = getBaseCurrency();
-  const budgetInsightsBase = budgetInsights.map((item) => {
-    const rate = getCurrentValuationRateForCurrency(
-      globalRateSnapshot,
-      item.currency,
-      budgetBaseCurrency,
-    ).rate;
-    return {
-      limitBase:
-        item.currency === budgetBaseCurrency
-          ? item.limitAmount
-          : rate > 0
-            ? item.limitAmount * rate
-            : 0,
-      spentBase:
-        item.currency === budgetBaseCurrency
-          ? item.spentAmount
-          : rate > 0
-            ? item.spentAmount * rate
-            : 0,
-    };
-  });
-  const budgetLimitTotal = budgetInsightsBase.reduce(
-    (sum, item) => sum + Number(item.limitBase || 0),
+  const budgetLimitTotal = budgetInsights.reduce(
+    (sum, item) => sum + Number(item.baseAmount || item.limitAmount || 0),
     0,
   );
-  const budgetSpentTotal = budgetInsightsBase.reduce(
-    (sum, item) => sum + Number(item.spentBase || 0),
+  const budgetSpentTotal = budgetInsights.reduce(
+    (sum, item) => sum + Number(item.spentAmount || 0),
     0,
   );
   const budgetUsageTotal =
@@ -3242,6 +3229,13 @@ function App() {
         record.rate_type = isInternalTransfer ? "transfer" : rateType;
         record.fee_amount = feeAmount || null;
         record.fee_currency = feeAmount > 0 ? fromCurrency : null;
+        record.category =
+          feeAmount > 0 && payload.category
+            ? normalizeBudgetCategory(payload.category)
+            : null;
+        record.category_group = record.category
+          ? getDefaultGroupForCategory(record.category)
+          : null;
         record.source_account_id = sourceAccountId;
         record.destination_account_id = destinationAccountId;
         record.base_amount =
@@ -3260,8 +3254,6 @@ function App() {
           fromCurrency === "IDR" ? fromAmount : toCurrency === "IDR" ? toAmount : null;
         record.amount_thb =
           fromCurrency === "THB" ? -fromAmount : toCurrency === "THB" ? toAmount : null;
-        record.category = null;
-        record.category_group = null;
       }
 
       if (payload.type === "expense") {
@@ -3306,21 +3298,42 @@ function App() {
           }
         }
 
-        const fallbackRate =
+        const explicitRate = Number(
+          payload.exchange_rate || payload.rate || 0,
+        );
+        const historicalRate =
           expenseCurrency === getBaseCurrency()
             ? 1
-            : Number(payload.exchange_rate || payload.rate || 0) ||
-              getLatestRateForCurrencyUntil(
+            : getLatestRateForCurrencyUntil(
                 transactions,
                 expenseCurrency,
                 new Date(payload.occurred_at),
                 getBaseCurrency(),
-              ) ||
-              getCurrentValuationRateForCurrency(
+              );
+        const automaticRate =
+          expenseCurrency === getBaseCurrency()
+            ? 1
+            : getCurrentValuationRateForCurrency(
                 globalRateSnapshot,
                 expenseCurrency,
                 getBaseCurrency(),
               ).rate;
+        const fallbackRate =
+          expenseCurrency === getBaseCurrency()
+            ? 1
+            : explicitRate || historicalRate || automaticRate;
+        const rateType =
+          expenseCurrency === getBaseCurrency()
+            ? "base"
+            : explicitRate > 0
+              ? payload.rate_type === "custom"
+                ? "custom"
+                : "realtime"
+              : historicalRate > 0
+                ? "historical"
+                : automaticRate > 0
+                  ? "realtime"
+                  : null;
 
         record.currency = expenseCurrency;
         record.amount = amount;
@@ -3328,6 +3341,7 @@ function App() {
           expenseCurrency === getBaseCurrency() || !fallbackRate ? null : fallbackRate;
         record.locked_rate =
           expenseCurrency === getBaseCurrency() || !fallbackRate ? null : fallbackRate;
+        record.rate_type = rateType;
         record.base_amount =
           expenseCurrency === getBaseCurrency()
             ? amount
@@ -3392,16 +3406,28 @@ function App() {
             rate_base_currency: _rateBaseCurrency,
             rate_quote_currency: _rateQuoteCurrency,
             exchange_rate: _exchangeRate,
-            rate_type: _rateType,
             ...legacyCompatibleRecord
           } = record;
-          const insertRecord =
+          let insertRecord =
             record.type === "exchange" ? record : legacyCompatibleRecord;
-          const { data, error } = await supabase
+          let { data, error } = await supabase
             .from("transactions")
             .insert(insertRecord)
             .select()
             .single();
+          if (
+            record.type !== "exchange" &&
+            isMissingTransactionRateTypeColumn(error)
+          ) {
+            const { rate_type: _rateType, ...recordWithoutRateType } =
+              insertRecord;
+            insertRecord = recordWithoutRateType;
+            ({ data, error } = await supabase
+              .from("transactions")
+              .insert(insertRecord)
+              .select()
+              .single());
+          }
           if (error) throw error;
           await persistAssetAccountBalancePlan(accountBalancePlan);
           savedData = data;
@@ -3592,6 +3618,13 @@ function App() {
         record.rate_type = rateType;
         record.fee_amount = transaction.fee_amount || null;
         record.fee_currency = transaction.fee_currency || null;
+        record.category =
+          Number(record.fee_amount || 0) > 0 && transaction.category
+            ? normalizeBudgetCategory(transaction.category)
+            : null;
+        record.category_group = record.category
+          ? getDefaultGroupForCategory(record.category)
+          : null;
         record.source_account_id = transaction.source_account_id || null;
         record.destination_account_id = transaction.destination_account_id || null;
         record.base_amount =
@@ -3653,22 +3686,41 @@ function App() {
             `Dana tersedia pada ${selectedGoal.name} tidak mencukupi.`,
           );
         }
+        const historicalRate =
+          expenseCurrency === getBaseCurrency()
+            ? 1
+            : getLatestRateForCurrencyUntil(
+                transactions.filter((item) => item.id !== transaction.id),
+                expenseCurrency,
+                occurredAt,
+                getBaseCurrency(),
+              );
+        const automaticRate =
+          expenseCurrency === getBaseCurrency()
+            ? 1
+            : getCurrentValuationRateForCurrency(
+                globalRateSnapshot,
+                expenseCurrency,
+                getBaseCurrency(),
+              ).rate;
         const autoRate =
           expenseCurrency === getBaseCurrency()
             ? 1
             : lockedRate > 0
               ? lockedRate
-              : getLatestRateForCurrencyUntil(
-                  transactions.filter((item) => item.id !== transaction.id),
-                  expenseCurrency,
-                  occurredAt,
-                  getBaseCurrency(),
-                ) ||
-                getCurrentValuationRateForCurrency(
-                  globalRateSnapshot,
-                  expenseCurrency,
-                  getBaseCurrency(),
-                ).rate;
+              : historicalRate || automaticRate;
+        const rateType =
+          expenseCurrency === getBaseCurrency()
+            ? "base"
+            : lockedRate > 0
+              ? transaction.rate_type === "custom"
+                ? "custom"
+                : transaction.rate_type || "historical"
+              : historicalRate > 0
+                ? "historical"
+                : automaticRate > 0
+                  ? "realtime"
+                  : null;
 
         record.currency = expenseCurrency;
         record.amount = nextAmount;
@@ -3676,6 +3728,7 @@ function App() {
           expenseCurrency === getBaseCurrency() || !autoRate ? null : autoRate;
         record.locked_rate =
           expenseCurrency === getBaseCurrency() || !autoRate ? null : autoRate;
+        record.rate_type = rateType;
         record.base_amount =
           expenseCurrency === getBaseCurrency()
             ? nextAmount
@@ -3721,18 +3774,32 @@ function App() {
           rate_base_currency: _rateBaseCurrency,
           rate_quote_currency: _rateQuoteCurrency,
           exchange_rate: _exchangeRate,
-          rate_type: _rateType,
           ...legacyCompatibleRecord
         } = record;
-        const updateRecord =
+        let updateRecord =
           nextType === "exchange" ? record : legacyCompatibleRecord;
-        const { data, error } = await supabase
+        let { data, error } = await supabase
           .from("transactions")
           .update(updateRecord)
           .eq("id", transaction.id)
           .eq("user_id", user.id)
           .select()
           .single();
+        if (
+          nextType !== "exchange" &&
+          isMissingTransactionRateTypeColumn(error)
+        ) {
+          const { rate_type: _rateType, ...recordWithoutRateType } =
+            updateRecord;
+          updateRecord = recordWithoutRateType;
+          ({ data, error } = await supabase
+            .from("transactions")
+            .update(updateRecord)
+            .eq("id", transaction.id)
+            .eq("user_id", user.id)
+            .select()
+            .single());
+        }
         if (error) throw error;
         await persistAssetAccountBalancePlan(accountBalancePlan);
         const normalizedUpdated = normalizeTransaction(data);
@@ -3833,13 +3900,36 @@ function App() {
       setLoading(true);
       setMessage("");
 
-      const budgetCurrency = getBaseCurrency();
-      const limitAmount = Number(payload.limit_amount || payload.limit_thb);
+      const baseCurrency = getBaseCurrency();
+      const inputCurrency = normalizeCurrencyCode(
+        payload.input_currency || baseCurrency,
+        baseCurrency,
+      );
+      const inputAmount = Number(
+        payload.input_amount || payload.limit_amount || payload.limit_thb,
+      );
+      const planningRate =
+        inputCurrency === baseCurrency
+          ? 1
+          : Number(payload.planning_rate || 0);
+      const baseAmount = calculateBudgetBaseAmount({
+        inputAmount,
+        inputCurrency,
+        baseCurrency,
+        planningRate,
+      });
       const category = normalizeBudgetCategory(payload.category, payload.group_key);
       const groupKey = payload.group_key || getDefaultGroupForCategory(category);
       const categoryKey = getBudgetCategoryKey(category, groupKey);
-      if (!limitAmount || limitAmount <= 0) {
-        throw new Error(`Batas anggaran ${budgetCurrency} harus lebih besar dari 0.`);
+      if (!inputAmount || inputAmount <= 0) {
+        throw new Error("Batas pengeluaran bulanan harus lebih besar dari 0.");
+      }
+      if (!baseAmount || baseAmount <= 0) {
+        throw new Error(
+          inputCurrency === baseCurrency
+            ? "Batas pengeluaran bulanan tidak valid."
+            : `Kurs ${inputCurrency} ke ${baseCurrency} belum valid.`,
+        );
       }
 
       const matchingBudgets = budgets.filter(
@@ -3847,10 +3937,24 @@ function App() {
           item.month_key === payload.month_key &&
           getBudgetCategoryKey(item.category, item.group_key) === categoryKey,
       );
-      const existing =
-        matchingBudgets.find(
-          (item) => normalizeCurrencyCode(item.currency || getBaseCurrency()) === budgetCurrency,
-        ) || null;
+      if (
+        matchingBudgets.length > 1 ||
+        matchingBudgets.some((item) => Number(item.mergedBudgetCount || 1) > 1)
+      ) {
+        throw new Error(
+          "Ada lebih dari satu anggaran untuk kategori dan bulan ini. Periksa data duplikat sebelum menyimpan.",
+        );
+      }
+      const existing = matchingBudgets[0] || null;
+      const rateSource =
+        inputCurrency === baseCurrency
+          ? "base"
+          : payload.rate_source === "custom"
+            ? "custom"
+            : "automatic";
+      const rateDate =
+        payload.rate_date ||
+        new Date().toISOString().slice(0, 10);
 
       const record = {
         id: existing?.id || crypto.randomUUID(),
@@ -3858,9 +3962,20 @@ function App() {
         month_key: payload.month_key,
         group_key: groupKey,
         category,
-        currency: budgetCurrency,
-        limit_amount: limitAmount,
+        input_amount: inputAmount,
+        input_currency: inputCurrency,
+        base_amount: baseAmount,
+        base_currency: baseCurrency,
+        planning_rate: planningRate,
+        rate_source: rateSource,
+        rate_date: rateDate,
+        rate_from_currency: inputCurrency,
+        rate_to_currency: baseCurrency,
+        currency: baseCurrency,
+        limit_amount: baseAmount,
+        limit_thb: baseCurrency === "THB" ? baseAmount : 0,
         created_at: existing?.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       };
 
       if (mode === "demo") {
@@ -3883,35 +3998,42 @@ function App() {
                 month_key: record.month_key,
                 group_key: record.group_key,
                 category: record.category,
+                input_amount: record.input_amount,
+                input_currency: record.input_currency,
+                base_amount: record.base_amount,
+                base_currency: record.base_currency,
+                planning_rate: record.planning_rate,
+                rate_source: record.rate_source,
+                rate_date: record.rate_date,
+                rate_from_currency: record.rate_from_currency,
+                rate_to_currency: record.rate_to_currency,
                 currency: record.currency,
                 limit_amount: record.limit_amount,
+                limit_thb: record.limit_thb,
+                updated_at: record.updated_at,
               })
               .eq("id", existing.id)
               .eq("user_id", user.id)
           : supabase.from("budgets").insert(record);
         const { data, error } = await query.select().single();
-        if (error) throw error;
-
-        const mergedSourceIds = (existing?.sourceBudgetIds || []).filter(
-          (id) => id && id !== data.id,
-        );
-        if (mergedSourceIds.length) {
-          const { error: cleanupError } = await supabase
-            .from("budgets")
-            .delete()
-            .eq("user_id", user.id)
-            .in("id", mergedSourceIds);
-          if (cleanupError) throw cleanupError;
+        if (error) {
+          if (
+            error.code === "PGRST204" ||
+            /input_amount|base_amount|planning_rate|rate_source/i.test(
+              String(error.message || ""),
+            )
+          ) {
+            throw new Error(
+              "Migrasi anggaran lintas mata uang belum dipasang pada database.",
+            );
+          }
+          throw error;
         }
 
         setBudgets((current) => {
-          const replacedIds = new Set([
-            data.id,
-            ...(existing?.sourceBudgetIds || []),
-          ]);
           const next = normalizeBudgets(
             [
-              ...current.filter((item) => !replacedIds.has(item.id)),
+              ...current.filter((item) => item.id !== data.id),
               data,
             ],
             getBaseCurrency(),
@@ -5097,6 +5219,7 @@ function App() {
               transactions=${transactions}
               activeCurrencies=${dashboardActiveCurrencies}
               baseCurrency=${walletBaseCurrency}
+              globalRateSnapshot=${globalRateSnapshot}
               loading=${loading}
               onBudgetDelete=${handleDeleteBudget}
               onBudgetSubmit=${handleSaveBudget}

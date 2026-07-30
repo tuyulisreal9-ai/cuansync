@@ -242,18 +242,38 @@ create table if not exists public.budgets (
   month_key text not null,
   group_key text not null check (group_key in ('needs', 'wants', 'invest')),
   category text,
+  input_amount numeric(18, 4),
+  input_currency text,
+  base_amount numeric(18, 4),
+  base_currency text,
+  planning_rate numeric(24, 12),
+  rate_source text,
+  rate_date date,
+  rate_from_currency text,
+  rate_to_currency text,
   currency text not null default 'IDR',
   limit_amount numeric(18, 4) not null check (limit_amount >= 0),
 
   -- Legacy budget column. New code writes currency + limit_amount.
   limit_thb numeric(14, 2),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
 );
 
 alter table public.budgets
   add column if not exists category text,
+  add column if not exists input_amount numeric(18, 4),
+  add column if not exists input_currency text,
+  add column if not exists base_amount numeric(18, 4),
+  add column if not exists base_currency text,
+  add column if not exists planning_rate numeric(24, 12),
+  add column if not exists rate_source text,
+  add column if not exists rate_date date,
+  add column if not exists rate_from_currency text,
+  add column if not exists rate_to_currency text,
   add column if not exists currency text,
-  add column if not exists limit_amount numeric(18, 4);
+  add column if not exists limit_amount numeric(18, 4),
+  add column if not exists updated_at timestamptz;
 
 update public.budgets
 set
@@ -264,6 +284,48 @@ where currency is null or limit_amount is null;
 update public.budgets
 set category = coalesce(nullif(trim(category), ''), group_key)
 where category is null or trim(category) = '';
+
+update public.budgets
+set
+  input_currency = coalesce(nullif(input_currency, ''), nullif(currency, ''), 'IDR'),
+  input_amount = coalesce(input_amount, limit_amount, limit_thb),
+  base_currency = coalesce(nullif(base_currency, ''), 'IDR'),
+  base_amount = coalesce(
+    base_amount,
+    case
+      when coalesce(nullif(input_currency, ''), nullif(currency, ''), 'IDR') =
+        coalesce(nullif(base_currency, ''), 'IDR')
+        then coalesce(limit_amount, limit_thb)
+      else null
+    end
+  ),
+  planning_rate = coalesce(
+    planning_rate,
+    case
+      when coalesce(nullif(input_currency, ''), nullif(currency, ''), 'IDR') =
+        coalesce(nullif(base_currency, ''), 'IDR')
+        then 1
+      else null
+    end
+  ),
+  rate_source = coalesce(
+    nullif(rate_source, ''),
+    case
+      when coalesce(nullif(input_currency, ''), nullif(currency, ''), 'IDR') =
+        coalesce(nullif(base_currency, ''), 'IDR')
+        then 'legacy'
+      else 'missing'
+    end
+  ),
+  rate_date = coalesce(rate_date, created_at::date),
+  rate_from_currency = coalesce(
+    nullif(rate_from_currency, ''),
+    nullif(input_currency, ''),
+    nullif(currency, ''),
+    'IDR'
+  ),
+  rate_to_currency = coalesce(nullif(rate_to_currency, ''), nullif(base_currency, ''), 'IDR'),
+  updated_at = coalesce(updated_at, created_at, now());
 
 drop index if exists budgets_user_month_category_currency_idx;
 
@@ -324,41 +386,21 @@ set group_key = case
 end;
 
 do $$
-declare
-  duplicate_group record;
-  keep_id uuid;
 begin
-  for duplicate_group in
-    select
-      user_id,
-      month_key,
-      currency,
-      lower(trim(coalesce(category, group_key))) as category_key,
-      array_agg(id order by created_at, id::text) as budget_ids,
-      sum(coalesce(limit_amount, limit_thb, 0)) as merged_limit
+  if exists (
+    select 1
     from public.budgets
     group by
       user_id,
       month_key,
-      currency,
       lower(trim(coalesce(category, group_key)))
     having count(*) > 1
-  loop
-    keep_id := duplicate_group.budget_ids[1];
-
-    update public.budgets
-    set
-      limit_amount = duplicate_group.merged_limit,
-      limit_thb = case
-        when currency = 'THB' then duplicate_group.merged_limit
-        else coalesce(limit_thb, 0)
-      end
-    where id = keep_id;
-
-    delete from public.budgets
-    where id = any(duplicate_group.budget_ids)
-      and id <> keep_id;
-  end loop;
+  ) then
+    raise exception
+      'Duplicate budgets exist for the same user, month, and category.'
+      using hint =
+        'Inspect duplicate rows manually before creating the unique index.';
+  end if;
 end $$;
 
 alter table public.budgets
@@ -372,17 +414,17 @@ alter table public.budgets
 
 drop index if exists budgets_user_month_group_idx;
 drop index if exists budgets_user_month_group_currency_idx;
+drop index if exists budgets_user_month_category_currency_idx;
 
-create unique index if not exists budgets_user_month_category_currency_idx
+create unique index if not exists budgets_user_month_category_idx
   on public.budgets (
     user_id,
     month_key,
-    currency,
     lower(trim(coalesce(category, group_key)))
   );
 
-create index if not exists budgets_user_currency_month_idx
-  on public.budgets (user_id, currency, month_key desc);
+create index if not exists budgets_user_base_month_idx
+  on public.budgets (user_id, base_currency, month_key desc);
 
 create index if not exists budgets_user_category_month_idx
   on public.budgets (
@@ -400,6 +442,49 @@ begin
     alter table public.budgets
       add constraint budgets_currency_code_chk
       check (currency ~ '^[A-Z]{3}$') not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'budgets_planning_currency_code_chk'
+  ) then
+    alter table public.budgets
+      add constraint budgets_planning_currency_code_chk
+      check (
+        (input_currency is null or input_currency ~ '^[A-Z]{3}$') and
+        (base_currency is null or base_currency ~ '^[A-Z]{3}$') and
+        (rate_from_currency is null or rate_from_currency ~ '^[A-Z]{3}$') and
+        (rate_to_currency is null or rate_to_currency ~ '^[A-Z]{3}$')
+      ) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'budgets_planning_amount_chk'
+  ) then
+    alter table public.budgets
+      add constraint budgets_planning_amount_chk
+      check (
+        (input_amount is null or input_amount > 0) and
+        (base_amount is null or base_amount > 0) and
+        (planning_rate is null or planning_rate > 0)
+      ) not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'budgets_planning_orientation_chk'
+  ) then
+    alter table public.budgets
+      add constraint budgets_planning_orientation_chk
+      check (
+        rate_from_currency is null or
+        rate_to_currency is null or
+        (
+          rate_from_currency = input_currency and
+          rate_to_currency = base_currency
+        )
+      ) not valid;
   end if;
 end $$;
 
