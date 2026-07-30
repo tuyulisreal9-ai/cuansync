@@ -271,45 +271,24 @@ export function buildMonthlyReport(transactions, budgets, selectedMonthKey, base
     .sort((a, b) => b.valueIdr - a.valueIdr);
 
   const budgetInsights = computeBudgetInsights(
-    expenseTransactions,
+    monthTransactions,
     budgets,
     monthKey,
     baseCurrency,
   );
-  const budgetBaseValues = budgetInsights.map((budget) => {
-    const rate = getLatestRateForCurrencyUntil(
-      transactions,
-      budget.currency,
-      meta.end,
-      baseCurrency,
-    );
-    return {
-      limitBase:
-        budget.currency === baseCurrency
-          ? budget.limitAmount
-          : rate > 0
-            ? budget.limitAmount * rate
-            : 0,
-      spentBase:
-        budget.currency === baseCurrency
-          ? budget.spentAmount
-          : rate > 0
-            ? budget.spentAmount * rate
-            : 0,
-    };
-  });
-  const budgetLimitBaseIdr = budgetBaseValues.reduce(
-    (sum, item) => sum + Number(item.limitBase || 0),
+  const budgetLimitBase = budgetInsights.reduce(
+    (sum, budget) =>
+      sum + Number(budget.baseAmount || budget.limitAmount || 0),
     0,
   );
-  const budgetSpentBaseIdr = budgetBaseValues.reduce(
-    (sum, item) => sum + Number(item.spentBase || 0),
+  const budgetSpentBase = budgetInsights.reduce(
+    (sum, budget) => sum + Number(budget.spentAmount || 0),
     0,
   );
-  const budgetRemainingBaseIdr = budgetLimitBaseIdr - budgetSpentBaseIdr;
+  const budgetRemainingBase = budgetLimitBase - budgetSpentBase;
   const budgetUsage =
-    budgetLimitBaseIdr > 0
-      ? budgetSpentBaseIdr / budgetLimitBaseIdr
+    budgetLimitBase > 0
+      ? budgetSpentBase / budgetLimitBase
       : budgetInsights.length
         ? Math.max(...budgetInsights.map((budget) => budget.usage))
         : 0;
@@ -373,6 +352,7 @@ export function buildMonthlyReport(transactions, budgets, selectedMonthKey, base
 
   return {
     monthKey,
+    baseCurrency: normalizeCurrencyCode(baseCurrency),
     previousMonthKey,
     meta,
     fallbackRate,
@@ -387,9 +367,12 @@ export function buildMonthlyReport(transactions, budgets, selectedMonthKey, base
     currencyBreakdown,
     exchangePairs: Object.values(summary.exchangePairs),
     budgetInsights,
-    budgetLimitBaseIdr,
-    budgetSpentBaseIdr,
-    budgetRemainingBaseIdr,
+    budgetLimitBase,
+    budgetSpentBase,
+    budgetRemainingBase,
+    budgetLimitBaseIdr: budgetLimitBase,
+    budgetSpentBaseIdr: budgetSpentBase,
+    budgetRemainingBaseIdr: budgetRemainingBase,
     budgetLimitThb,
     budgetSpentThb,
     budgetUsage,

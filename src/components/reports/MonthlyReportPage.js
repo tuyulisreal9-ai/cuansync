@@ -544,8 +544,8 @@ function MonthlyReportInsights({ report }) {
   const budgetHelper =
     report.budgetInsights.length
       ? `${formatPercent(report.budgetUsage)} dari anggaran sudah terpakai. Total anggaran ${formatCurrency(
-          report.budgetLimitBaseIdr,
-          "idr",
+          report.budgetLimitBase,
+          report.baseCurrency,
         )}.`
       : "Tambahkan anggaran agar laporan bisa memberi peringatan.";
   const rhythmHelper = report.meta.isCurrentMonth
@@ -729,4 +729,3 @@ export function MonthlyReportPage({
     </div>
   `;
 }
-

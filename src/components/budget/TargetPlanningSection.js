@@ -369,7 +369,7 @@ export function TargetPlanningSection({
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <${Target} aria-hidden="true" className="h-4 w-4 shrink-0 text-emerald-400" />
-          <h2 className="truncate text-xs font-black text-slate-950 dark:text-white sm:text-sm">
+          <h2 className="text-[11px] font-black leading-4 text-slate-950 dark:text-white sm:text-sm">
             Target Tabungan & Rencana Finansial
           </h2>
         </div>

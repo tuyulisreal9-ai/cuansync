@@ -295,7 +295,9 @@ function buildBudgetSummary(metrics, baseCurrency, monthMeta) {
   const categories = (metrics.budgetInsights || [])
     .filter(
       (budget) =>
-        normalizeCurrencyCode(budget.currency) === baseCurrency,
+        normalizeCurrencyCode(
+          budget.baseCurrency || budget.base_currency || budget.currency,
+        ) === baseCurrency,
     )
     .map((budget) => getBudgetPace(budget, monthMeta));
   const limitAmount = categories.reduce(

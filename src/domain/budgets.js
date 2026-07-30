@@ -3,10 +3,10 @@ import {
   formatCurrency,
   normalizeCurrencyCode,
 } from "../lib/currency.js";
+import { getGlobalRateForCurrency } from "../lib/exchangeRates.js";
 import { getLocalDayKey, getMonthKey } from "../lib/dates.js";
 import {
-  getTransactionAmountValue,
-  getTransactionCurrency,
+  resolveTransactionFeeHistoricalBaseValue,
   resolveTransactionHistoricalBaseValue,
 } from "./transactions.js";
 import {
@@ -66,20 +66,125 @@ export function getDefaultGroupForCategory(category) {
   return getDefaultCategoryGroup(category);
 }
 
+export function calculateBudgetBaseAmount({
+  inputAmount,
+  inputCurrency,
+  baseCurrency = DEFAULT_BASE_CURRENCY,
+  planningRate,
+}) {
+  const amount = Number(inputAmount || 0);
+  const rate = Number(planningRate || 0);
+  const inputCode = normalizeCurrencyCode(inputCurrency, baseCurrency);
+  const baseCode = normalizeCurrencyCode(baseCurrency);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (inputCode === baseCode) return amount;
+  if (!Number.isFinite(rate) || rate <= 0) return null;
+  return amount * rate;
+}
+
+export function resolveAutomaticBudgetRate(
+  snapshot,
+  inputCurrency,
+  baseCurrency = DEFAULT_BASE_CURRENCY,
+) {
+  const inputCode = normalizeCurrencyCode(inputCurrency, baseCurrency);
+  const baseCode = normalizeCurrencyCode(baseCurrency);
+  if (inputCode === baseCode) {
+    return {
+      rate: 1,
+      source: "base",
+      rateDate: null,
+      rateFromCurrency: inputCode,
+      rateToCurrency: baseCode,
+    };
+  }
+
+  const rateInfo = getGlobalRateForCurrency(
+    snapshot,
+    inputCode,
+    baseCode,
+  );
+  const rate = Number(rateInfo.rate || 0);
+  return {
+    rate: rate > 0 ? rate : 0,
+    source: rate > 0 ? "automatic" : null,
+    rateDate:
+      snapshot?.sourceDate ||
+      snapshot?.source_date ||
+      snapshot?.fetchedAt ||
+      snapshot?.fetched_at ||
+      null,
+    rateFromCurrency: inputCode,
+    rateToCurrency: baseCode,
+  };
+}
+
+function getBudgetLegacyLimit(row) {
+  return Number(
+    row.limit_amount ?? row.limitAmount ?? row.limit_thb ?? 0,
+  );
+}
+
 export function normalizeBudget(
   row,
   baseCurrency = DEFAULT_BASE_CURRENCY,
 ) {
-  const currency = normalizeCurrencyCode(
+  const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
+  const legacyCurrency = normalizeCurrencyCode(
     row.currency || (row.limit_thb != null ? "THB" : baseCurrency),
   );
-  const limitAmount = Number(
-    row.limit_amount ?? row.limitAmount ?? row.limit_thb ?? 0,
+  const inputCurrency = normalizeCurrencyCode(
+    row.input_currency ?? row.inputCurrency ?? legacyCurrency,
+    normalizedBaseCurrency,
+  );
+  const officialBaseCurrency = normalizeCurrencyCode(
+    row.base_currency ?? row.baseCurrency ?? normalizedBaseCurrency,
+    normalizedBaseCurrency,
+  );
+  const legacyLimit = getBudgetLegacyLimit(row);
+  const inputAmount = Number(
+    row.input_amount ?? row.inputAmount ?? legacyLimit,
+  );
+  const explicitBaseAmount =
+    row.base_amount ?? row.baseAmount ?? null;
+  const baseAmount =
+    explicitBaseAmount != null
+      ? Number(explicitBaseAmount)
+      : legacyCurrency === officialBaseCurrency
+        ? legacyLimit
+        : inputCurrency === officialBaseCurrency
+          ? inputAmount
+          : 0;
+  const planningRate = Number(
+    row.planning_rate ??
+      row.planningRate ??
+      (inputCurrency === officialBaseCurrency
+        ? 1
+        : inputAmount > 0 && baseAmount > 0
+          ? baseAmount / inputAmount
+          : 0),
   );
   const sourceCategory = row.category || row.group_key;
   const category = normalizeBudgetCategory(sourceCategory, row.group_key);
   const groupKey = getDefaultGroupForCategory(category);
   const categoryKey = getBudgetCategoryKey(category, groupKey);
+  const hasExplicitPlanningFields =
+    row.input_amount != null ||
+    row.inputAmount != null ||
+    row.base_amount != null ||
+    row.baseAmount != null ||
+    row.planning_rate != null ||
+    row.planningRate != null;
+  const rateSource =
+    row.rate_source ??
+    row.rateSource ??
+    (inputCurrency === officialBaseCurrency
+      ? hasExplicitPlanningFields
+        ? "base"
+        : "legacy"
+      : planningRate > 0
+        ? "legacy"
+        : "missing");
   return {
     ...row,
     source_category: row.source_category || sourceCategory || null,
@@ -87,12 +192,48 @@ export function normalizeBudget(
     category,
     categoryKey,
     categoryLabel: getBudgetCategoryLabel(category, groupKey),
-    currency,
-    limit_amount: limitAmount,
-    limitAmount,
-    limit_thb: Number(
-      row.limit_thb ?? (currency === "THB" ? limitAmount : 0) ?? 0,
+    currency: officialBaseCurrency,
+    legacy_currency: legacyCurrency,
+    input_currency: inputCurrency,
+    inputCurrency,
+    input_amount: inputAmount,
+    inputAmount,
+    base_currency: officialBaseCurrency,
+    baseCurrency: officialBaseCurrency,
+    base_amount: baseAmount,
+    baseAmount,
+    planning_rate: planningRate,
+    planningRate,
+    rate_source: rateSource,
+    rateSource,
+    rate_date: row.rate_date ?? row.rateDate ?? row.created_at ?? null,
+    rateDate: row.rate_date ?? row.rateDate ?? row.created_at ?? null,
+    rate_from_currency: normalizeCurrencyCode(
+      row.rate_from_currency ?? row.rateFromCurrency ?? inputCurrency,
+      inputCurrency,
     ),
+    rateFromCurrency: normalizeCurrencyCode(
+      row.rate_from_currency ?? row.rateFromCurrency ?? inputCurrency,
+      inputCurrency,
+    ),
+    rate_to_currency: normalizeCurrencyCode(
+      row.rate_to_currency ?? row.rateToCurrency ?? officialBaseCurrency,
+      officialBaseCurrency,
+    ),
+    rateToCurrency: normalizeCurrencyCode(
+      row.rate_to_currency ?? row.rateToCurrency ?? officialBaseCurrency,
+      officialBaseCurrency,
+    ),
+    limit_amount: baseAmount,
+    limitAmount: baseAmount,
+    limit_thb: Number(
+      row.limit_thb ??
+        (officialBaseCurrency === "THB" ? baseAmount : 0) ??
+        0,
+    ),
+    hasPlanningSnapshot:
+      inputCurrency === officialBaseCurrency ||
+      (inputAmount > 0 && baseAmount > 0 && planningRate > 0),
   };
 }
 
@@ -113,7 +254,6 @@ export function normalizeBudgets(
     const key = [
       budget.user_id || "",
       budget.month_key || "",
-      budget.currency,
       budget.categoryKey,
     ].join("|");
     const current = groups.get(key);
@@ -127,23 +267,46 @@ export function normalizeBudgets(
       return;
     }
 
-    const currentLimit = Number(current.limitAmount || 0);
-    const nextLimit = Number(budget.limitAmount || 0);
+    const currentLimit = Number(current.baseAmount || 0);
+    const nextLimit = Number(budget.baseAmount || 0);
     const preferred =
       !isCanonicalBudgetSource(current) && isCanonicalBudgetSource(budget)
         ? budget
         : current;
+    const sameInputCurrency =
+      current.inputCurrency === budget.inputCurrency;
+    const mergedBaseAmount = currentLimit + nextLimit;
+    const mergedInputAmount = sameInputCurrency
+      ? Number(current.inputAmount || 0) + Number(budget.inputAmount || 0)
+      : mergedBaseAmount;
+    const mergedInputCurrency = sameInputCurrency
+      ? current.inputCurrency
+      : budget.baseCurrency;
     groups.set(key, {
       ...preferred,
       category: budget.category,
       categoryKey: budget.categoryKey,
       categoryLabel: budget.categoryLabel,
       group_key: budget.group_key,
-      currency: budget.currency,
-      limit_amount: currentLimit + nextLimit,
-      limitAmount: currentLimit + nextLimit,
+      currency: budget.baseCurrency,
+      input_currency: mergedInputCurrency,
+      inputCurrency: mergedInputCurrency,
+      input_amount: mergedInputAmount,
+      inputAmount: mergedInputAmount,
+      base_currency: budget.baseCurrency,
+      baseCurrency: budget.baseCurrency,
+      base_amount: mergedBaseAmount,
+      baseAmount: mergedBaseAmount,
+      planning_rate:
+        mergedInputAmount > 0 ? mergedBaseAmount / mergedInputAmount : 0,
+      planningRate:
+        mergedInputAmount > 0 ? mergedBaseAmount / mergedInputAmount : 0,
+      rate_source: sameInputCurrency ? preferred.rateSource : "legacy",
+      rateSource: sameInputCurrency ? preferred.rateSource : "legacy",
+      limit_amount: mergedBaseAmount,
+      limitAmount: mergedBaseAmount,
       limit_thb:
-        budget.currency === "THB" ? currentLimit + nextLimit : 0,
+        budget.baseCurrency === "THB" ? mergedBaseAmount : 0,
       sourceBudgetIds: [
         ...new Set([
           ...(current.sourceBudgetIds || []),
@@ -160,26 +323,32 @@ export function normalizeBudgets(
 
 export function resolveBudgetActivityAmount(
   transaction,
-  budgetCurrency,
+  _budgetCurrency,
   baseCurrency = DEFAULT_BASE_CURRENCY,
   _globalRateSnapshot = null,
 ) {
-  if (transaction?.type !== "expense") return null;
-  const code = normalizeCurrencyCode(budgetCurrency);
-  const transactionCurrency = getTransactionCurrency(transaction);
-  if (code === transactionCurrency) {
-    const amount = getTransactionAmountValue(transaction);
-    return amount > 0 ? amount : null;
-  }
-
   const base = normalizeCurrencyCode(baseCurrency);
-  if (code === base) {
+  if (transaction?.type === "expense") {
     const historicalBaseValue = resolveTransactionHistoricalBaseValue(
       transaction,
       base,
     );
     return historicalBaseValue != null && historicalBaseValue > 0
       ? historicalBaseValue
+      : null;
+  }
+
+  if (
+    transaction?.type === "exchange" &&
+    transaction.category &&
+    Number(transaction.fee_amount || 0) > 0
+  ) {
+    const feeBaseValue = resolveTransactionFeeHistoricalBaseValue(
+      transaction,
+      base,
+    );
+    return feeBaseValue != null && feeBaseValue > 0
+      ? feeBaseValue
       : null;
   }
 
@@ -210,7 +379,7 @@ export function computeBudgetInsights(
     .filter(
       (item) =>
         item.month_key === monthKey &&
-        normalizeCurrencyCode(item.currency || normalizedBaseCurrency) ===
+        normalizeCurrencyCode(item.baseCurrency || item.currency) ===
           normalizedBaseCurrency,
     )
     .map((budget) => {
@@ -219,9 +388,9 @@ export function computeBudgetInsights(
         budget.category,
         budget.group_key,
       );
-      const currencyExpenses = monthlyExpenses.filter(
+      const budgetActivities = monthlyExpenses.filter(
         (item) =>
-          item.type === "expense" &&
+          ["expense", "exchange"].includes(item.type) &&
           Boolean(item.category) &&
           getBudgetCategoryKey(item.category, item.category_group) ===
             budgetCategoryKey &&
@@ -232,7 +401,7 @@ export function computeBudgetInsights(
             globalRateSnapshot,
           ) != null,
       );
-      const spentAmount = currencyExpenses.reduce(
+      const spentAmount = budgetActivities.reduce(
         (sum, item) =>
           sum +
           Number(
@@ -245,10 +414,10 @@ export function computeBudgetInsights(
           ),
         0,
       );
-      const transactionCount = currencyExpenses.length;
+      const transactionCount = budgetActivities.length;
       let spentBeforeToday = 0;
       let spentToday = 0;
-      currencyExpenses.forEach((item) => {
+      budgetActivities.forEach((item) => {
         const amount = Number(
           resolveBudgetActivityAmount(
             item,
@@ -265,7 +434,9 @@ export function computeBudgetInsights(
         if (dayKey === todayKey) spentToday += amount;
       });
 
-      const limitAmount = Number(budget.limit_amount || budget.limitAmount || 0);
+      const limitAmount = Number(
+        budget.baseAmount || budget.base_amount || budget.limitAmount || 0,
+      );
       const remainingAmount = limitAmount - spentAmount;
       const usage = limitAmount > 0 ? spentAmount / limitAmount : 0;
       const baselineDailyLimit = daysInMonth > 0 ? limitAmount / daysInMonth : 0;
@@ -370,7 +541,12 @@ export function buildBudgetOverspendWarning(
   baseCurrency = DEFAULT_BASE_CURRENCY,
   globalRateSnapshot = null,
 ) {
-  if (transaction?.type !== "expense" || !transaction.category) return null;
+  if (
+    !["expense", "exchange"].includes(transaction?.type) ||
+    !transaction.category
+  ) {
+    return null;
+  }
   const monthKey = getMonthKey(transaction.occurred_at);
   const categoryKey = getBudgetCategoryKey(
     transaction.category,
@@ -380,7 +556,7 @@ export function buildBudgetOverspendWarning(
   const insights = computeBudgetInsights(
     transactionsForBudget.filter(
       (item) =>
-        item.type === "expense" &&
+        ["expense", "exchange"].includes(item.type) &&
         getMonthKey(item.occurred_at) === monthKey,
     ),
     budgets,
