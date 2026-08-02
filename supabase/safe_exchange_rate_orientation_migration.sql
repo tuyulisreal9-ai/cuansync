@@ -15,7 +15,15 @@ alter table public.transactions
   add constraint transactions_rate_orientation_chk
   check (
     rate_type is null
-    or rate_type in ('realtime', 'custom', 'transfer', 'legacy')
+    or rate_type in (
+      'realtime',
+      'automatic',
+      'custom',
+      'historical',
+      'transfer',
+      'legacy',
+      'base'
+    )
   ) not valid;
 
 do $migration$
