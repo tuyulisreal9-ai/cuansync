@@ -63,32 +63,40 @@ export function settleExchangeCalculation(
 
   if (changedField === rateField) {
     if (!rate) return next;
-    if (preferredTarget === "from_amount" && Number(toAmount) > 0) {
-      setAutoValue(
-        "from_amount",
-        calculateExchangeSourceAmount({
-          sourceCurrency: next.from_currency,
-          targetCurrency: next.to_currency,
-          targetAmount: toAmount,
-          rateBaseCurrency,
-          rateQuoteCurrency,
-          exchangeRate: rate,
-        }),
-      );
+    if (preferredTarget === "from_amount") {
+      if (Number(toAmount) > 0) {
+        setAutoValue(
+          "from_amount",
+          calculateExchangeSourceAmount({
+            sourceCurrency: next.from_currency,
+            targetCurrency: next.to_currency,
+            targetAmount: toAmount,
+            rateBaseCurrency,
+            rateQuoteCurrency,
+            exchangeRate: rate,
+          }),
+        );
+      } else {
+        next.from_amount = "";
+      }
       return next;
     }
-    if (preferredTarget === "to_amount" && Number(fromAmount) > 0) {
-      setAutoValue(
-        "to_amount",
-        calculateExchangeTargetAmount({
-          sourceCurrency: next.from_currency,
-          targetCurrency: next.to_currency,
-          sourceAmount: fromAmount,
-          rateBaseCurrency,
-          rateQuoteCurrency,
-          exchangeRate: rate,
-        }),
-      );
+    if (preferredTarget === "to_amount") {
+      if (Number(fromAmount) > 0) {
+        setAutoValue(
+          "to_amount",
+          calculateExchangeTargetAmount({
+            sourceCurrency: next.from_currency,
+            targetCurrency: next.to_currency,
+            sourceAmount: fromAmount,
+            rateBaseCurrency,
+            rateQuoteCurrency,
+            exchangeRate: rate,
+          }),
+        );
+      } else {
+        next.to_amount = "";
+      }
       return next;
     }
     if (Number(toAmount) > 0) {
