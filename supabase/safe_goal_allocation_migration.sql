@@ -1,6 +1,11 @@
 -- Safe additive migration for YNAB-style goal allocation.
 -- Existing goal rows and saved_amount_idr are preserved as a legacy baseline.
 
+begin;
+
+set local lock_timeout = '5s';
+set local statement_timeout = '30s';
+
 alter table public.goals
   add column if not exists currency text,
   add column if not exists target_amount numeric(18, 4),
@@ -287,3 +292,5 @@ begin
       alter column is_allocatable set default false;
   end if;
 end $$;
+
+commit;

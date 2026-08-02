@@ -7,7 +7,6 @@ import {
   BudgetOverview,
   ConcernList,
   Exposure,
-  Recommendation,
   SafeToSpendCard,
 } from "./ControlSummarySections.js";
 
@@ -40,11 +39,14 @@ export function ControlCenterPage({
         </div>
       </header>
 
-      <${SafeToSpendCard}
-        summary=${summary}
-        visible=${visible}
-        onOpenBudget=${onOpenBudget}
-      />
+      ${summary.safeToSpend.available
+        ? html`
+            <${SafeToSpendCard}
+              summary=${summary}
+              visible=${visible}
+            />
+          `
+        : null}
       <${BudgetOverview}
         summary=${summary}
         visible=${visible}
@@ -54,13 +56,13 @@ export function ControlCenterPage({
         summary=${summary}
         visible=${visible}
         onOpenBudget=${onOpenBudget}
-      />
-      <${Recommendation}
-        summary=${summary}
         onNavigate=${onNavigate}
+      />
+      <${ControlPillars}
+        summary=${summary}
+        visible=${visible}
         onOpenBudget=${onOpenBudget}
       />
-      <${ControlPillars} summary=${summary} visible=${visible} />
       <${Exposure} summary=${summary} />
     </div>
   `;

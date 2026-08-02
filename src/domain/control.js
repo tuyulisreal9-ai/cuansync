@@ -622,6 +622,52 @@ function buildExposureSummary(metrics, baseCurrency) {
   };
 }
 
+function buildGoalSummary(metrics = {}) {
+  const goal = metrics.nextGoal || null;
+  if (!goal) {
+    return {
+      available: false,
+      name: null,
+      currency: null,
+      targetAmount: 0,
+      savedAmount: 0,
+      remainingAmount: 0,
+      progress: 0,
+      status: "Belum ada target",
+    };
+  }
+
+  const currency = normalizeCurrencyCode(goal.currency);
+  const targetAmount = Math.max(
+    Number(goal.targetAmount ?? goal.target_amount ?? 0),
+    0,
+  );
+  const savedAmount = Math.max(
+    Number(goal.savedAmount ?? goal.availableAmount ?? 0),
+    0,
+  );
+  const progress =
+    targetAmount > 0
+      ? Math.min(Math.max(savedAmount / targetAmount, 0), 1)
+      : 0;
+
+  return {
+    available: true,
+    name: String(goal.name || "Target keuangan"),
+    currency,
+    targetAmount,
+    savedAmount,
+    remainingAmount: Math.max(targetAmount - savedAmount, 0),
+    progress,
+    status:
+      progress >= 1
+        ? "Tercapai"
+        : savedAmount > 0
+          ? "Sedang berjalan"
+          : "Belum dimulai",
+  };
+}
+
 function getBudgetScore(budget) {
   if (!budget.available) return null;
   const penalties = CONTROL_SCORING_SPEC.pillars.budget.penalties;
@@ -714,7 +760,7 @@ function getRecommendation({
     return {
       code: "negative_cash_flow",
       title: "Perbaiki arus kas bulan ini",
-      body: "Pengeluaran eksternal lebih besar daripada pemasukan.",
+      body: "Pengeluaran bulan ini lebih besar daripada pemasukan.",
       target: "history",
       categoryKey: null,
     };
@@ -740,8 +786,8 @@ function getRecommendation({
   if (completeness < 100) {
     return {
       code: "incomplete_data",
-      title: "Lengkapi data keuangan",
-      body: "Sebagian analisis belum dapat dinilai tanpa data historis atau komitmen yang terverifikasi.",
+      title: "Catatan bulan ini belum cukup",
+      body: "Beberapa ringkasan akan muncul setelah transaksi dan anggaranmu bertambah.",
       target: "history",
       categoryKey: null,
     };
@@ -901,12 +947,13 @@ export function buildBudgetControlSummary({
           : "Masih aman digunakan",
     obligationsIncluded: false,
     obligationsNote:
-      "Belum memasukkan tagihan mendatang karena jadwal tagihan rutin belum tersedia.",
+      "Menggunakan nilai terendah antara sisa anggaran dan dana yang belum dialokasikan.",
   };
   const exposure = buildExposureSummary(
     metrics || {},
     normalizedBaseCurrency,
   );
+  const goal = buildGoalSummary(metrics || {});
   const scoring = buildScoring({
     budget,
     cashFlow,
@@ -934,6 +981,7 @@ export function buildBudgetControlSummary({
     commitments,
     safeToSpend,
     exposure,
+    goal,
     scoring,
     recommendation,
     limitations: {

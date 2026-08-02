@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   addExchangeDecimals,
@@ -12,6 +13,29 @@ import {
 import { settleExchangeCalculation } from "../src/domain/exchange.js";
 import { buildAssetAccountBalancePlan } from "../src/domain/assets.js";
 import { getTransactionAccountMovements } from "../src/domain/transactions.js";
+
+test("constraint kurs menerima semua sumber rate transaksi", async () => {
+  const migration = await readFile(
+    new URL(
+      "../supabase/manual_migrations/20260803_fix_transaction_rate_type_constraint.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  for (const rateType of [
+    "realtime",
+    "automatic",
+    "custom",
+    "historical",
+    "transfer",
+    "legacy",
+    "base",
+  ]) {
+    assert.match(migration, new RegExp(`'${rateType}'`));
+  }
+  assert.equal(/\b(update|delete|truncate)\b/i.test(migration), false);
+});
 
 test("kurs IDR ke THB dinormalisasi menjadi THB per IDR", () => {
   const result = normalizeExchangeRateOrientation("0.001859", "IDR", "THB");
