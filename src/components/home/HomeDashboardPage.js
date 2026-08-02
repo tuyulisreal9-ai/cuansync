@@ -169,10 +169,12 @@ function ControlSummary({
   const runwayLabel =
     summary.runway.months == null
       ? "Belum terbaca"
-      : `${summary.runway.months.toLocaleString("id-ID", {
-          minimumFractionDigits: 1,
-          maximumFractionDigits: 1,
-        })} bulan`;
+      : summary.runway.months < 1
+        ? `${Math.max(Math.round(Math.max(summary.runway.months, 0) * 30), 0)} hari`
+        : `${summary.runway.months.toLocaleString("id-ID", {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+          })} bulan`;
   const safeLabel = summary.safeToSpend.available
     ? formatControlMoney(
         summary.safeToSpend.amount,
@@ -228,7 +230,7 @@ function ControlSummary({
 
         <span className="cs-home-metric cs-home-control-metric block rounded-lg p-3 md:p-3.5">
           <span className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-            Daya tahan dana
+            Dana cadangan
           </span>
           <strong className="mt-2 block truncate text-sm font-black text-amber-600 dark:text-amber-300 md:text-base">
             ${runwayLabel}

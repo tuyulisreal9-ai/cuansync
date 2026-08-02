@@ -1,226 +1,382 @@
 import React, { useState } from "https://esm.sh/react@18.3.1";
 import htm from "https://esm.sh/htm@3.1.1";
 import {
-  ChevronDown,
+  ChevronRight,
   CircleDollarSign,
-  ReceiptText,
-  Repeat2,
   ShieldCheck,
-  WalletCards,
+  Target,
 } from "https://esm.sh/lucide-react@0.468.0?deps=react@18.3.1";
 import { formatControlMoney } from "../../domain/control.js";
+import { SheetShell } from "../shared/SheetShell.js";
 import {
   CONTROL_MUTED,
   CONTROL_PANEL,
-  ControlStatusDot,
   ControlSummaryLine,
 } from "./ControlPrimitives.js";
 
 const html = htm.bind(React.createElement);
 
-function getPillarTone(pillar) {
-  if (!pillar.evaluable) return "muted";
-  if (pillar.score >= 80) return "safe";
-  if (pillar.score >= 60) return "warning";
-  return "danger";
+function formatRunwayDuration(months) {
+  if (months == null) return "Belum cukup data";
+  if (months < 1) {
+    const days = Math.max(Math.round(Math.max(months, 0) * 30), 0);
+    return days > 0 ? `Sekitar ${days} hari` : "Belum mencukupi";
+  }
+  return `Sekitar ${months.toLocaleString("id-ID", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })} bulan`;
 }
 
-function PillarDetails({ pillarKey, summary, visible }) {
-  const currency = summary.baseCurrency;
-
-  if (pillarKey === "budget") {
-    return html`
-      <div className="px-4 pb-3">
-        <${ControlSummaryLine}
-          label="Batas bulanan"
-          value=${formatControlMoney(
-            summary.budget.limitAmount,
-            currency,
-            visible,
-          )}
-        />
-        <${ControlSummaryLine}
-          label="Terpakai"
-          value=${formatControlMoney(
-            summary.budget.spentAmount,
-            currency,
-            visible,
-          )}
-        />
-        <${ControlSummaryLine}
-          label="Kategori bermasalah"
-          value=${String(summary.budget.attentionCount)}
-        />
-      </div>
-    `;
+function getCashFlowPresentation(cashFlow) {
+  if (!cashFlow.evaluable) {
+    return {
+      tone: "muted",
+      status: "Belum cukup data",
+      metric: "Tambahkan catatan pemasukan bulan ini",
+    };
   }
 
-  if (pillarKey === "cashFlow") {
-    const ratio =
-      summary.cashFlow.savingsRatio == null
-        ? "Belum tersedia"
-        : `${Math.round(summary.cashFlow.savingsRatio * 100)}%`;
-    return html`
-      <div className="px-4 pb-3">
-        <${ControlSummaryLine}
-          label="Pemasukan"
-          value=${formatControlMoney(
-            summary.cashFlow.income,
-            currency,
-            visible,
-          )}
-        />
-        <${ControlSummaryLine}
-          label="Pengeluaran eksternal"
-          value=${formatControlMoney(
-            summary.cashFlow.externalExpenses,
-            currency,
-            visible,
-          )}
-        />
-        <${ControlSummaryLine} label="Rasio tabungan" value=${ratio} />
-        ${summary.cashFlow.missingValuationCount
-          ? html`
-              <p className="mt-2 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
-                ${summary.cashFlow.missingValuationCount} transaksi belum punya
-                nilai historis dalam ${currency}.
-              </p>
-            `
-          : null}
-      </div>
-    `;
+  const percentage = Math.round(cashFlow.savingsRatio * 100);
+  if (cashFlow.netCashFlow < 0) {
+    return {
+      tone: "danger",
+      status: "Perlu diperhatikan",
+      metric: "Pengeluaran lebih besar daripada pemasukan",
+    };
   }
+  if (percentage >= 20) {
+    return {
+      tone: "safe",
+      status: "Aman",
+      metric: `${percentage}% pemasukan masih tersisa`,
+    };
+  }
+  return {
+    tone: "warning",
+    status: "Perlu dijaga",
+    metric: `${percentage}% pemasukan masih tersisa`,
+  };
+}
 
-  if (pillarKey === "runway") {
-    const months =
-      summary.runway.months == null
-        ? "Belum tersedia"
-        : `${summary.runway.months.toLocaleString("id-ID", {
-            minimumFractionDigits: 1,
-            maximumFractionDigits: 1,
-          })} bulan`;
-    return html`
-      <div className="px-4 pb-3">
-        <${ControlSummaryLine}
-          label="Dana likuid bebas"
-          value=${formatControlMoney(
-            summary.runway.freeLiquidFunds,
-            currency,
-            visible,
-          )}
-        />
-        <${ControlSummaryLine}
-          label="Pengeluaran bulanan acuan"
-          value=${summary.runway.monthlyBurn == null
-            ? "Belum tersedia"
-            : formatControlMoney(
-                summary.runway.monthlyBurn,
-                currency,
-                visible,
-              )}
-        />
-        <${ControlSummaryLine} label="Daya tahan" value=${months} />
-        <p className=${`mt-2 text-[10px] leading-4 ${CONTROL_MUTED}`}>
-          ${summary.runway.burnSource === "three_month_history"
-            ? "Menggunakan rata-rata tiga bulan penuh terakhir."
-            : summary.runway.burnSource === "budget_fallback"
-              ? "Riwayat belum cukup, jadi memakai total anggaran bulan ini."
-              : "Riwayat atau anggaran belum cukup untuk menghitung daya tahan."}
-        </p>
-      </div>
-    `;
+function getRunwayPresentation(runway) {
+  if (!runway.evaluable) {
+    return {
+      tone: "muted",
+      status: "Belum cukup data",
+      metric: "Butuh anggaran atau riwayat pengeluaran",
+    };
   }
+  if (runway.months >= 3) {
+    return {
+      tone: "safe",
+      status: "Aman",
+      metric: formatRunwayDuration(runway.months),
+    };
+  }
+  if (runway.months >= 1) {
+    return {
+      tone: "warning",
+      status: "Perlu dijaga",
+      metric: formatRunwayDuration(runway.months),
+    };
+  }
+  return {
+    tone: "danger",
+    status: "Terbatas",
+    metric: formatRunwayDuration(runway.months),
+  };
+}
+
+function getGoalPresentation(goal) {
+  if (!goal.available) {
+    return {
+      tone: "muted",
+      status: "Belum diatur",
+      metric: "Belum ada target keuangan",
+    };
+  }
+  const percentage = Math.round(goal.progress * 100);
+  return {
+    tone: percentage >= 100 ? "safe" : "progress",
+    status: goal.status,
+    metric: `${goal.name} - ${percentage}%`,
+  };
+}
+
+function getToneClasses(tone) {
+  const classes = {
+    safe:
+      "border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    warning:
+      "border-amber-400/25 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+    danger:
+      "border-rose-400/25 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+    progress:
+      "border-cyan-400/25 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+    muted:
+      "border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
+  };
+  return classes[tone] || classes.muted;
+}
+
+function ConditionRow({ icon: Icon, title, presentation, onClick }) {
+  return html`
+    <button
+      type="button"
+      onClick=${onClick}
+      className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-100/75 dark:hover:bg-slate-800/50"
+    >
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+        <${Icon} aria-hidden="true" className="h-4 w-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-1.5">
+          <strong className="text-xs text-slate-950 dark:text-white">
+            ${title}
+          </strong>
+          <span className=${`rounded-md border px-1.5 py-0.5 text-[9px] font-extrabold ${getToneClasses(presentation.tone)}`}>
+            ${presentation.status}
+          </span>
+        </span>
+        <span className=${`mt-1 block truncate text-[10px] ${CONTROL_MUTED}`}>
+          ${presentation.metric}
+        </span>
+      </span>
+      <${ChevronRight}
+        aria-hidden="true"
+        className="h-4 w-4 shrink-0 text-slate-400"
+      />
+    </button>
+  `;
+}
+
+function CashFlowDetails({ summary, visible }) {
+  const { cashFlow, baseCurrency } = summary;
+  const ratio =
+    cashFlow.savingsRatio == null
+      ? "Belum tersedia"
+      : `${Math.round(cashFlow.savingsRatio * 100)}%`;
 
   return html`
-    <div className="px-4 pb-3">
+    <div className="divide-y divide-slate-200/90 dark:divide-slate-800">
       <${ControlSummaryLine}
-        label="Pengeluaran Tagihan"
+        label="Pemasukan"
+        value=${formatControlMoney(cashFlow.income, baseCurrency, visible)}
+      />
+      <${ControlSummaryLine}
+        label="Pengeluaran"
         value=${formatControlMoney(
-          summary.commitments.tagihanSpent,
-          currency,
+          cashFlow.externalExpenses,
+          baseCurrency,
           visible,
         )}
       />
       <${ControlSummaryLine}
-        label="Biaya transfer terverifikasi"
+        label="Sisa bulan ini"
+        value=${formatControlMoney(cashFlow.netCashFlow, baseCurrency, visible)}
+        tone=${cashFlow.netCashFlow < 0 ? "text-rose-500" : "text-emerald-600 dark:text-emerald-300"}
+      />
+      <${ControlSummaryLine} label="Porsi yang tersisa" value=${ratio} />
+      ${cashFlow.feeExpenses > 0
+        ? html`
+            <${ControlSummaryLine}
+              label="Biaya transfer bulan ini"
+              value=${formatControlMoney(
+                cashFlow.feeExpenses,
+                baseCurrency,
+                visible,
+              )}
+            />
+          `
+        : null}
+      <p className=${`pt-3 text-[11px] leading-5 ${CONTROL_MUTED}`}>
+        Transfer antar-dompet dan pokok tukar valas tidak dihitung sebagai
+        pemasukan atau pengeluaran.
+      </p>
+      ${cashFlow.missingValuationCount
+        ? html`
+            <p className="pt-3 text-[11px] leading-5 text-amber-700 dark:text-amber-300">
+              ${cashFlow.missingValuationCount} transaksi belum dapat dihitung
+              dalam ${baseCurrency}.
+            </p>
+          `
+        : null}
+    </div>
+  `;
+}
+
+function RunwayDetails({ summary, visible }) {
+  const { runway, baseCurrency } = summary;
+  const sourceNote =
+    runway.burnSource === "three_month_history"
+      ? "Perkiraan memakai rata-rata pengeluaran tiga bulan penuh terakhir."
+      : runway.burnSource === "budget_fallback"
+        ? "Riwayat belum cukup, jadi perkiraan memakai anggaran bulan ini."
+        : "Tambahkan anggaran atau riwayat pengeluaran agar perkiraan dapat dihitung.";
+
+  return html`
+    <div className="divide-y divide-slate-200/90 dark:divide-slate-800">
+      <${ControlSummaryLine}
+        label="Dana tersedia"
         value=${formatControlMoney(
-          summary.commitments.verifiedFeeAmount,
-          currency,
+          runway.freeLiquidFunds,
+          baseCurrency,
           visible,
         )}
       />
-      <p className="mt-2 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
-        Penilaian komitmen rutin dan remittance menunggu jadwal tagihan serta
-        penanda transaksi eksternal di database.
+      <${ControlSummaryLine}
+        label="Acuan pengeluaran bulanan"
+        value=${runway.monthlyBurn == null
+          ? "Belum tersedia"
+          : formatControlMoney(runway.monthlyBurn, baseCurrency, visible)}
+      />
+      <${ControlSummaryLine}
+        label="Perkiraan daya tahan"
+        value=${formatRunwayDuration(runway.months)}
+      />
+      <p className=${`pt-3 text-[11px] leading-5 ${CONTROL_MUTED}`}>
+        ${sourceNote}
       </p>
     </div>
   `;
 }
 
-export function ControlPillars({ summary, visible }) {
-  const [openKey, setOpenKey] = useState("budget");
-  const iconMap = {
-    budget: ReceiptText,
-    cashFlow: CircleDollarSign,
-    runway: ShieldCheck,
-    commitments: Repeat2,
+function GoalDetails({ summary, visible, onOpenBudget }) {
+  const goal = summary.goal;
+  if (!goal.available) {
+    return html`
+      <div className="py-2 text-center">
+        <p className="text-sm font-extrabold text-slate-950 dark:text-white">
+          Belum ada target keuangan
+        </p>
+        <p className=${`mx-auto mt-1 max-w-xs text-[11px] leading-5 ${CONTROL_MUTED}`}>
+          Buat target untuk dana darurat, rencana pulang, atau kebutuhan besar
+          lainnya.
+        </p>
+        <button
+          type="button"
+          onClick=${() => onOpenBudget(null)}
+          className="mt-4 min-h-10 rounded-lg bg-emerald-500 px-4 text-xs font-black text-white transition hover:bg-emerald-400"
+        >
+          Buka anggaran dan target
+        </button>
+      </div>
+    `;
+  }
+
+  return html`
+    <div className="divide-y divide-slate-200/90 dark:divide-slate-800">
+      <${ControlSummaryLine} label="Target" value=${goal.name} />
+      <${ControlSummaryLine}
+        label="Nominal tujuan"
+        value=${formatControlMoney(
+          goal.targetAmount,
+          goal.currency,
+          visible,
+        )}
+      />
+      <${ControlSummaryLine}
+        label="Terkumpul"
+        value=${formatControlMoney(
+          goal.savedAmount,
+          goal.currency,
+          visible,
+        )}
+        tone="text-emerald-600 dark:text-emerald-300"
+      />
+      <${ControlSummaryLine}
+        label="Masih dibutuhkan"
+        value=${formatControlMoney(
+          goal.remainingAmount,
+          goal.currency,
+          visible,
+        )}
+      />
+      <div className="pt-3">
+        <div className="h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+          <div
+            className="h-full rounded-full bg-emerald-400"
+            style=${{ width: `${Math.round(goal.progress * 100)}%` }}
+          ></div>
+        </div>
+        <p className=${`mt-2 text-[11px] ${CONTROL_MUTED}`}>
+          ${Math.round(goal.progress * 100)}% dari target sudah terkumpul.
+        </p>
+      </div>
+    </div>
+  `;
+}
+
+function ConditionDetails({ selectedKey, summary, visible, onOpenBudget }) {
+  if (selectedKey === "cashFlow") {
+    return html`<${CashFlowDetails} summary=${summary} visible=${visible} />`;
+  }
+  if (selectedKey === "runway") {
+    return html`<${RunwayDetails} summary=${summary} visible=${visible} />`;
+  }
+  return html`
+    <${GoalDetails}
+      summary=${summary}
+      visible=${visible}
+      onOpenBudget=${onOpenBudget}
+    />
+  `;
+}
+
+export function ControlPillars({ summary, visible, onOpenBudget }) {
+  const [selectedKey, setSelectedKey] = useState(null);
+  const cashFlow = getCashFlowPresentation(summary.cashFlow);
+  const runway = getRunwayPresentation(summary.runway);
+  const goal = getGoalPresentation(summary.goal);
+  const sheetTitles = {
+    cashFlow: "Arus kas bulan ini",
+    runway: "Dana cadangan",
+    goal: "Target keuangan",
   };
 
   return html`
     <section className=${`${CONTROL_PANEL} overflow-hidden`}>
       <div className="border-b border-slate-200/90 px-4 py-3 dark:border-slate-800">
         <h2 className="text-xs font-black text-slate-950 dark:text-white">
-          Rincian kontrol
+          Kondisi keuangan
         </h2>
       </div>
       <div className="divide-y divide-slate-200/90 dark:divide-slate-800">
-        ${summary.scoring.pillars.map((pillar) => {
-          const Icon = iconMap[pillar.key] || WalletCards;
-          const open = openKey === pillar.key;
-          return html`
-            <div key=${pillar.key}>
-              <button
-                type="button"
-                aria-expanded=${open}
-                onClick=${() => setOpenKey(open ? "" : pillar.key)}
-                className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left transition hover:bg-slate-100/75 dark:hover:bg-slate-800/50"
-              >
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                  <${Icon} aria-hidden="true" className="h-4 w-4" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <${ControlStatusDot} tone=${getPillarTone(pillar)} />
-                    <strong className="truncate text-xs text-slate-950 dark:text-white">
-                      ${pillar.label}
-                    </strong>
-                  </span>
-                  <span
-                    className=${`mt-0.5 block truncate text-[10px] ${CONTROL_MUTED}`}
-                  >
-                    ${pillar.metric}
-                  </span>
-                </span>
-                <${ChevronDown}
-                  aria-hidden="true"
-                  className=${`h-4 w-4 shrink-0 text-slate-400 transition ${
-                    open ? "rotate-180" : ""
-                  }`}
-                />
-              </button>
-              ${open
-                ? html`
-                    <${PillarDetails}
-                      pillarKey=${pillar.key}
-                      summary=${summary}
-                      visible=${visible}
-                    />
-                  `
-                : null}
-            </div>
-          `;
-        })}
+        <${ConditionRow}
+          icon=${CircleDollarSign}
+          title="Arus kas"
+          presentation=${cashFlow}
+          onClick=${() => setSelectedKey("cashFlow")}
+        />
+        <${ConditionRow}
+          icon=${ShieldCheck}
+          title="Dana cadangan"
+          presentation=${runway}
+          onClick=${() => setSelectedKey("runway")}
+        />
+        <${ConditionRow}
+          icon=${Target}
+          title="Target keuangan"
+          presentation=${goal}
+          onClick=${() => setSelectedKey("goal")}
+        />
       </div>
     </section>
+
+    <${SheetShell}
+      open=${Boolean(selectedKey)}
+      title=${sheetTitles[selectedKey] || "Kondisi keuangan"}
+      helper="Lihat angka utama dan cara perhitungannya."
+      onClose=${() => setSelectedKey(null)}
+      labelledBy="control-condition-title"
+    >
+      <${ConditionDetails}
+        selectedKey=${selectedKey}
+        summary=${summary}
+        visible=${visible}
+        onOpenBudget=${onOpenBudget}
+      />
+    </${SheetShell}>
   `;
 }

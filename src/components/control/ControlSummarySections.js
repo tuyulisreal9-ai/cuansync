@@ -2,6 +2,7 @@ import React from "https://esm.sh/react@18.3.1";
 import htm from "https://esm.sh/htm@3.1.1";
 import {
   AlertTriangle,
+  ChevronRight,
   Gauge,
   Landmark,
 } from "https://esm.sh/lucide-react@0.468.0?deps=react@18.3.1";
@@ -14,17 +15,12 @@ import {
 
 const html = htm.bind(React.createElement);
 
-export function SafeToSpendCard({ summary, visible, onOpenBudget }) {
-  const { safeToSpend, budget, scoring, baseCurrency } = summary;
-  const scoreLabel =
-    scoring.score == null
-      ? `Data ${scoring.completeness}%`
-      : `${scoring.score}/100`;
+export function SafeToSpendCard({ summary, visible }) {
+  const { safeToSpend, baseCurrency } = summary;
 
   return html`
     <section className="overflow-hidden rounded-xl border border-emerald-400/25 bg-[linear-gradient(135deg,rgba(16,185,129,0.13),rgba(15,23,42,0.02))] p-4 dark:bg-[linear-gradient(135deg,rgba(16,185,129,0.14),rgba(15,23,42,0.72))]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      <div className="min-w-0">
           <p className="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-300">
             Sisa aman bulan ini
           </p>
@@ -39,10 +35,6 @@ export function SafeToSpendCard({ summary, visible, onOpenBudget }) {
                 `
               : "Belum dapat dihitung"}
           </p>
-        </div>
-        <span className="shrink-0 rounded-md border border-slate-300/80 bg-white/70 px-2 py-1 text-[10px] font-extrabold text-slate-700 dark:border-slate-700 dark:bg-slate-950/55 dark:text-slate-300">
-          ${scoreLabel}
-        </span>
       </div>
 
       <div className="mt-3 flex items-start gap-2 border-t border-emerald-400/15 pt-3">
@@ -57,18 +49,6 @@ export function SafeToSpendCard({ summary, visible, onOpenBudget }) {
           ${safeToSpend.status}. ${safeToSpend.obligationsNote}
         </p>
       </div>
-
-      ${!budget.available
-        ? html`
-            <button
-              type="button"
-              onClick=${() => onOpenBudget(null)}
-              className="mt-3 min-h-10 w-full rounded-lg bg-emerald-500 px-4 text-xs font-black text-white transition hover:bg-emerald-400"
-            >
-              Atur anggaran
-            </button>
-          `
-        : null}
     </section>
   `;
 }
@@ -169,9 +149,29 @@ export function BudgetOverview({ summary, visible, onOpenBudget }) {
   `;
 }
 
-export function ConcernList({ summary, visible, onOpenBudget }) {
-  const concerns = summary.budget.attentionCategories;
-  if (!concerns.length) return null;
+export function ConcernList({
+  summary,
+  visible,
+  onOpenBudget,
+  onNavigate,
+}) {
+  const concerns = summary.budget.attentionCategories.slice(0, 2);
+  const recommendation = summary.recommendation;
+  const generalPriority =
+    !concerns.length &&
+    ["negative_cash_flow", "low_runway"].includes(recommendation.code)
+      ? recommendation
+      : null;
+
+  if (!concerns.length && !generalPriority) return null;
+
+  function openGeneralPriority() {
+    if (generalPriority.target === "budget") {
+      onOpenBudget(generalPriority.categoryKey);
+      return;
+    }
+    onNavigate(generalPriority.target);
+  }
 
   return html`
     <section className=${CONTROL_PANEL}>
@@ -181,7 +181,7 @@ export function ConcernList({ summary, visible, onOpenBudget }) {
           className="h-4 w-4 text-amber-500"
         />
         <h2 className="text-xs font-black text-slate-950 dark:text-white">
-          Perlu diperhatikan
+          Prioritas bulan ini
         </h2>
       </div>
       <div className="mt-2 divide-y divide-slate-200/90 border-t border-slate-200/90 dark:divide-slate-800 dark:border-slate-800">
@@ -193,7 +193,7 @@ export function ConcernList({ summary, visible, onOpenBudget }) {
               onClick=${() => onOpenBudget(category.categoryKey)}
               className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition hover:bg-slate-100/80 dark:hover:bg-slate-800/55"
             >
-              <span className="min-w-0">
+              <span className="min-w-0 flex-1">
                 <span className="block truncate text-xs font-black text-slate-950 dark:text-white">
                   ${category.categoryLabel}
                 </span>
@@ -216,46 +216,37 @@ export function ConcernList({ summary, visible, onOpenBudget }) {
                   ${Math.round(category.usage * 100)}%
                 </span>
               </span>
+              <${ChevronRight}
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 text-slate-400"
+              />
             </button>
           `,
         )}
+        ${generalPriority
+          ? html`
+              <button
+                type="button"
+                onClick=${openGeneralPriority}
+                className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-100/80 dark:hover:bg-slate-800/55"
+              >
+                <span className="min-w-0 flex-1">
+                  <strong className="block text-xs text-slate-950 dark:text-white">
+                    ${generalPriority.title}
+                  </strong>
+                  <span className=${`mt-1 block text-[10px] leading-4 ${CONTROL_MUTED}`}>
+                    ${generalPriority.body}
+                  </span>
+                </span>
+                <${ChevronRight}
+                  aria-hidden="true"
+                  className="h-4 w-4 shrink-0 text-slate-400"
+                />
+              </button>
+            `
+          : null}
       </div>
     </section>
-  `;
-}
-
-export function Recommendation({ summary, onNavigate, onOpenBudget }) {
-  const recommendation = summary.recommendation;
-
-  function handleClick() {
-    if (recommendation.target === "budget") {
-      onOpenBudget(recommendation.categoryKey);
-      return;
-    }
-    onNavigate(recommendation.target);
-  }
-
-  return html`
-    <button
-      type="button"
-      onClick=${handleClick}
-      className="flex w-full items-center justify-between gap-3 rounded-xl border border-emerald-400/25 bg-emerald-500/10 p-3.5 text-left transition hover:bg-emerald-500/15"
-    >
-      <span className="min-w-0">
-        <span className="text-[9px] font-black uppercase tracking-[0.12em] text-emerald-700 dark:text-emerald-300">
-          Langkah utama
-        </span>
-        <strong className="mt-1 block text-xs text-slate-950 dark:text-white">
-          ${recommendation.title}
-        </strong>
-        <span className=${`mt-0.5 block text-[10px] leading-4 ${CONTROL_MUTED}`}>
-          ${recommendation.body}
-        </span>
-      </span>
-      <span className="shrink-0 text-lg text-emerald-600 dark:text-emerald-300">
-        ›
-      </span>
-    </button>
   `;
 }
 

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   buildBudgetControlSummary,
   formatControlMoney,
@@ -244,6 +245,40 @@ test("alokasi target mengurangi dana likuid bebas", () => {
   assert.equal(summary.liquidity.eligibleLiquidFunds, 10_000_000);
   assert.equal(summary.liquidity.reservedTargetFunds, 4_000_000);
   assert.equal(summary.liquidity.freeLiquidFunds, 6_000_000);
+});
+
+test("target terdekat masuk ke kondisi keuangan", () => {
+  const summary = build({
+    metrics: metrics({
+      nextGoal: {
+        name: "Dana Darurat",
+        currency: "IDR",
+        targetAmount: 30_000_000,
+        savedAmount: 5_000_000,
+      },
+    }),
+  });
+
+  assert.equal(summary.goal.available, true);
+  assert.equal(summary.goal.name, "Dana Darurat");
+  assert.equal(summary.goal.savedAmount, 5_000_000);
+  assert.equal(summary.goal.remainingAmount, 25_000_000);
+  assert.equal(Math.round(summary.goal.progress * 100), 17);
+});
+
+test("kondisi keuangan tidak menampilkan bahasa teknis internal", async () => {
+  const source = await readFile(
+    new URL(
+      "../src/components/control/ControlPillars.js",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+
+  assert.match(source, /Kondisi keuangan/);
+  assert.doesNotMatch(source, /Remittance/i);
+  assert.doesNotMatch(source, /terverifikasi/i);
+  assert.doesNotMatch(source, /database/i);
 });
 
 test("investasi dan akun yang tidak dapat dialokasikan tidak dianggap dana bebas", () => {
