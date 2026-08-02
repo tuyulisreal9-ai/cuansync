@@ -173,6 +173,7 @@ export function TransactionForm({
   const [rateMode, setRateMode] = useState("global");
   const [rateResetMessage, setRateResetMessage] = useState("");
   const [exchangeAutoTarget, setExchangeAutoTarget] = useState("to_amount");
+  const exchangeAutoTargetRef = useRef("to_amount");
   const previousExchangeDirectionRef = useRef("");
   const [incomeCurrency, setIncomeCurrency] = useState(() =>
     normalizeCurrencyCode(baseCurrencySetting),
@@ -292,7 +293,7 @@ export function TransactionForm({
   const settledMovementForm = isMovement
     ? settleExchangeCalculation(form, "exchange_rate", {
         rateField: "exchange_rate",
-        preferredTarget: exchangeAutoTarget,
+        preferredTarget: exchangeAutoTargetRef.current,
         rateBaseCurrency,
         rateQuoteCurrency,
       })
@@ -548,7 +549,7 @@ export function TransactionForm({
       setForm((current) => ({
         ...current,
         exchange_rate: "",
-        to_amount: "",
+        [exchangeAutoTargetRef.current]: "",
         rate_base_currency: fallbackRateBaseCurrency,
         rate_quote_currency: fallbackRateQuoteCurrency,
         rate_type: "realtime",
@@ -566,7 +567,7 @@ export function TransactionForm({
       };
       return settleExchangeCalculation(next, "exchange_rate", {
         rateField: "exchange_rate",
-        preferredTarget: "to_amount",
+        preferredTarget: exchangeAutoTargetRef.current,
         rateBaseCurrency: globalPairRate.rateBaseCurrency,
         rateQuoteCurrency: globalPairRate.rateQuoteCurrency,
       });
@@ -577,14 +578,21 @@ export function TransactionForm({
     globalPairRate.exchangeRate,
     globalPairRate.rateBaseCurrency,
     globalPairRate.rateQuoteCurrency,
+    exchangeAutoTarget,
     isMovement,
     isTransfer,
     rateMode,
   ]);
 
   function updateField(field, value) {
-    if (field === "from_amount") setExchangeAutoTarget("to_amount");
-    if (field === "to_amount") setExchangeAutoTarget("from_amount");
+    if (field === "from_amount") {
+      exchangeAutoTargetRef.current = "to_amount";
+      setExchangeAutoTarget("to_amount");
+    }
+    if (field === "to_amount") {
+      exchangeAutoTargetRef.current = "from_amount";
+      setExchangeAutoTarget("from_amount");
+    }
     setForm((current) => {
       const next = { ...current, [field]: value };
       if (isTransfer && field === "from_amount") {
@@ -600,13 +608,17 @@ export function TransactionForm({
           field === "exchange_rate" &&
           !validateExchangeRate(value).valid
         ) {
-          next.to_amount = "";
+          next[exchangeAutoTargetRef.current] = "";
           return next;
         }
         return settleExchangeCalculation(next, field, {
           rateField: "exchange_rate",
           preferredTarget:
-            field === "to_amount" ? "from_amount" : "to_amount",
+            field === "to_amount"
+              ? "from_amount"
+              : field === "from_amount"
+                ? "to_amount"
+                : exchangeAutoTargetRef.current,
           rateBaseCurrency: next.rate_base_currency || rateBaseCurrency,
           rateQuoteCurrency: next.rate_quote_currency || rateQuoteCurrency,
         });
@@ -620,7 +632,7 @@ export function TransactionForm({
     setForm((current) =>
       settleExchangeCalculation(current, field, {
         rateField: "exchange_rate",
-        preferredTarget: exchangeAutoTarget,
+        preferredTarget: exchangeAutoTargetRef.current,
         rateBaseCurrency: current.rate_base_currency || rateBaseCurrency,
         rateQuoteCurrency: current.rate_quote_currency || rateQuoteCurrency,
       }),
@@ -703,7 +715,7 @@ export function TransactionForm({
       };
       return settleExchangeCalculation(next, "exchange_rate", {
         rateField: "exchange_rate",
-        preferredTarget: "to_amount",
+        preferredTarget: exchangeAutoTargetRef.current,
         rateBaseCurrency: globalPairRate.rateBaseCurrency,
         rateQuoteCurrency: globalPairRate.rateQuoteCurrency,
       });
@@ -715,7 +727,7 @@ export function TransactionForm({
     const finalForm = isMovement && !isTransfer
       ? settleExchangeCalculation(form, "exchange_rate", {
           rateField: "exchange_rate",
-          preferredTarget: exchangeAutoTarget,
+          preferredTarget: exchangeAutoTargetRef.current,
           rateBaseCurrency,
           rateQuoteCurrency,
         })
@@ -1226,7 +1238,7 @@ export function TransactionForm({
                       inputMode="decimal"
                       autoComplete="off"
                       required
-                      value=${form.from_amount}
+                      value=${settledMovementForm.from_amount}
                       onChange=${(event) =>
                         updateField("from_amount", formatNumericInput(event.target.value))}
                       onBlur=${() => settleExchangeField("from_amount")}
@@ -1244,8 +1256,13 @@ export function TransactionForm({
                             inputMode="decimal"
                             autoComplete="off"
                             required
-                            readOnly
                             value=${settledMovementForm.to_amount}
+                            onChange=${(event) =>
+                              updateField(
+                                "to_amount",
+                                formatNumericInput(event.target.value),
+                              )}
+                            onBlur=${() => settleExchangeField("to_amount")}
                             placeholder="0"
                             className=${INPUT_CLASS}
                           />

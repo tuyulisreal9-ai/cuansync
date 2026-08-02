@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   addExchangeDecimals,
+  calculateExchangeSourceAmount,
   calculateExchangeTargetAmount,
   deriveStoredExchangeRateOrientation,
   getDirectionalExchangeRate,
   normalizeExchangeRateOrientation,
   validateExchangeRate,
 } from "../src/domain/exchangeRate.js";
+import { settleExchangeCalculation } from "../src/domain/exchange.js";
 import { buildAssetAccountBalancePlan } from "../src/domain/assets.js";
 import { getTransactionAccountMovements } from "../src/domain/transactions.js";
 
@@ -42,6 +44,80 @@ test("IDR ke THB membagi nominal dengan kurs terorientasi", () => {
     }),
     "10000",
   );
+});
+
+test("nominal THB yang diterima menghitung mundur jumlah IDR", () => {
+  assert.equal(
+    calculateExchangeSourceAmount({
+      sourceCurrency: "IDR",
+      targetCurrency: "THB",
+      targetAmount: "4000",
+      rateBaseCurrency: "THB",
+      rateQuoteCurrency: "IDR",
+      exchangeRate: "543",
+    }),
+    "2172000",
+  );
+});
+
+test("nominal USD yang diterima menghitung mundur jumlah IDR", () => {
+  assert.equal(
+    calculateExchangeSourceAmount({
+      sourceCurrency: "IDR",
+      targetCurrency: "USD",
+      targetAmount: "100",
+      rateBaseCurrency: "USD",
+      rateQuoteCurrency: "IDR",
+      exchangeRate: "16000",
+    }),
+    "1600000",
+  );
+});
+
+test("kolom penerimaan menjadi acuan saat kurs berubah", () => {
+  const result = settleExchangeCalculation(
+    {
+      from_currency: "IDR",
+      to_currency: "THB",
+      from_amount: "2,000,000",
+      to_amount: "4,000",
+      exchange_rate: "543",
+      rate_base_currency: "THB",
+      rate_quote_currency: "IDR",
+    },
+    "exchange_rate",
+    {
+      preferredTarget: "from_amount",
+      rateBaseCurrency: "THB",
+      rateQuoteCurrency: "IDR",
+    },
+  );
+
+  assert.equal(result.from_amount, "2,172,000");
+  assert.equal(result.to_amount, "4,000");
+});
+
+test("mengosongkan penerimaan ikut mengosongkan nominal asal otomatis", () => {
+  const result = settleExchangeCalculation(
+    {
+      from_currency: "IDR",
+      to_currency: "THB",
+      from_amount: "2,172,000",
+      to_amount: "",
+      exchange_rate: "543",
+      rate_base_currency: "THB",
+      rate_quote_currency: "IDR",
+    },
+    "exchange_rate",
+    {
+      preferredTarget: "from_amount",
+      rateBaseCurrency: "THB",
+      rateQuoteCurrency: "IDR",
+    },
+  );
+
+  assert.equal(result.from_amount, "");
+  assert.equal(result.to_amount, "");
 });
 
 test("THB ke IDR mengalikan nominal dengan kurs terorientasi", () => {
