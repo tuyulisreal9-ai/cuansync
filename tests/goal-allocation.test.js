@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {
   buildAssetAccountBalancePlan,
   buildAssetAccountInsights,
@@ -14,6 +15,22 @@ const USER_ID = "user-test";
 const GOAL_ID = "goal-darurat";
 const BCA_ID = "bca-idr";
 const MANDIRI_ID = "mandiri-idr";
+
+test("migrasi alokasi target aman dan atomik", async () => {
+  const migration = await readFile(
+    new URL("../supabase/safe_goal_allocation_migration.sql", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(migration, /\bbegin\s*;/i);
+  assert.match(migration, /\bcommit\s*;/i);
+  assert.match(migration, /add column if not exists currency text/i);
+  assert.match(migration, /create table if not exists public\.goal_allocations/i);
+  assert.match(migration, /enable row level security/i);
+  assert.equal(/\btruncate\b/i.test(migration), false);
+  assert.equal(/delete\s+from\s+public\.goals/i.test(migration), false);
+  assert.equal(/drop\s+table/i.test(migration), false);
+});
 
 function account(id, balance, currency = "IDR", name = id) {
   return {
