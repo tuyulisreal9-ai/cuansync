@@ -1,19 +1,10 @@
-import { normalizeCurrencyCode } from "../lib/currency.js";
+import {
+  getCurrencyMeta,
+  normalizeCurrencyCode,
+} from "../lib/currency.js";
 
 export const EXCHANGE_RATE_SCALE_DIGITS = 12;
 const EXCHANGE_RATE_SCALE = 10n ** BigInt(EXCHANGE_RATE_SCALE_DIGITS);
-const EXCHANGE_AMOUNT_DIGITS = {
-  IDR: 0,
-  JPY: 0,
-  KRW: 0,
-  THB: 2,
-  USD: 2,
-  AUD: 2,
-  SGD: 2,
-  MYR: 2,
-  EUR: 2,
-  GBP: 2,
-};
 
 function expandExponential(value) {
   const numeric = Number(value);
@@ -99,7 +90,7 @@ export function compareExchangeDecimals(left, right) {
 }
 
 export function getExchangeAmountDigits(currency) {
-  return EXCHANGE_AMOUNT_DIGITS[normalizeCurrencyCode(currency)] ?? 2;
+  return getCurrencyMeta(normalizeCurrencyCode(currency)).fractionDigits ?? 2;
 }
 
 export function roundExchangeDecimal(value, digits = 2) {

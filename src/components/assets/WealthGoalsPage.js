@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "https://esm.sh/react@18.3.1";
 import htm from "https://esm.sh/htm@3.1.1";
+import { CurrencyCombobox } from "../shared/CurrencyCombobox.js";
 import { SheetShell } from "../shared/SheetShell.js";
 import { WalletAccountsPage } from "./WalletAccountsPage.js";
 import {
@@ -396,22 +397,16 @@ function AssetAccountForm({
             </select>
           </label>
 
-          <label className="block">
+          <div className="block">
             <span className="mb-2 block text-sm font-medium">Mata uang</span>
-            <select
+            <${CurrencyCombobox}
               value=${form.currency}
-              onChange=${(event) => updateField("currency", event.target.value)}
-              className=${INPUT_CLASS}
-            >
-              ${currencyOptions.map(
-                (option) => html`
-                  <option key=${option.value} value=${option.value}>
-                    ${option.label}
-                  </option>
-                `,
-              )}
-            </select>
-          </label>
+              onChange=${(value) => updateField("currency", value)}
+              currencies=${currencyOptions.map((option) => option.value)}
+              ariaLabel="Mata uang dompet"
+              buttonClassName=${INPUT_CLASS}
+            />
+          </div>
         </div>
 
         <label className="block">

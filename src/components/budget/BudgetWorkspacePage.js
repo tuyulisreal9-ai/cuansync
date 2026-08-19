@@ -23,6 +23,7 @@ import {
   normalizeCurrencyList,
   normalizeNumericInput,
 } from "../../lib/currency.js";
+import { CurrencyCombobox } from "../shared/CurrencyCombobox.js";
 import { SheetShell } from "../shared/SheetShell.js";
 import { TargetPlanningSection } from "./TargetPlanningSection.js";
 
@@ -481,7 +482,7 @@ function BudgetSection({
                 <span className="cs-entry-label">
                   Batas pengeluaran bulanan
                 </span>
-                <span className="grid grid-cols-[minmax(0,1fr)_5.5rem] overflow-hidden rounded-lg border border-slate-300 bg-white dark:border-slate-700 dark:bg-slate-950">
+                <span className="grid grid-cols-[minmax(0,1fr)_minmax(9rem,0.65fr)] gap-2">
                   <input
                     required
                     inputMode="decimal"
@@ -489,20 +490,15 @@ function BudgetSection({
                     onChange=${(event) =>
                       setInputAmount(formatNumericInput(event.target.value))}
                     placeholder="0"
-                    className="min-h-11 min-w-0 border-0 bg-transparent px-3 py-2.5 text-sm font-bold text-slate-950 outline-none dark:text-white"
+                    className=${INPUT_CLASS}
                   />
-                  <select
-                    aria-label="Mata uang input anggaran"
+                  <${CurrencyCombobox}
                     value=${inputCurrency}
-                    onChange=${(event) => selectInputCurrency(event.target.value)}
-                    className="min-h-11 border-0 border-l border-slate-200 bg-slate-100 px-2 text-xs font-black text-slate-800 outline-none dark:border-slate-800 dark:bg-slate-900 dark:text-white"
-                  >
-                    ${currencyOptions.map(
-                      (code) => html`
-                        <option key=${code} value=${code}>${code}</option>
-                      `,
-                    )}
-                  </select>
+                    onChange=${selectInputCurrency}
+                    currencies=${currencyOptions}
+                    ariaLabel="Mata uang input anggaran"
+                    buttonClassName=${INPUT_CLASS}
+                  />
                 </span>
               </label>
 

@@ -50,6 +50,7 @@ import {
   normalizeNumericInput,
 } from "../../lib/currency.js";
 import { toInputDateTime } from "../../lib/dates.js";
+import { CurrencyCombobox } from "../shared/CurrencyCombobox.js";
 
 const html = htm.bind(React.createElement);
 const INPUT_CLASS =
@@ -986,23 +987,18 @@ export function TransactionForm({
                     : html`
                         <div>
                           <span className="cs-entry-label">Mata uang</span>
-                          <div className="cs-entry-segment grid grid-cols-3 gap-1 rounded-lg p-1">
-                            ${currencyOptions.map(
-                              (option) => html`
-                                <${SegmentButton}
-                                  key=${option.value}
-                                  active=${option.value === selectedCurrencyCode}
-                                  onClick=${() =>
-                                    isIncome
-                                      ? setIncomeCurrency(option.value)
-                                      : setExpenseCurrency(option.value)}
-                                  tone=${isExpense ? "rose" : "emerald"}
-                                >
-                                  ${option.label}
-                                </${SegmentButton}>
-                              `,
-                            )}
-                          </div>
+                          <${CurrencyCombobox}
+                            value=${selectedCurrencyCode}
+                            onChange=${(value) =>
+                              isIncome
+                                ? setIncomeCurrency(value)
+                                : setExpenseCurrency(value)}
+                            currencies=${currencyOptions.map((option) => option.value)}
+                            ariaLabel=${isIncome
+                              ? "Mata uang pemasukan"
+                              : "Mata uang pengeluaran"}
+                            buttonClassName=${INPUT_CLASS}
+                          />
                         </div>
                       `}
 
