@@ -1,5 +1,5 @@
-import React from "https://esm.sh/react@18.3.1";
-import htm from "https://esm.sh/htm@3.1.1";
+import React from "react";
+import htm from "htm";
 import { getAssetAccountDisplayName } from "../../domain/assets.js";
 import { SheetShell } from "../shared/SheetShell.js";
 import { TransactionFilter } from "./HistoryListParts.js";

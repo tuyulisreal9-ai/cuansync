@@ -1,9 +1,9 @@
-import React, { useMemo, useState } from "https://esm.sh/react@18.3.1";
-import htm from "https://esm.sh/htm@3.1.1";
+import React, { useMemo, useState } from "react";
+import htm from "htm";
 import {
   MoreHorizontal,
   Target,
-} from "https://esm.sh/lucide-react@0.468.0?deps=react@18.3.1";
+} from "lucide-react";
 import {
   GOAL_TYPE_COLLECT_BY_DATE,
   GOAL_TYPE_HOLD_BALANCE,

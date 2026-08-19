@@ -1,5 +1,5 @@
-import React from "https://esm.sh/react@18.3.1";
-import htm from "https://esm.sh/htm@3.1.1";
+import React from "react";
+import htm from "htm";
 import { formatControlMoney } from "../../domain/control.js";
 
 const html = htm.bind(React.createElement);

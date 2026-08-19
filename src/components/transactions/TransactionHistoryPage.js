@@ -1,11 +1,11 @@
-import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.3.1";
-import htm from "https://esm.sh/htm@3.1.1";
+import React, { useEffect, useMemo, useState } from "react";
+import htm from "htm";
 import {
   Download,
   Search,
   SlidersHorizontal,
   X,
-} from "https://esm.sh/lucide-react@0.468.0?deps=react@18.3.1";
+} from "lucide-react";
 import { getLatestRateForCurrencyUntil } from "../../domain/exchange.js";
 import { transactionBelongsToAccount } from "../../domain/transactions.js";
 import {
@@ -439,6 +439,7 @@ export function TransactionHistoryPage({
         loading=${loading}
         activeCurrencies=${activeCurrencies}
         baseCurrency=${baseCurrency}
+        assetAccounts=${assetAccounts}
       />
     </div>
   `;

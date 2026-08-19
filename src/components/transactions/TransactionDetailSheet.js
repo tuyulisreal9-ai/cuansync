@@ -1,10 +1,14 @@
-import React, { useEffect, useState } from "https://esm.sh/react@18.3.1";
-import htm from "https://esm.sh/htm@3.1.1";
+import React, { useEffect, useState } from "react";
+import htm from "htm";
 import {
   CATEGORY_OPTIONS,
   DEFAULT_CATEGORY,
   normalizeBudgetCategory,
 } from "../../domain/budgets.js";
+import {
+  getAssetAccountDisplayName,
+  getSelectableAssetAccounts,
+} from "../../domain/assets.js";
 import {
   deriveStoredExchangeRateOrientation,
   settleExchangeCalculation,
@@ -24,7 +28,6 @@ import {
   formatNumericInput,
   formatRate,
   normalizeCurrencyCode,
-  normalizeCurrencyList,
   normalizeNumericInput,
 } from "../../lib/currency.js";
 import {
@@ -44,12 +47,6 @@ import {
 const html = htm.bind(React.createElement);
 const INPUT_CLASS =
   "w-full min-h-12 rounded-2xl px-4 py-3.5 text-sm transition cuan-input";
-
-function mergeCurrencyLists(baseCurrency, ...lists) {
-  return normalizeCurrencyList(lists.flat().filter(Boolean), {
-    baseCurrency,
-  });
-}
 
 function getTransactionIdrValuationWithRate(transaction, fallbackRate = 0) {
   const valuation = resolveTransactionBaseValue(transaction, fallbackRate);
@@ -109,6 +106,8 @@ function getTransactionEditForm(transaction) {
     rate_base_currency: rateOrientation?.rateBaseCurrency || "",
     rate_quote_currency: rateOrientation?.rateQuoteCurrency || "",
     rate_type: transaction.rate_type || "legacy",
+    source_account_id: transaction.source_account_id || "",
+    destination_account_id: transaction.destination_account_id || "",
   };
 }
 function TransactionEditForm({
@@ -118,19 +117,19 @@ function TransactionEditForm({
   onSave,
   onCancel,
   loading = false,
-  activeCurrencies: availableCurrencies = [],
-  baseCurrency = DEFAULT_BASE_CURRENCY,
+  assetAccounts = [],
 }) {
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [exchangeAutoTarget, setExchangeAutoTarget] = useState("to_amount");
   const flow = form.type || getTransactionFlow(transaction);
   const isIncome = flow === "income";
   const isExpense = flow === "expense";
   const isExchange = flow === "exchange";
+  const isTransfer =
+    isExchange &&
+    normalizeCurrencyCode(form.from_currency) === normalizeCurrencyCode(form.to_currency);
   const transactionCurrency = normalizeCurrencyCode(
     isExpense ? form.expense_currency : form.currency,
   );
-  const isForeign = transactionCurrency !== baseCurrency;
   const amountValue = Number(normalizeNumericInput(form.amount));
   const settledEditForm = isExchange
     ? settleExchangeCalculation(form, "locked_rate", {
@@ -143,29 +142,62 @@ function TransactionEditForm({
   const fromAmount = Number(normalizeNumericInput(settledEditForm.from_amount));
   const toAmount = Number(normalizeNumericInput(settledEditForm.to_amount));
   const rateValidation = validateExchangeRate(form.locked_rate);
-  const activeCurrencies = mergeCurrencyLists(
-    baseCurrency,
-    availableCurrencies,
-    form.currency,
-    form.expense_currency,
-    form.from_currency,
-    form.to_currency,
+  const originalEntryAccountId = isIncome
+    ? transaction.destination_account_id
+    : transaction.source_account_id;
+  const allEntryAccountOptions = getSelectableAssetAccounts(
+    assetAccounts,
+    transactionCurrency,
   );
+  const entryAccountOptions = originalEntryAccountId &&
+    allEntryAccountOptions.some((account) => account.id === originalEntryAccountId)
+    ? allEntryAccountOptions.filter((account) => account.id === originalEntryAccountId)
+    : allEntryAccountOptions;
+  const allSourceAccountOptions = getSelectableAssetAccounts(
+    assetAccounts,
+    form.from_currency,
+  );
+  const sourceAccountOptions = transaction.source_account_id &&
+    allSourceAccountOptions.some(
+      (account) => account.id === transaction.source_account_id,
+    )
+    ? allSourceAccountOptions.filter(
+        (account) => account.id === transaction.source_account_id,
+      )
+    : allSourceAccountOptions;
+  const allDestinationAccountOptions = getSelectableAssetAccounts(
+    assetAccounts,
+    form.to_currency,
+  ).filter((account) => account.id !== form.source_account_id);
+  const destinationAccountOptions = transaction.destination_account_id &&
+    allDestinationAccountOptions.some(
+      (account) => account.id === transaction.destination_account_id,
+    )
+    ? allDestinationAccountOptions.filter(
+        (account) => account.id === transaction.destination_account_id,
+      )
+    : allDestinationAccountOptions;
+  const entryAccountId = isIncome
+    ? form.destination_account_id
+    : form.source_account_id;
+  const accountLinksValid = isExchange
+    ? Boolean(
+        form.source_account_id &&
+          form.destination_account_id &&
+          form.source_account_id !== form.destination_account_id,
+      )
+    : Boolean(entryAccountId);
   const descriptionValid = String(form.description || "").trim().length > 0;
   const submitDisabled =
     loading ||
     !descriptionValid ||
+    !accountLinksValid ||
     ((isIncome || isExpense) && amountValue <= 0) ||
     (isExchange &&
       (fromAmount <= 0 ||
         toAmount <= 0 ||
         !rateValidation.valid ||
-        form.from_currency === form.to_currency));
-  const typeOptions = [
-    { value: "income", label: "Uang Masuk" },
-    { value: "expense", label: "Uang Keluar" },
-    { value: "exchange", label: "Exchange" },
-  ];
+        (isTransfer && Number(normalizeNumericInput(form.locked_rate)) !== 1)));
   const formSubtitle = isExchange
     ? "Exchange"
     : isIncome
@@ -176,25 +208,8 @@ function TransactionEditForm({
     if (field === "from_amount") setExchangeAutoTarget("to_amount");
     if (field === "to_amount") setExchangeAutoTarget("from_amount");
     const next = { ...form, [field]: value };
-    if (
-      isExchange &&
-      (field === "from_currency" || field === "to_currency")
-    ) {
-      const nextFrom =
-        field === "from_currency"
-          ? normalizeCurrencyCode(value)
-          : normalizeCurrencyCode(form.from_currency);
-      const nextTo =
-        field === "to_currency"
-          ? normalizeCurrencyCode(value)
-          : normalizeCurrencyCode(form.to_currency);
-      next.rate_base_currency =
-        nextFrom === baseCurrency ? nextTo : nextFrom;
-      next.rate_quote_currency =
-        next.rate_base_currency === nextFrom ? nextTo : nextFrom;
-      next.locked_rate = "";
-      next.to_amount = "";
-      next.rate_type = "custom";
+    if (field === "source_account_id" && value === next.destination_account_id) {
+      next.destination_account_id = "";
     }
     onChange(next);
   }
@@ -257,34 +272,59 @@ function TransactionEditForm({
       ${isExchange
         ? html`
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block space-y-2">
+              <div className="rounded-2xl border border-slate-200/70 bg-white/45 p-3 dark:border-white/10 dark:bg-slate-900/30">
                 <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
                   Dari mata uang
                 </span>
+                <strong className="mt-1 block text-sm text-slate-950 dark:text-white">
+                  ${form.from_currency}
+                </strong>
+              </div>
+              <div className="rounded-2xl border border-slate-200/70 bg-white/45 p-3 dark:border-white/10 dark:bg-slate-900/30">
+                <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                  Ke mata uang
+                </span>
+                <strong className="mt-1 block text-sm text-slate-950 dark:text-white">
+                  ${form.to_currency}
+                </strong>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block space-y-2">
+                <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                  Dompet asal
+                </span>
                 <select
-                  value=${form.from_currency}
-                  onChange=${(event) => updateField("from_currency", event.target.value)}
+                  value=${form.source_account_id}
+                  onChange=${(event) => updateField("source_account_id", event.target.value)}
                   className=${INPUT_CLASS}
                 >
-                  ${activeCurrencies.map(
-                    (currency) => html`
-                      <option key=${currency} value=${currency}>${currency}</option>
+                  <option value="">Pilih dompet</option>
+                  ${sourceAccountOptions.map(
+                    (account) => html`
+                      <option key=${account.id} value=${account.id}>
+                        ${getAssetAccountDisplayName(account)}
+                      </option>
                     `,
                   )}
                 </select>
               </label>
               <label className="block space-y-2">
                 <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                  Ke mata uang
+                  Dompet tujuan
                 </span>
                 <select
-                  value=${form.to_currency}
-                  onChange=${(event) => updateField("to_currency", event.target.value)}
+                  value=${form.destination_account_id}
+                  onChange=${(event) => updateField("destination_account_id", event.target.value)}
                   className=${INPUT_CLASS}
                 >
-                  ${activeCurrencies.map(
-                    (currency) => html`
-                      <option key=${currency} value=${currency}>${currency}</option>
+                  <option value="">Pilih dompet</option>
+                  ${destinationAccountOptions.map(
+                    (account) => html`
+                      <option key=${account.id} value=${account.id}>
+                        ${getAssetAccountDisplayName(account)}
+                      </option>
                     `,
                   )}
                 </select>
@@ -365,6 +405,37 @@ function TransactionEditForm({
         ? html`
             <label className="block space-y-2">
               <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                ${isIncome ? "Masuk ke dompet" : "Keluar dari dompet"}
+              </span>
+              <select
+                value=${entryAccountId}
+                onChange=${(event) =>
+                  updateField(
+                    isIncome ? "destination_account_id" : "source_account_id",
+                    event.target.value,
+                  )}
+                className=${INPUT_CLASS}
+              >
+                <option value="">Pilih dompet ${transactionCurrency}</option>
+                ${entryAccountOptions.map(
+                  (account) => html`
+                    <option key=${account.id} value=${account.id}>
+                      ${getAssetAccountDisplayName(account)}
+                    </option>
+                  `,
+                )}
+              </select>
+              ${!entryAccountOptions.length
+                ? html`
+                    <span className="block text-xs font-bold text-amber-600 dark:text-amber-300">
+                      Belum ada dompet ${transactionCurrency}. Tambahkan dompet sebelum memperbarui transaksi ini.
+                    </span>
+                  `
+                : null}
+            </label>
+
+            <label className="block space-y-2">
+              <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
                 Nominal ${transactionCurrency}
               </span>
               <input
@@ -419,93 +490,6 @@ function TransactionEditForm({
         />
       </label>
 
-      <div className="rounded-[22px] border border-slate-200/70 bg-white/45 p-2 dark:border-white/10 dark:bg-slate-900/30">
-        <button
-          type="button"
-          onClick=${() => setShowAdvanced((current) => !current)}
-          className="flex min-h-11 w-full items-center justify-between rounded-2xl px-3 text-sm font-black text-slate-700 transition hover:bg-white/70 dark:text-slate-200 dark:hover:bg-white/10"
-        >
-          <span>Opsi lanjutan</span>
-          <span>${showAdvanced ? "Tutup" : "Ubah tipe / mata uang"}</span>
-        </button>
-
-        ${showAdvanced
-          ? html`
-              <div className="mt-2 grid gap-3 border-t border-slate-200/70 px-1 pt-3 dark:border-white/10">
-                <div>
-                  <span className="mb-2 block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                    Tipe
-                  </span>
-                  <div className="cuan-segment grid grid-cols-3 gap-1 rounded-2xl p-1">
-                    ${typeOptions.map((option) => {
-                      const active = flow === option.value;
-                      return html`
-                        <button
-                          key=${option.value}
-                          type="button"
-                          onClick=${() =>
-                            onChange({
-                              ...form,
-                              type: option.value,
-                              category:
-                                option.value === "expense"
-                                  ? form.category || DEFAULT_CATEGORY
-                                  : form.category,
-                              expense_currency:
-                                option.value === "expense"
-                                  ? form.expense_currency || baseCurrency
-                                  : form.expense_currency,
-                              locked_rate:
-                                option.value === "expense" && flow !== "expense"
-                                  ? ""
-                                  : form.locked_rate,
-                            })}
-                          className=${`min-h-11 rounded-2xl px-2 py-2 text-xs font-black transition ${active ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.20)] dark:bg-emerald-500" : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"}`}
-                        >
-                          ${option.label}
-                        </button>
-                      `;
-                    })}
-                  </div>
-                </div>
-
-                ${isExpense
-                  ? html`
-                      <div>
-                        <span className="mb-2 block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                          Mata uang
-                        </span>
-                        <div className="cuan-segment grid grid-cols-2 gap-2 rounded-2xl p-1 sm:grid-cols-5">
-                          ${activeCurrencies.map((currency) => {
-                            const active = normalizeCurrencyCode(form.expense_currency) === currency;
-                            return html`
-                              <button
-                                key=${currency}
-                                type="button"
-                                onClick=${() =>
-                                  onChange({
-                                    ...form,
-                                    expense_currency: currency,
-                                    locked_rate:
-                                      currency === transactionCurrency
-                                        ? form.locked_rate
-                                        : "",
-                                  })}
-                                className=${`min-h-11 rounded-2xl px-3 py-2 text-sm font-black transition ${active ? "bg-brand-600 text-white shadow-[0_14px_34px_rgba(16,185,129,0.20)] dark:bg-emerald-500" : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"}`}
-                              >
-                                ${currency}
-                              </button>
-                            `;
-                          })}
-                        </div>
-                      </div>
-                    `
-                  : null}
-              </div>
-            `
-          : null}
-      </div>
-
       <div className="history-detail-actions sticky bottom-0 z-10 -mx-5 mt-2 grid grid-cols-2 gap-3 border-t border-slate-200/70 bg-white/85 p-5 shadow-[0_-18px_50px_rgba(15,23,42,0.08)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/86 dark:shadow-black/28">
         <button
           type="button"
@@ -548,6 +532,7 @@ export function TransactionDetailSheet({
   loading = false,
   activeCurrencies = [],
   baseCurrency = DEFAULT_BASE_CURRENCY,
+  assetAccounts = [],
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
@@ -594,8 +579,24 @@ export function TransactionDetailSheet({
           currency,
         )
       : "-";
+  const accountById = new Map(
+    assetAccounts.map((account) => [account.id, account]),
+  );
+  const sourceAccount = accountById.get(transaction.source_account_id);
+  const destinationAccount = accountById.get(transaction.destination_account_id);
+  const accountMeta = isExchange
+    ? [
+        ["Dompet asal", sourceAccount?.name || "Dompet tidak tercatat"],
+        ["Dompet tujuan", destinationAccount?.name || "Dompet tidak tercatat"],
+      ]
+    : [[
+        flow === "income" ? "Masuk ke" : "Keluar dari",
+        (flow === "income" ? destinationAccount : sourceAccount)?.name ||
+          "Dompet tidak tercatat",
+      ]];
   const receiptMeta = isExchange
     ? [
+        ...accountMeta,
         ["Dari", transaction.from_currency],
         ["Ke", transaction.to_currency],
         ["Ditukar", formatCurrency(transaction.from_amount, transaction.from_currency)],
@@ -604,6 +605,7 @@ export function TransactionDetailSheet({
         ["Tanggal", formatShortDateTime(transaction.occurred_at)],
       ]
     : [
+        ...accountMeta,
         ["Tanggal", formatShortDateTime(transaction.occurred_at)],
         ["Kategori", categoryLabel],
         ["Mata uang", currencyLabel],
@@ -669,8 +671,7 @@ export function TransactionDetailSheet({
                   setEditForm(getTransactionEditForm(transaction));
                 }}
                 loading=${loading}
-                activeCurrencies=${activeCurrencies}
-                baseCurrency=${baseCurrency}
+                assetAccounts=${assetAccounts}
               />
             `
           : html`

@@ -7,6 +7,10 @@ import {
   normalizeExpenseCategory,
 } from "./categories.js";
 import { deriveStoredExchangeRateOrientation } from "./exchangeRate.js";
+import {
+  isSpendableAssetAccount,
+  normalizeAssetAccounts,
+} from "./assets.js";
 
 const LEGACY_EXCHANGE_KEYWORDS = [
   "beli thb",
@@ -484,6 +488,93 @@ export function transactionBelongsToAccount(transaction, accountId) {
     return transaction.destination_account_id === accountId;
   }
   return transaction.source_account_id === accountId;
+}
+
+function requireTransactionAccount(accountById, accountId, label) {
+  if (!accountId) {
+    throw new Error(`Pilih ${label} terlebih dahulu.`);
+  }
+
+  const account = accountById.get(accountId);
+  if (!account) {
+    throw new Error(`${label[0].toUpperCase()}${label.slice(1)} tidak ditemukan.`);
+  }
+  if (!isSpendableAssetAccount(account)) {
+    throw new Error(
+      `${account.name} bukan dompet transaksi. Pilih akun Bank, Cash, E-wallet, atau Lainnya.`,
+    );
+  }
+  return account;
+}
+
+function assertAccountCurrency(account, currency, label) {
+  const expectedCurrency = normalizeCurrencyCode(currency);
+  const accountCurrency = normalizeCurrencyCode(account.currency);
+  if (accountCurrency !== expectedCurrency) {
+    throw new Error(
+      `${label} ${account.name} memakai ${accountCurrency}, bukan ${expectedCurrency}.`,
+    );
+  }
+}
+
+export function validateTransactionAccountLinks(transaction, accounts = []) {
+  const accountById = new Map(
+    normalizeAssetAccounts(accounts).map((account) => [account.id, account]),
+  );
+  const flow = getTransactionFlow(transaction);
+
+  if (flow === "income") {
+    const destinationAccount = requireTransactionAccount(
+      accountById,
+      transaction.destination_account_id,
+      "dompet tujuan",
+    );
+    assertAccountCurrency(
+      destinationAccount,
+      getTransactionCurrency(transaction),
+      "Dompet tujuan",
+    );
+    return { sourceAccount: null, destinationAccount };
+  }
+
+  if (flow === "expense") {
+    const sourceAccount = requireTransactionAccount(
+      accountById,
+      transaction.source_account_id,
+      "dompet sumber",
+    );
+    assertAccountCurrency(
+      sourceAccount,
+      getTransactionCurrency(transaction),
+      "Dompet sumber",
+    );
+    return { sourceAccount, destinationAccount: null };
+  }
+
+  const sourceAccount = requireTransactionAccount(
+    accountById,
+    transaction.source_account_id,
+    "dompet asal",
+  );
+  const destinationAccount = requireTransactionAccount(
+    accountById,
+    transaction.destination_account_id,
+    "dompet tujuan",
+  );
+  if (sourceAccount.id === destinationAccount.id) {
+    throw new Error("Dompet asal dan tujuan tidak boleh sama.");
+  }
+  assertAccountCurrency(
+    sourceAccount,
+    transaction.from_currency,
+    "Dompet asal",
+  );
+  assertAccountCurrency(
+    destinationAccount,
+    transaction.to_currency,
+    "Dompet tujuan",
+  );
+  return { sourceAccount, destinationAccount };
 }
 
 export function getTransactionAccountActivity(transaction, accountId) {

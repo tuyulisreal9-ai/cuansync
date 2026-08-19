@@ -1,5 +1,5 @@
-import React from "https://esm.sh/react@18.3.1";
-import htm from "https://esm.sh/htm@3.1.1";
+import React from "react";
+import htm from "htm";
 import {
   ArrowDownLeft,
   ArrowRightLeft,
@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   Target,
   WalletCards,
-} from "https://esm.sh/lucide-react@0.468.0?deps=react@18.3.1";
+} from "lucide-react";
 import { formatControlMoney } from "../../domain/control.js";
 import { getTransactionFlow } from "../../domain/transactions.js";
 import {
@@ -24,7 +24,6 @@ import {
 } from "../../lib/currency.js";
 import { formatShortTime } from "../../lib/dates.js";
 import {
-  getTransactionCategoryLabel,
   getTransactionCompactAmount,
   getTransactionDisplayTitle,
   getTransactionTone,
@@ -107,6 +106,7 @@ function AssetHero({
   totalValue,
   baseCurrency,
   visible,
+  canTransfer,
   canExchange,
   onAddTransaction,
   onExchange,
@@ -135,14 +135,18 @@ function AssetHero({
         totalValue=${totalValue}
       />
 
-      <div className=${`cs-home-hero-actions mt-3 grid gap-2 md:hidden ${canExchange ? "is-multi" : "is-single"}`}>
-        ${canExchange
+      <div className=${`cs-home-hero-actions mt-3 grid gap-2 md:hidden ${canTransfer || canExchange ? "is-multi" : "is-single"}`}>
+        ${canTransfer
           ? html`
               <${HeroAction}
                 icon=${ArrowRightLeft}
                 label="Transfer"
                 onClick=${() => onExchange("transfer")}
               />
+            `
+          : null}
+        ${canExchange
+          ? html`
               <${HeroAction}
                 icon=${Repeat2}
                 label="Tukar valas"
@@ -152,7 +156,7 @@ function AssetHero({
           : null}
         <${HeroAction}
           icon=${Plus}
-          label=${canExchange ? "Catat" : "Catat transaksi"}
+          label=${canTransfer || canExchange ? "Catat" : "Catat transaksi"}
           primary=${true}
           onClick=${onAddTransaction}
         />
@@ -345,6 +349,7 @@ function WalletSummary({
   baseCurrency,
   visible,
   onOpen,
+  onAddWallet,
 }) {
   return html`
     <section className="cs-home-wallet-section min-w-0 max-w-full">
@@ -380,11 +385,19 @@ function WalletSummary({
         : html`
             <button
               type="button"
-              onClick=${onOpen}
-              className="cs-home-empty flex min-h-24 w-full items-center justify-center gap-3 rounded-lg p-4 text-sm font-bold text-slate-600 transition hover:border-emerald-400/35 dark:text-slate-300"
+              onClick=${onAddWallet || onOpen}
+              className="cs-home-empty flex min-h-32 w-full flex-col items-center justify-center rounded-lg p-5 text-center transition hover:border-emerald-400/35"
             >
               <${WalletCards} aria-hidden="true" className="h-5 w-5 text-emerald-500" />
-              Tambah dompet pertama
+              <span className="mt-2 text-sm font-black text-slate-900 dark:text-white">
+                Mulai dengan dompet pertamamu
+              </span>
+              <span className="mt-1 max-w-sm text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">
+                Mata uang akan mengikuti dompet yang kamu buat. Setelah itu pemasukan dan pengeluaran selalu tercatat ke saldo yang jelas.
+              </span>
+              <span className="mt-3 rounded-lg bg-brand-600 px-3 py-2 text-xs font-black text-white">
+                Tambah dompet
+              </span>
             </button>
           `}
     </section>
@@ -402,7 +415,7 @@ function getTransactionAccountLabel(transaction, accountMap) {
     flow === "income"
       ? transaction.destination_account_id
       : transaction.source_account_id;
-  return accountMap.get(accountId)?.name || getTransactionCategoryLabel(transaction);
+  return accountMap.get(accountId)?.name || "Dompet tidak tercatat";
 }
 
 function TransactionIcon({ flow }) {
@@ -518,9 +531,11 @@ export function HomeDashboardPage({
   visible = true,
   fallbackRate = 0,
   onNavigate,
+  canTransfer = false,
   canExchange = false,
   onAddTransaction,
   onExchange,
+  onAddWallet,
 }) {
   const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
 
@@ -533,6 +548,7 @@ export function HomeDashboardPage({
         totalValue=${totalValueBase}
         baseCurrency=${normalizedBaseCurrency}
         visible=${visible}
+        canTransfer=${canTransfer}
         canExchange=${canExchange}
         onAddTransaction=${onAddTransaction}
         onExchange=${onExchange}
@@ -551,6 +567,7 @@ export function HomeDashboardPage({
         baseCurrency=${normalizedBaseCurrency}
         visible=${visible}
         onOpen=${() => onNavigate("investment")}
+        onAddWallet=${onAddWallet}
       />
       <${RecentTransactions}
         transactions=${metrics.recent}

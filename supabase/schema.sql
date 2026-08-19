@@ -1,5 +1,46 @@
 create extension if not exists pgcrypto;
 
+create table if not exists public.asset_accounts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users (id) on delete cascade,
+  name text not null,
+  account_type text not null default 'bank'
+    check (account_type in ('bank', 'cash', 'ewallet', 'investment', 'other')),
+  currency text not null default 'IDR' check (currency ~ '^[A-Z]{3}$'),
+  balance_amount numeric(18, 4) not null default 0 check (balance_amount >= 0),
+  is_allocatable boolean not null default false,
+  note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz
+);
+
+create unique index if not exists asset_accounts_id_user_idx
+  on public.asset_accounts (id, user_id);
+create index if not exists asset_accounts_user_created_idx
+  on public.asset_accounts (user_id, created_at desc);
+create index if not exists asset_accounts_user_currency_idx
+  on public.asset_accounts (user_id, currency);
+
+alter table public.asset_accounts enable row level security;
+
+drop policy if exists "Users can read own asset accounts" on public.asset_accounts;
+create policy "Users can read own asset accounts"
+  on public.asset_accounts for select
+  using (auth.uid() = user_id);
+drop policy if exists "Users can insert own asset accounts" on public.asset_accounts;
+create policy "Users can insert own asset accounts"
+  on public.asset_accounts for insert
+  with check (auth.uid() = user_id);
+drop policy if exists "Users can update own asset accounts" on public.asset_accounts;
+create policy "Users can update own asset accounts"
+  on public.asset_accounts for update
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+drop policy if exists "Users can delete own asset accounts" on public.asset_accounts;
+create policy "Users can delete own asset accounts"
+  on public.asset_accounts for delete
+  using (auth.uid() = user_id);
+
 create table if not exists public.transactions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
@@ -211,9 +252,19 @@ begin
     add constraint transactions_shape_chk
     check (
       (
-        type in ('income', 'expense') and
+        type = 'income' and
         currency is not null and
-        amount is not null and amount > 0
+        amount is not null and amount > 0 and
+        source_account_id is null and
+        destination_account_id is not null
+      )
+      or
+      (
+        type = 'expense' and
+        currency is not null and
+        amount is not null and amount > 0 and
+        source_account_id is not null and
+        destination_account_id is null
       )
       or
       (
@@ -223,18 +274,106 @@ begin
         from_amount is not null and from_amount > 0 and
         to_amount is not null and to_amount > 0 and
         rate is not null and rate > 0 and
-        (
-          from_currency <> to_currency
-          or (
-            source_account_id is not null and
-            destination_account_id is not null and
-            source_account_id <> destination_account_id and
-            rate = 1
-          )
-        )
+        source_account_id is not null and
+        destination_account_id is not null and
+        source_account_id <> destination_account_id and
+        (from_currency <> to_currency or rate = 1)
       )
     ) not valid;
 end $$;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'transactions_source_account_owner_fkey'
+      and conrelid = 'public.transactions'::regclass
+  ) then
+    alter table public.transactions
+      add constraint transactions_source_account_owner_fkey
+      foreign key (source_account_id, user_id)
+      references public.asset_accounts (id, user_id)
+      on delete restrict
+      not valid;
+  end if;
+
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'transactions_destination_account_owner_fkey'
+      and conrelid = 'public.transactions'::regclass
+  ) then
+    alter table public.transactions
+      add constraint transactions_destination_account_owner_fkey
+      foreign key (destination_account_id, user_id)
+      references public.asset_accounts (id, user_id)
+      on delete restrict
+      not valid;
+  end if;
+end $$;
+
+create or replace function public.validate_wallet_transaction_links()
+returns trigger
+language plpgsql
+security invoker
+set search_path = public
+as $$
+declare
+  v_source_currency text;
+  v_source_type text;
+  v_destination_currency text;
+  v_destination_type text;
+begin
+  if new.type in ('expense', 'exchange') then
+    select upper(currency), account_type
+    into v_source_currency, v_source_type
+    from public.asset_accounts
+    where id = new.source_account_id and user_id = new.user_id;
+
+    if not found then
+      raise exception 'Dompet sumber tidak ditemukan atau bukan milik pengguna.';
+    end if;
+    if v_source_type not in ('bank', 'cash', 'ewallet', 'other') then
+      raise exception 'Akun sumber bukan dompet transaksi.';
+    end if;
+    if v_source_currency <> upper(
+      case when new.type = 'exchange' then new.from_currency else new.currency end
+    ) then
+      raise exception 'Mata uang dompet sumber tidak sesuai.';
+    end if;
+  end if;
+
+  if new.type in ('income', 'exchange') then
+    select upper(currency), account_type
+    into v_destination_currency, v_destination_type
+    from public.asset_accounts
+    where id = new.destination_account_id and user_id = new.user_id;
+
+    if not found then
+      raise exception 'Dompet tujuan tidak ditemukan atau bukan milik pengguna.';
+    end if;
+    if v_destination_type not in ('bank', 'cash', 'ewallet', 'other') then
+      raise exception 'Akun tujuan bukan dompet transaksi.';
+    end if;
+    if v_destination_currency <> upper(
+      case when new.type = 'exchange' then new.to_currency else new.currency end
+    ) then
+      raise exception 'Mata uang dompet tujuan tidak sesuai.';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists validate_wallet_transaction_links_before_write
+  on public.transactions;
+create trigger validate_wallet_transaction_links_before_write
+  before insert or update on public.transactions
+  for each row execute function public.validate_wallet_transaction_links();
+
+revoke all on function public.validate_wallet_transaction_links() from public;
+revoke all on function public.validate_wallet_transaction_links() from anon;
+revoke all on function public.validate_wallet_transaction_links() from authenticated;
 
 create table if not exists public.budgets (
   id uuid primary key default gen_random_uuid(),

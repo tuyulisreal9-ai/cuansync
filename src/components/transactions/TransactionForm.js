@@ -3,8 +3,8 @@ import React, {
   useMemo,
   useRef,
   useState,
-} from "https://esm.sh/react@18.3.1";
-import htm from "https://esm.sh/htm@3.1.1";
+} from "react";
+import htm from "htm";
 import {
   ArrowDownLeft,
   ArrowLeftRight,
@@ -14,7 +14,7 @@ import {
   Landmark,
   WalletCards,
   X,
-} from "https://esm.sh/lucide-react@0.468.0?deps=react@18.3.1";
+} from "lucide-react";
 import {
   getCurrentValuationRateForCurrency,
   isSpendableAssetAccount,
@@ -44,13 +44,11 @@ import {
   formatCurrency,
   formatMoney,
   formatNumericInput,
-  getCurrencyOptions,
   normalizeCurrencyCode,
   normalizeCurrencyList,
   normalizeNumericInput,
 } from "../../lib/currency.js";
 import { toInputDateTime } from "../../lib/dates.js";
-import { CurrencyCombobox } from "../shared/CurrencyCombobox.js";
 
 const html = htm.bind(React.createElement);
 const INPUT_CLASS =
@@ -164,6 +162,7 @@ export function TransactionForm({
   initialExpenseCurrency = "",
   initialMovementMode = "exchange",
   workspace = false,
+  onRequestAddWallet,
 }) {
   const [entryType, setEntryType] = useState(() =>
     normalizeEntryType(initialEntryType),
@@ -230,7 +229,6 @@ export function TransactionForm({
   const selectedAccountField = isIncome
     ? "destination_account_id"
     : "source_account_id";
-  const currencyOptions = getCurrencyOptions(activeCurrencies);
   const spendableAccounts = useMemo(
     () =>
       normalizeAssetAccounts(assetAccounts).filter((account) =>
@@ -382,7 +380,7 @@ export function TransactionForm({
       !movementReady ||
       !exchangeRateValidation.valid ||
       !sourceBalanceSufficient
-    : parsedAmount <= 0 || (spendableAccounts.length > 0 && !selectedEntryAccount);
+    : parsedAmount <= 0 || !selectedEntryAccount;
 
   useEffect(() => {
     setEntryType(workspace ? "exchange" : normalizeEntryType(initialEntryType));
@@ -725,6 +723,10 @@ export function TransactionForm({
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (!spendableAccounts.length) {
+      onRequestAddWallet?.();
+      return;
+    }
     const finalForm = isMovement && !isTransfer
       ? settleExchangeCalculation(form, "exchange_rate", {
           rateField: "exchange_rate",
@@ -985,20 +987,24 @@ export function TransactionForm({
                         </label>
                       `
                     : html`
-                        <div>
-                          <span className="cs-entry-label">Mata uang</span>
-                          <${CurrencyCombobox}
-                            value=${selectedCurrencyCode}
-                            onChange=${(value) =>
-                              isIncome
-                                ? setIncomeCurrency(value)
-                                : setExpenseCurrency(value)}
-                            currencies=${currencyOptions.map((option) => option.value)}
-                            ariaLabel=${isIncome
-                              ? "Mata uang pemasukan"
-                              : "Mata uang pengeluaran"}
-                            buttonClassName=${INPUT_CLASS}
-                          />
+                        <div className="cs-entry-notice rounded-lg px-3 py-3 text-xs leading-5 text-slate-600 dark:text-slate-300">
+                          <p className="font-extrabold text-slate-900 dark:text-white">
+                            Tambahkan dompet sebelum mencatat transaksi
+                          </p>
+                          <p className="mt-1">
+                            Dompet menentukan mata uang dan tempat saldo ${isIncome ? "masuk" : "keluar"}, jadi transaksi tidak akan tersimpan tanpa tujuan yang jelas.
+                          </p>
+                          ${onRequestAddWallet
+                            ? html`
+                                <button
+                                  type="button"
+                                  onClick=${onRequestAddWallet}
+                                  className="history-action-primary mt-3 min-h-10 rounded-lg px-3 py-2 text-xs font-extrabold"
+                                >
+                                  Tambah dompet pertama
+                                </button>
+                              `
+                            : null}
                         </div>
                       `}
 
@@ -1134,8 +1140,19 @@ export function TransactionForm({
                         </label>
                       `
                     : html`
-                        <div className="cs-entry-notice px-3 py-3 text-xs leading-5 text-slate-600 dark:text-slate-300">
-                          Tambahkan minimal dua dompet aktif sebelum membuat transfer atau tukar valas.
+                        <div className="cs-entry-notice rounded-lg px-3 py-3 text-xs leading-5 text-slate-600 dark:text-slate-300">
+                          <p>Tambahkan minimal dua dompet aktif sebelum membuat transfer atau tukar valas.</p>
+                          ${onRequestAddWallet
+                            ? html`
+                                <button
+                                  type="button"
+                                  onClick=${onRequestAddWallet}
+                                  className="history-action-primary mt-3 min-h-10 rounded-lg px-3 py-2 text-xs font-extrabold"
+                                >
+                                  Tambah dompet
+                                </button>
+                              `
+                            : null}
                         </div>
                       `}
 
