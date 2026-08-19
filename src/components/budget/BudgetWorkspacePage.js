@@ -751,6 +751,13 @@ export function BudgetWorkspacePage({
 }) {
   const budgetCurrency = normalizeCurrencyCode(baseCurrency);
 
+  useEffect(() => {
+    if (focusCategoryKey !== "__goals__") return;
+    document
+      .querySelector('[data-budget-section="goals"]')
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [focusCategoryKey]);
+
   return html`
     <div className="mx-auto grid max-w-md gap-4 pb-[calc(7rem+env(safe-area-inset-bottom))] lg:pb-6">
       <header>
@@ -770,24 +777,28 @@ export function BudgetWorkspacePage({
         loading=${loading}
         onBudgetDelete=${onBudgetDelete}
         onBudgetSubmit=${onBudgetSubmit}
-        focusCategoryKey=${focusCategoryKey}
+        focusCategoryKey=${focusCategoryKey === "__goals__"
+          ? null
+          : focusCategoryKey}
       />
 
-      <${TargetPlanningSection}
-        goals=${metrics.goalInsights}
-        summaries=${metrics.goalAllocationSummaries}
-        activeCurrencies=${activeCurrencies}
-        baseCurrency=${budgetCurrency}
-        transactions=${transactions}
-        loading=${loading}
-        onCreateGoal=${onCreateGoal}
-        onUpdateGoal=${onUpdateGoal}
-        onDeleteGoal=${onDeleteGoal}
-        onArchiveGoal=${onArchiveGoal}
-        onGoalActivity=${onGoalActivity}
-        onMoveAllocation=${onMoveAllocation}
-        onUseGoal=${onUseGoal}
-      />
+      <div data-budget-section="goals" className="scroll-mt-4">
+        <${TargetPlanningSection}
+          goals=${metrics.goalInsights}
+          summaries=${metrics.goalAllocationSummaries}
+          activeCurrencies=${activeCurrencies}
+          baseCurrency=${budgetCurrency}
+          transactions=${transactions}
+          loading=${loading}
+          onCreateGoal=${onCreateGoal}
+          onUpdateGoal=${onUpdateGoal}
+          onDeleteGoal=${onDeleteGoal}
+          onArchiveGoal=${onArchiveGoal}
+          onGoalActivity=${onGoalActivity}
+          onMoveAllocation=${onMoveAllocation}
+          onUseGoal=${onUseGoal}
+        />
+      </div>
     </div>
   `;
 }

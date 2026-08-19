@@ -5329,6 +5329,7 @@ function App() {
                       visible=${balanceVisible}
                       onNavigate=${navigateAppTab}
                       onOpenBudget=${openBudgetWorkspace}
+                      onAddIncome=${() => openTransactionForm("income")}
                     />
                   </section>
                 `

@@ -10,6 +10,10 @@ import {
   resolveTransactionFeeHistoricalBaseValue,
   resolveTransactionHistoricalBaseValue,
 } from "../src/domain/transactions.js";
+import {
+  buildControlCoach,
+  getControlReadiness,
+} from "../src/domain/controlGuidance.js";
 
 const NOW = new Date("2026-07-20T05:00:00.000Z");
 const TIME_ZONE = "Asia/Jakarta";
@@ -266,7 +270,7 @@ test("target terdekat masuk ke kondisi keuangan", () => {
   assert.equal(Math.round(summary.goal.progress * 100), 17);
 });
 
-test("kondisi keuangan tidak menampilkan bahasa teknis internal", async () => {
+test("fondasi finansial menjelaskan fungsi tanpa bahasa teknis internal", async () => {
   const source = await readFile(
     new URL(
       "../src/components/control/ControlPillars.js",
@@ -275,10 +279,60 @@ test("kondisi keuangan tidak menampilkan bahasa teknis internal", async () => {
     "utf8",
   );
 
-  assert.match(source, /Kondisi keuangan/);
+  assert.match(source, /Bukan hanya angka/);
+  assert.match(source, /Menjawab apakah gaya pengeluaranmu/);
+  assert.match(source, /Mengukur berapa lama kebutuhan utama/);
+  assert.match(source, /Mengubah keinginan besar/);
+  assert.doesNotMatch(source, /SheetShell/);
   assert.doesNotMatch(source, /Remittance/i);
   assert.doesNotMatch(source, /terverifikasi/i);
   assert.doesNotMatch(source, /database/i);
+});
+
+test("coach mengarahkan pengguna melengkapi pemasukan setelah anggaran siap", () => {
+  const summary = build();
+  const coach = buildControlCoach(summary);
+  const readiness = getControlReadiness(summary);
+
+  assert.equal(coach.actionTarget, "income");
+  assert.equal(coach.actionLabel, "Catat pemasukan");
+  assert.equal(readiness.readyCount, 1);
+  assert.deepEqual(
+    readiness.items.map((item) => [item.key, item.ready]),
+    [
+      ["budget", true],
+      ["cashFlow", false],
+      ["goal", false],
+    ],
+  );
+});
+
+test("coach memprioritaskan anggaran sebelum insight lain", () => {
+  const summary = build({
+    metrics: metrics({ budgetInsights: [] }),
+  });
+  const coach = buildControlCoach(summary);
+
+  assert.equal(coach.actionTarget, "budget");
+  assert.equal(coach.actionLabel, "Buat anggaran pertama");
+});
+
+test("coach menyarankan target dana cadangan ketika daya tahan di bawah tiga bulan", () => {
+  const summary = build({
+    metrics: metrics({
+      assetAccountInsights: [account({ balance: 5_000_000 })],
+    }),
+    transactions: [
+      transaction({ id: "income", type: "income", amount: 5_000_000 }),
+      transaction({ id: "expense", amount: 2_000_000 }),
+    ],
+  });
+  const coach = buildControlCoach(summary);
+
+  assert.equal(summary.cashFlow.evaluable, true);
+  assert.ok(summary.runway.months < 3);
+  assert.equal(coach.actionTarget, "goal");
+  assert.equal(coach.actionLabel, "Buat target dana cadangan");
 });
 
 test("investasi dan akun yang tidak dapat dialokasikan tidak dianggap dana bebas", () => {

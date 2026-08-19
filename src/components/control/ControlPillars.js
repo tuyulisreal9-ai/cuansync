@@ -1,20 +1,23 @@
 import React, { useState } from "react";
 import htm from "htm";
 import {
-  ChevronRight,
+  ArrowRight,
+  ChevronDown,
   CircleDollarSign,
   ShieldCheck,
   Target,
 } from "lucide-react";
 import { formatControlMoney } from "../../domain/control.js";
-import { SheetShell } from "../shared/SheetShell.js";
 import {
   CONTROL_MUTED,
-  CONTROL_PANEL,
   ControlSummaryLine,
 } from "./ControlPrimitives.js";
 
 const html = htm.bind(React.createElement);
+
+function clampPercentage(value) {
+  return Math.min(Math.max(Number(value) || 0, 0), 100);
+}
 
 function formatRunwayDuration(months) {
   if (months == null) return "Belum cukup data";
@@ -33,7 +36,9 @@ function getCashFlowPresentation(cashFlow) {
     return {
       tone: "muted",
       status: "Belum cukup data",
-      metric: "Tambahkan catatan pemasukan bulan ini",
+      metric: "Belum terbaca",
+      progress: 0,
+      nudge: "Catat minimal satu pemasukan dan pengeluaran bulan ini.",
     };
   }
 
@@ -42,20 +47,26 @@ function getCashFlowPresentation(cashFlow) {
     return {
       tone: "danger",
       status: "Perlu diperhatikan",
-      metric: "Pengeluaran lebih besar daripada pemasukan",
+      metric: `${Math.abs(percentage)}% defisit`,
+      progress: 100,
+      nudge: "Cari satu pengeluaran yang dapat ditunda atau dikurangi.",
     };
   }
   if (percentage >= 20) {
     return {
       tone: "safe",
-      status: "Aman",
-      metric: `${percentage}% pemasukan masih tersisa`,
+      status: "Terkendali",
+      metric: `${percentage}% tersisa`,
+      progress: clampPercentage(percentage),
+      nudge: "Pertahankan ritme dan arahkan sebagian sisa ke targetmu.",
     };
   }
   return {
     tone: "warning",
     status: "Perlu dijaga",
-    metric: `${percentage}% pemasukan masih tersisa`,
+    metric: `${percentage}% tersisa`,
+    progress: clampPercentage(percentage),
+    nudge: "Ruang bulan ini menipis; prioritaskan kebutuhan utama.",
   };
 }
 
@@ -64,90 +75,191 @@ function getRunwayPresentation(runway) {
     return {
       tone: "muted",
       status: "Belum cukup data",
-      metric: "Butuh anggaran atau riwayat pengeluaran",
+      metric: "Belum terbaca",
+      progress: 0,
+      nudge: "Tambahkan anggaran atau riwayat pengeluaran untuk membuat perkiraan.",
     };
   }
   if (runway.months >= 3) {
     return {
       tone: "safe",
-      status: "Aman",
+      status: "Fondasi kuat",
       metric: formatRunwayDuration(runway.months),
+      progress: 100,
+      nudge: "Tinjau kembali jumlah ini saat kebutuhan hidupmu berubah.",
     };
   }
   if (runway.months >= 1) {
     return {
       tone: "warning",
-      status: "Perlu dijaga",
+      status: "Sedang dibangun",
       metric: formatRunwayDuration(runway.months),
+      progress: clampPercentage((runway.months / 3) * 100),
+      nudge: "Gunakan tiga bulan sebagai tonggak awal, lalu sesuaikan dengan kondisimu.",
     };
   }
   return {
     tone: "danger",
-    status: "Terbatas",
+    status: "Masih rentan",
     metric: formatRunwayDuration(runway.months),
+    progress: clampPercentage((runway.months / 3) * 100),
+    nudge: "Mulai kecil dan konsisten; setiap tambahan memperpanjang ruang bernapasmu.",
   };
 }
 
 function getGoalPresentation(goal) {
   if (!goal.available) {
     return {
-      tone: "muted",
+      tone: "progress",
       status: "Belum diatur",
-      metric: "Belum ada target keuangan",
+      metric: "Pilih tujuan pertamamu",
+      progress: 0,
+      nudge: "Mulai dari dana darurat, pendidikan, rencana pulang, atau kebutuhan besar lain.",
     };
   }
   const percentage = Math.round(goal.progress * 100);
   return {
     tone: percentage >= 100 ? "safe" : "progress",
     status: goal.status,
-    metric: `${goal.name} - ${percentage}%`,
+    metric: `${percentage}% tercapai`,
+    progress: percentage,
+    nudge:
+      percentage >= 100
+        ? "Target ini tercapai. Rayakan progres lalu tentukan prioritas berikutnya."
+        : `${goal.name} sedang bergerak—jaga setoran kecil tetap konsisten.`,
   };
 }
 
 function getToneClasses(tone) {
   const classes = {
-    safe:
-      "border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-    warning:
-      "border-amber-400/25 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-    danger:
-      "border-rose-400/25 bg-rose-500/10 text-rose-700 dark:text-rose-300",
-    progress:
-      "border-cyan-400/25 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
-    muted:
-      "border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
+    safe: {
+      icon: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300",
+      badge:
+        "border-emerald-400/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+      bar: "bg-emerald-400",
+      wash: "from-emerald-500/10",
+    },
+    warning: {
+      icon: "bg-amber-500/10 text-amber-600 dark:text-amber-300",
+      badge:
+        "border-amber-400/25 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+      bar: "bg-amber-400",
+      wash: "from-amber-500/10",
+    },
+    danger: {
+      icon: "bg-rose-500/10 text-rose-600 dark:text-rose-300",
+      badge:
+        "border-rose-400/25 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+      bar: "bg-rose-400",
+      wash: "from-rose-500/10",
+    },
+    progress: {
+      icon: "bg-cyan-500/10 text-cyan-600 dark:text-cyan-300",
+      badge:
+        "border-cyan-400/25 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
+      bar: "bg-cyan-400",
+      wash: "from-cyan-500/10",
+    },
+    muted: {
+      icon: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+      badge:
+        "border-slate-300 bg-slate-100 text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300",
+      bar: "bg-slate-400",
+      wash: "from-slate-500/5",
+    },
   };
   return classes[tone] || classes.muted;
 }
 
-function ConditionRow({ icon: Icon, title, presentation, onClick }) {
+function FoundationCard({
+  cardKey,
+  icon: Icon,
+  title,
+  benefit,
+  presentation,
+  actionLabel,
+  onAction,
+  expanded,
+  onToggle,
+  children,
+}) {
+  const tone = getToneClasses(presentation.tone);
+
   return html`
-    <button
-      type="button"
-      onClick=${onClick}
-      className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-slate-100/75 dark:hover:bg-slate-800/50"
-    >
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-        <${Icon} aria-hidden="true" className="h-4 w-4" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex flex-wrap items-center gap-1.5">
-          <strong className="text-xs text-slate-950 dark:text-white">
-            ${title}
+    <article className=${`overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-br ${tone.wash} via-white to-white shadow-sm dark:border-slate-800 dark:via-slate-900 dark:to-slate-900 dark:shadow-none`}>
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className=${`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${tone.icon}`}>
+              <${Icon} aria-hidden="true" className="h-[18px] w-[18px]" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="text-sm font-black text-slate-950 dark:text-white">
+                ${title}
+              </h3>
+              <span className=${`mt-1 inline-flex rounded-md border px-1.5 py-0.5 text-[9px] font-extrabold ${tone.badge}`}>
+                ${presentation.status}
+              </span>
+            </div>
+          </div>
+          <strong className="max-w-[42%] text-right text-sm font-black leading-5 text-slate-950 dark:text-white">
+            ${presentation.metric}
           </strong>
-          <span className=${`rounded-md border px-1.5 py-0.5 text-[9px] font-extrabold ${getToneClasses(presentation.tone)}`}>
-            ${presentation.status}
-          </span>
-        </span>
-        <span className=${`mt-1 block truncate text-[10px] ${CONTROL_MUTED}`}>
-          ${presentation.metric}
-        </span>
-      </span>
-      <${ChevronRight}
-        aria-hidden="true"
-        className="h-4 w-4 shrink-0 text-slate-400"
-      />
-    </button>
+        </div>
+
+        <p className=${`mt-3 text-[11px] leading-5 ${CONTROL_MUTED}`}>
+          ${benefit}
+        </p>
+
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-200/90 dark:bg-slate-800">
+          <div
+            className=${`h-full rounded-full transition-all duration-500 ${tone.bar}`}
+            style=${{ width: `${clampPercentage(presentation.progress)}%` }}
+          ></div>
+        </div>
+        <p className="mt-2 text-[10px] font-semibold leading-4 text-slate-700 dark:text-slate-300">
+          ${presentation.nudge}
+        </p>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick=${onAction}
+            className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-950 px-3 text-[10px] font-black text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
+          >
+            ${actionLabel}
+            <${ArrowRight} aria-hidden="true" className="h-3.5 w-3.5" />
+          </button>
+          <button
+            type="button"
+            aria-expanded=${expanded}
+            aria-controls=${`control-${cardKey}-details`}
+            onClick=${onToggle}
+            className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-[10px] font-black text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            ${expanded ? "Tutup rincian" : "Cara dihitung"}
+            <${ChevronDown}
+              aria-hidden="true"
+              className=${`h-3.5 w-3.5 transition ${expanded ? "rotate-180" : ""}`}
+            />
+          </button>
+        </div>
+      </div>
+
+      ${expanded
+        ? html`
+            <div
+              id=${`control-${cardKey}-details`}
+              className="border-t border-slate-200/90 bg-white/70 px-4 py-3 dark:border-slate-800 dark:bg-slate-950/25"
+            >
+              <p className="mb-2 text-[9px] font-black uppercase tracking-[0.1em] text-slate-500">
+                Angka di balik saran
+              </p>
+              ${children}
+            </div>
+          `
+        : null}
+    </article>
   `;
 }
 
@@ -178,27 +290,13 @@ function CashFlowDetails({ summary, visible }) {
         tone=${cashFlow.netCashFlow < 0 ? "text-rose-500" : "text-emerald-600 dark:text-emerald-300"}
       />
       <${ControlSummaryLine} label="Porsi yang tersisa" value=${ratio} />
-      ${cashFlow.feeExpenses > 0
-        ? html`
-            <${ControlSummaryLine}
-              label="Biaya transfer bulan ini"
-              value=${formatControlMoney(
-                cashFlow.feeExpenses,
-                baseCurrency,
-                visible,
-              )}
-            />
-          `
-        : null}
-      <p className=${`pt-3 text-[11px] leading-5 ${CONTROL_MUTED}`}>
-        Transfer antar-dompet dan pokok tukar valas tidak dihitung sebagai
-        pemasukan atau pengeluaran.
+      <p className=${`pt-3 text-[10px] leading-4 ${CONTROL_MUTED}`}>
+        Transfer antar-dompet dan pokok tukar valas tidak dihitung sebagai pemasukan atau pengeluaran.
       </p>
       ${cashFlow.missingValuationCount
         ? html`
-            <p className="pt-3 text-[11px] leading-5 text-amber-700 dark:text-amber-300">
-              ${cashFlow.missingValuationCount} transaksi belum dapat dihitung
-              dalam ${baseCurrency}.
+            <p className="pt-2 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
+              ${cashFlow.missingValuationCount} transaksi belum dapat dihitung dalam ${baseCurrency}.
             </p>
           `
         : null}
@@ -212,13 +310,13 @@ function RunwayDetails({ summary, visible }) {
     runway.burnSource === "three_month_history"
       ? "Perkiraan memakai rata-rata pengeluaran tiga bulan penuh terakhir."
       : runway.burnSource === "budget_fallback"
-        ? "Riwayat belum cukup, jadi perkiraan memakai anggaran bulan ini."
+        ? "Riwayat belum cukup, jadi perkiraan sementara memakai anggaran bulan ini."
         : "Tambahkan anggaran atau riwayat pengeluaran agar perkiraan dapat dihitung.";
 
   return html`
     <div className="divide-y divide-slate-200/90 dark:divide-slate-800">
       <${ControlSummaryLine}
-        label="Dana tersedia"
+        label="Dana bebas"
         value=${formatControlMoney(
           runway.freeLiquidFunds,
           baseCurrency,
@@ -226,41 +324,33 @@ function RunwayDetails({ summary, visible }) {
         )}
       />
       <${ControlSummaryLine}
-        label="Acuan pengeluaran bulanan"
+        label="Acuan bulanan"
         value=${runway.monthlyBurn == null
           ? "Belum tersedia"
           : formatControlMoney(runway.monthlyBurn, baseCurrency, visible)}
       />
       <${ControlSummaryLine}
-        label="Perkiraan daya tahan"
+        label="Daya tahan"
         value=${formatRunwayDuration(runway.months)}
       />
-      <p className=${`pt-3 text-[11px] leading-5 ${CONTROL_MUTED}`}>
+      <p className=${`pt-3 text-[10px] leading-4 ${CONTROL_MUTED}`}>
         ${sourceNote}
       </p>
     </div>
   `;
 }
 
-function GoalDetails({ summary, visible, onOpenBudget }) {
+function GoalDetails({ summary, visible }) {
   const goal = summary.goal;
   if (!goal.available) {
     return html`
-      <div className="py-2 text-center">
-        <p className="text-sm font-extrabold text-slate-950 dark:text-white">
+      <div>
+        <p className="text-xs font-extrabold text-slate-950 dark:text-white">
           Belum ada target keuangan
         </p>
-        <p className=${`mx-auto mt-1 max-w-xs text-[11px] leading-5 ${CONTROL_MUTED}`}>
-          Buat target untuk dana darurat, rencana pulang, atau kebutuhan besar
-          lainnya.
+        <p className=${`mt-1 text-[10px] leading-4 ${CONTROL_MUTED}`}>
+          Target membantu menghitung berapa yang masih dibutuhkan dan membuat progres tetap terlihat.
         </p>
-        <button
-          type="button"
-          onClick=${() => onOpenBudget(null)}
-          className="mt-4 min-h-10 rounded-lg bg-emerald-500 px-4 text-xs font-black text-white transition hover:bg-emerald-400"
-        >
-          Buka anggaran dan target
-        </button>
       </div>
     `;
   }
@@ -270,113 +360,102 @@ function GoalDetails({ summary, visible, onOpenBudget }) {
       <${ControlSummaryLine} label="Target" value=${goal.name} />
       <${ControlSummaryLine}
         label="Nominal tujuan"
-        value=${formatControlMoney(
-          goal.targetAmount,
-          goal.currency,
-          visible,
-        )}
+        value=${formatControlMoney(goal.targetAmount, goal.currency, visible)}
       />
       <${ControlSummaryLine}
         label="Terkumpul"
-        value=${formatControlMoney(
-          goal.savedAmount,
-          goal.currency,
-          visible,
-        )}
+        value=${formatControlMoney(goal.savedAmount, goal.currency, visible)}
         tone="text-emerald-600 dark:text-emerald-300"
       />
       <${ControlSummaryLine}
         label="Masih dibutuhkan"
-        value=${formatControlMoney(
-          goal.remainingAmount,
-          goal.currency,
-          visible,
-        )}
+        value=${formatControlMoney(goal.remainingAmount, goal.currency, visible)}
       />
-      <div className="pt-3">
-        <div className="h-1.5 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-          <div
-            className="h-full rounded-full bg-emerald-400"
-            style=${{ width: `${Math.round(goal.progress * 100)}%` }}
-          ></div>
-        </div>
-        <p className=${`mt-2 text-[11px] ${CONTROL_MUTED}`}>
-          ${Math.round(goal.progress * 100)}% dari target sudah terkumpul.
-        </p>
-      </div>
     </div>
   `;
 }
 
-function ConditionDetails({ selectedKey, summary, visible, onOpenBudget }) {
-  if (selectedKey === "cashFlow") {
-    return html`<${CashFlowDetails} summary=${summary} visible=${visible} />`;
-  }
-  if (selectedKey === "runway") {
-    return html`<${RunwayDetails} summary=${summary} visible=${visible} />`;
-  }
-  return html`
-    <${GoalDetails}
-      summary=${summary}
-      visible=${visible}
-      onOpenBudget=${onOpenBudget}
-    />
-  `;
-}
-
-export function ControlPillars({ summary, visible, onOpenBudget }) {
-  const [selectedKey, setSelectedKey] = useState(null);
+export function ControlPillars({
+  summary,
+  visible,
+  onOpenBudget,
+  onNavigate,
+  onAddIncome,
+}) {
+  const [expandedKey, setExpandedKey] = useState(null);
   const cashFlow = getCashFlowPresentation(summary.cashFlow);
   const runway = getRunwayPresentation(summary.runway);
   const goal = getGoalPresentation(summary.goal);
-  const sheetTitles = {
-    cashFlow: "Arus kas bulan ini",
-    runway: "Dana cadangan",
-    goal: "Target keuangan",
-  };
+
+  function toggle(key) {
+    setExpandedKey((current) => (current === key ? null : key));
+  }
 
   return html`
-    <section className=${`${CONTROL_PANEL} overflow-hidden`}>
-      <div className="border-b border-slate-200/90 px-4 py-3 dark:border-slate-800">
-        <h2 className="text-xs font-black text-slate-950 dark:text-white">
-          Kondisi keuangan
-        </h2>
+    <section aria-labelledby="financial-foundations-title">
+      <div className="mb-2.5 px-0.5">
+        <p className="text-[9px] font-black uppercase tracking-[0.12em] text-emerald-600 dark:text-emerald-300">
+          Fondasi finansialmu
+        </p>
+        <div className="mt-1 flex items-end justify-between gap-3">
+          <h2 id="financial-foundations-title" className="text-sm font-black text-slate-950 dark:text-white">
+            Bukan hanya angka—ini fungsinya
+          </h2>
+          <span className=${`shrink-0 text-[9px] ${CONTROL_MUTED}`}>
+            Ketuk rincian bila perlu
+          </span>
+        </div>
       </div>
-      <div className="divide-y divide-slate-200/90 dark:divide-slate-800">
-        <${ConditionRow}
+
+      <div className="grid gap-3">
+        <${FoundationCard}
+          cardKey="cash-flow"
           icon=${CircleDollarSign}
           title="Arus kas"
+          benefit="Menjawab apakah gaya pengeluaranmu benar-benar didukung oleh pemasukan—bukan sekadar melihat saldo hari ini."
           presentation=${cashFlow}
-          onClick=${() => setSelectedKey("cashFlow")}
-        />
-        <${ConditionRow}
+          actionLabel=${summary.cashFlow.evaluable
+            ? "Lihat transaksi"
+            : "Catat pemasukan"}
+          onAction=${summary.cashFlow.evaluable
+            ? () => onNavigate("history")
+            : onAddIncome}
+          expanded=${expandedKey === "cashFlow"}
+          onToggle=${() => toggle("cashFlow")}
+        >
+          <${CashFlowDetails} summary=${summary} visible=${visible} />
+        </${FoundationCard}>
+
+        <${FoundationCard}
+          cardKey="runway"
           icon=${ShieldCheck}
           title="Dana cadangan"
+          benefit="Mengukur berapa lama kebutuhan utama dapat bertahan jika pemasukan tiba-tiba berhenti atau ada biaya tak terduga."
           presentation=${runway}
-          onClick=${() => setSelectedKey("runway")}
-        />
-        <${ConditionRow}
+          actionLabel="Bangun dana cadangan"
+          onAction=${() => onOpenBudget("__goals__")}
+          expanded=${expandedKey === "runway"}
+          onToggle=${() => toggle("runway")}
+        >
+          <${RunwayDetails} summary=${summary} visible=${visible} />
+        </${FoundationCard}>
+
+        <${FoundationCard}
+          cardKey="goal"
           icon=${Target}
           title="Target keuangan"
+          benefit="Mengubah keinginan besar menjadi nominal dan progres kecil yang dapat kamu jaga dari bulan ke bulan."
           presentation=${goal}
-          onClick=${() => setSelectedKey("goal")}
-        />
+          actionLabel=${summary.goal.available
+            ? "Kelola target"
+            : "Buat target pertama"}
+          onAction=${() => onOpenBudget("__goals__")}
+          expanded=${expandedKey === "goal"}
+          onToggle=${() => toggle("goal")}
+        >
+          <${GoalDetails} summary=${summary} visible=${visible} />
+        </${FoundationCard}>
       </div>
     </section>
-
-    <${SheetShell}
-      open=${Boolean(selectedKey)}
-      title=${sheetTitles[selectedKey] || "Kondisi keuangan"}
-      helper="Lihat angka utama dan cara perhitungannya."
-      onClose=${() => setSelectedKey(null)}
-      labelledBy="control-condition-title"
-    >
-      <${ConditionDetails}
-        selectedKey=${selectedKey}
-        summary=${summary}
-        visible=${visible}
-        onOpenBudget=${onOpenBudget}
-      />
-    </${SheetShell}>
   `;
 }
