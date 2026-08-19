@@ -5,6 +5,7 @@ import {
   DEFAULT_BASE_CURRENCY,
   DEFAULT_SELECTED_CURRENCIES,
   getCurrencyOptions,
+  groupCurrencyOptions,
   normalizeCurrencyCode,
   normalizeCurrencyList,
 } from "../../lib/currency.js";
@@ -65,6 +66,8 @@ function CurrencyPicker({ value, onChange, baseCurrency = DEFAULT_BASE_CURRENCY 
     baseCurrency: normalizedBaseCurrency,
   });
   const selectedSet = new Set(selected);
+  const [query, setQuery] = useState("");
+  const currencyGroups = groupCurrencyOptions(DEFAULT_ACTIVE_CURRENCIES, query);
 
   function toggleCurrency(currency) {
     const code = normalizeCurrencyCode(currency);
@@ -77,31 +80,56 @@ function CurrencyPicker({ value, onChange, baseCurrency = DEFAULT_BASE_CURRENCY 
 
   return html`
     <div className="grid gap-3">
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-        ${DEFAULT_ACTIVE_CURRENCIES.map((currency) => {
-          const active = selectedSet.has(currency);
-          const locked = currency === normalizedBaseCurrency;
-          return html`
-            <button
-              key=${currency}
-              type="button"
-              onClick=${() => toggleCurrency(currency)}
-              aria-pressed=${active}
-              className=${`min-h-12 rounded-2xl border px-3 py-3 text-left transition duration-300 ${
-                active
-                  ? "border-brand-300/35 bg-brand-600 text-white shadow-[0_16px_36px_rgba(16,185,129,0.20)] dark:border-emerald-300/25 dark:bg-emerald-500 dark:text-white"
-                  : "border-slate-200/70 bg-white/58 text-slate-600 hover:border-brand-300/35 hover:bg-white/82 hover:text-slate-950 dark:border-white/10 dark:bg-slate-900/45 dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-white"
-              }`}
-            >
-              <span className="block text-sm font-black">${currency}</span>
-              <span className=${`mt-0.5 block text-[10px] font-bold uppercase tracking-[0.12em] ${
-                active ? "text-white/72" : "text-slate-400 dark:text-slate-500"
-              }`}>
-                ${locked ? "Utama" : active ? "Aktif" : "Opsional"}
-              </span>
-            </button>
-          `;
-        })}
+      <input
+        type="search"
+        value=${query}
+        onChange=${(event) => setQuery(event.target.value)}
+        placeholder="Cari IDR, Sri Lanka, Taiwan, Yuan..."
+        aria-label="Cari mata uang"
+        className="min-h-11 w-full rounded-2xl border border-slate-200/70 bg-white/70 px-4 text-sm text-slate-950 outline-none transition focus:border-brand-400 dark:border-white/10 dark:bg-slate-900/55 dark:text-white"
+      />
+      <div className="max-h-80 space-y-4 overflow-y-auto pr-1">
+        ${currencyGroups.length
+          ? currencyGroups.map(
+              (group) => html`
+                <section key=${group.region} aria-label=${group.label}>
+                  <p className="mb-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                    ${group.label}
+                  </p>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                    ${group.options.map((option) => {
+                      const active = selectedSet.has(option.value);
+                      const locked = option.value === normalizedBaseCurrency;
+                      return html`
+                        <button
+                          key=${option.value}
+                          type="button"
+                          onClick=${() => toggleCurrency(option.value)}
+                          aria-pressed=${active}
+                          className=${`min-h-14 rounded-2xl border px-3 py-2.5 text-left transition duration-300 ${
+                            active
+                              ? "border-brand-300/35 bg-brand-600 text-white shadow-[0_16px_36px_rgba(16,185,129,0.20)] dark:border-emerald-300/25 dark:bg-emerald-500 dark:text-white"
+                              : "border-slate-200/70 bg-white/58 text-slate-600 hover:border-brand-300/35 hover:bg-white/82 hover:text-slate-950 dark:border-white/10 dark:bg-slate-900/45 dark:text-slate-300 dark:hover:bg-slate-800/70 dark:hover:text-white"
+                          }`}
+                        >
+                          <span className="block text-sm font-black">${option.value}</span>
+                          <span className=${`mt-0.5 block truncate text-[10px] font-semibold ${
+                            active ? "text-white/72" : "text-slate-400 dark:text-slate-500"
+                          }`}>
+                            ${locked ? "Utama" : option.name}
+                          </span>
+                        </button>
+                      `;
+                    })}
+                  </div>
+                </section>
+              `,
+            )
+          : html`
+              <p className="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                Mata uang tidak ditemukan.
+              </p>
+            `}
       </div>
       <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
         ${normalizedBaseCurrency} dikunci sebagai mata uang utama agar valuasi, saldo bersih, dan laporan tetap konsisten.

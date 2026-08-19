@@ -17,6 +17,16 @@ Aplikasi web pengatur keuangan pribadi untuk alur multi-mata uang:
 - Bank & wallet tracker untuk mencatat beberapa akun seperti BCA IDR, Wise USD, Cash, atau bank luar negeri
 - Valuasi aset multi-currency memakai global current rate, bukan rate tukar historis
 
+## Mata uang yang didukung
+
+- Asia: `IDR`, `THB`, `SGD`, `MYR`, `JPY`, `KRW`, `TWD`, `HKD`, `CNY`, `VND`, `PHP`, `INR`, `LKR`
+- Timur Tengah: `SAR`, `AED`
+- Global: `USD`, `AUD`, `EUR`, `GBP`
+
+Pemilih mata uang utama mendukung pencarian berdasarkan kode, negara, dan nama
+mata uang. Contohnya: `LKR`, `Sri Lanka`, `Rupee Sri Lanka`, `Taiwan`,
+`Hong Kong`, dan `Yuan`.
+
 ## Struktur
 
 - `index.html`: entry aplikasi

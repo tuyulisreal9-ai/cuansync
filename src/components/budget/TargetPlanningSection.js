@@ -19,6 +19,7 @@ import {
   normalizeNumericInput,
 } from "../../lib/currency.js";
 import { formatDateTime } from "../../lib/dates.js";
+import { CurrencyCombobox } from "../shared/CurrencyCombobox.js";
 import { SheetShell } from "../shared/SheetShell.js";
 
 const html = htm.bind(React.createElement);
@@ -153,19 +154,17 @@ function TargetForm({
       </fieldset>
 
       <div className="grid grid-cols-[0.75fr_1.25fr] gap-2">
-        <label className="block">
+        <div className="block">
           <span className="cs-entry-label">Mata uang</span>
-          <select
+          <${CurrencyCombobox}
             disabled=${editing}
             value=${form.currency}
-            onChange=${(event) => updateField("currency", event.target.value)}
-            className=${INPUT_CLASS}
-          >
-            ${currencies.map(
-              (code) => html`<option key=${code} value=${code}>${code}</option>`,
-            )}
-          </select>
-        </label>
+            onChange=${(value) => updateField("currency", value)}
+            currencies=${currencies}
+            ariaLabel="Mata uang target"
+            buttonClassName=${INPUT_CLASS}
+          />
+        </div>
         <label className="block">
           <span className="cs-entry-label">Nominal target</span>
           <input
