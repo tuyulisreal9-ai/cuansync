@@ -137,7 +137,7 @@ export function ControlCoachCard({
       <button
         type="button"
         onClick=${handleAction}
-        className="mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-white px-4 text-xs font-black text-slate-950 transition hover:bg-slate-100"
+        className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-white px-4 text-xs font-black text-slate-950 transition hover:bg-slate-100"
       >
         ${coach.actionLabel}
         <${ArrowRight} aria-hidden="true" className="h-4 w-4" />
@@ -226,7 +226,7 @@ export function BudgetOverview({ summary, visible, onOpenBudget }) {
         <button
           type="button"
           onClick=${() => onOpenBudget(null)}
-          className="min-h-8 shrink-0 rounded-lg px-2.5 text-[10px] font-black text-emerald-700 transition hover:bg-emerald-500/10 dark:text-emerald-300"
+          className="min-h-11 shrink-0 rounded-lg px-2.5 text-[10px] font-black text-emerald-700 transition hover:bg-emerald-500/10 dark:text-emerald-300"
         >
           Atur
         </button>
@@ -302,7 +302,7 @@ export function BudgetOverview({ summary, visible, onOpenBudget }) {
               <button
                 type="button"
                 onClick=${() => onOpenBudget(null)}
-                className="mt-3 inline-flex min-h-9 items-center gap-1.5 rounded-lg bg-emerald-500 px-3 text-[10px] font-black text-white transition hover:bg-emerald-400"
+                className="mt-3 inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-emerald-500 px-3 text-[10px] font-black text-white transition hover:bg-emerald-400"
               >
                 Buat anggaran
                 <${ArrowRight} aria-hidden="true" className="h-3.5 w-3.5" />

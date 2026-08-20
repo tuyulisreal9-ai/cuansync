@@ -24,6 +24,7 @@ import {
   normalizeNumericInput,
 } from "../../lib/currency.js";
 import { CurrencyCombobox } from "../shared/CurrencyCombobox.js";
+import { FormActionDock } from "../shared/FormActionDock.js";
 import { SheetShell } from "../shared/SheetShell.js";
 import { TargetPlanningSection } from "./TargetPlanningSection.js";
 
@@ -144,7 +145,7 @@ function BudgetRateSheet({
               setRateDate(toDateInput(automatic.rateDate));
               setError("");
             }}
-            className=${`min-h-10 rounded-md px-3 text-xs font-black transition ${
+            className=${`min-h-11 rounded-md px-3 text-xs font-black transition ${
               mode === "automatic"
                 ? "bg-emerald-500 text-white"
                 : "text-slate-600 dark:text-slate-300"
@@ -158,7 +159,7 @@ function BudgetRateSheet({
               setMode("custom");
               setError("");
             }}
-            className=${`min-h-10 rounded-md px-3 text-xs font-black transition ${
+            className=${`min-h-11 rounded-md px-3 text-xs font-black transition ${
               mode === "custom"
                 ? "bg-emerald-500 text-white"
                 : "text-slate-600 dark:text-slate-300"
@@ -219,13 +220,15 @@ function BudgetRateSheet({
             `
           : null}
 
-        <button
-          type="button"
-          onClick=${applyRate}
-          className="min-h-11 rounded-lg bg-emerald-500 px-4 text-xs font-black text-white"
-        >
-          Terapkan
-        </button>
+        <${FormActionDock}>
+          <button
+            type="button"
+            onClick=${applyRate}
+            className="min-h-12 w-full rounded-xl bg-emerald-500 px-4 text-xs font-black text-white"
+          >
+            Terapkan
+          </button>
+        <//>
       </div>
     </${SheetShell}>
   `;
@@ -438,7 +441,7 @@ function BudgetSection({
         <button
           type="button"
           onClick=${showForm ? () => setShowForm(false) : () => openForm()}
-          className=${`min-h-9 shrink-0 rounded-lg px-3 text-[11px] font-black ${
+          className=${`min-h-11 shrink-0 rounded-lg px-3 text-[11px] font-black ${
             showForm
               ? "border border-slate-300 text-slate-700 dark:border-slate-700 dark:text-slate-300"
               : "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
@@ -486,6 +489,7 @@ function BudgetSection({
                   <input
                     required
                     inputMode="decimal"
+                    enterKeyHint="done"
                     value=${inputAmount}
                     onChange=${(event) =>
                       setInputAmount(formatNumericInput(event.target.value))}
@@ -513,7 +517,7 @@ function BudgetSection({
                       <button
                         type="button"
                         onClick=${() => setShowRateSheet(true)}
-                        className="shrink-0 text-[10px] font-black text-emerald-700 dark:text-emerald-300"
+                        className="min-h-11 shrink-0 rounded-lg px-2 text-[10px] font-black text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300"
                       >
                         Ubah Kurs
                       </button>
@@ -529,22 +533,24 @@ function BudgetSection({
                   `
                 : null}
 
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick=${() => setShowForm(false)}
-                  className="min-h-10 rounded-lg px-3 text-[10px] font-bold text-slate-600 dark:text-slate-400"
-                >
-                  Batal
-                </button>
-                <button
-                  type="submit"
-                  disabled=${loading}
-                  className="min-h-10 rounded-lg bg-emerald-500 px-4 text-[10px] font-black text-white disabled:opacity-50"
-                >
-                  ${selectedBudget ? "Simpan Perubahan" : "Simpan Anggaran"}
-                </button>
-              </div>
+              <${FormActionDock} fixedOnMobile=${true}>
+                <div className="grid grid-cols-[.75fr_1.25fr] gap-2">
+                  <button
+                    type="button"
+                    onClick=${() => setShowForm(false)}
+                    className="min-h-12 rounded-xl px-3 text-[10px] font-bold text-slate-600 dark:text-slate-400"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled=${loading}
+                    className="min-h-12 rounded-xl bg-emerald-500 px-4 text-[10px] font-black text-white disabled:opacity-50"
+                  >
+                    ${selectedBudget ? "Simpan Perubahan" : "Simpan Anggaran"}
+                  </button>
+                </div>
+              <//>
             </form>
           `
         : null}
@@ -632,7 +638,7 @@ function BudgetSection({
                         event.stopPropagation();
                         setOpenMenuId(menuOpen ? null : budget.id);
                       }}
-                      className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-200 dark:hover:bg-slate-800"
+                      className="grid h-11 min-h-11 w-11 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-200 dark:hover:bg-slate-800"
                     >
                       <${MoreVertical} aria-hidden="true" className="h-4 w-4" />
                     </button>
@@ -647,7 +653,7 @@ function BudgetSection({
                           <button
                             type="button"
                             onClick=${() => loadBudgetForm(budget)}
-                            className="block min-h-9 w-full rounded-md px-3 text-left text-[10px] font-bold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                            className="block min-h-11 w-full rounded-md px-3 text-left text-[10px] font-bold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
                           >
                             Edit
                           </button>
@@ -657,7 +663,7 @@ function BudgetSection({
                               setOpenMenuId(null);
                               onBudgetDelete(budget);
                             }}
-                            className="flex min-h-9 w-full items-center gap-2 rounded-md px-3 text-left text-[10px] font-bold text-rose-600 hover:bg-rose-500/10 dark:text-rose-300"
+                            className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-[10px] font-bold text-rose-600 hover:bg-rose-500/10 dark:text-rose-300"
                           >
                             <${Trash2} aria-hidden="true" className="h-3.5 w-3.5" />
                             Hapus

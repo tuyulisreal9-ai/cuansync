@@ -49,6 +49,7 @@ import {
   normalizeNumericInput,
 } from "../../lib/currency.js";
 import { toInputDateTime } from "../../lib/dates.js";
+import { FormActionDock } from "../shared/FormActionDock.js";
 
 const html = htm.bind(React.createElement);
 const INPUT_CLASS =
@@ -115,7 +116,7 @@ function SegmentButton({ active, children, onClick, tone = "emerald" }) {
       type="button"
       aria-pressed=${active}
       onClick=${onClick}
-      className=${`min-h-10 rounded-md px-2 text-xs font-extrabold transition ${
+      className=${`min-h-11 rounded-md px-2 text-xs font-extrabold transition ${
         active
           ? activeClass
           : "text-slate-600 hover:bg-slate-200/70 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
@@ -847,7 +848,7 @@ export function TransactionForm({
           : "flex shrink-0 items-start justify-between gap-3 border-b border-slate-200/70 px-4 py-4 dark:border-slate-800"}>
           ${workspace
             ? html`
-                <div className="flex min-w-0 items-center gap-3">
+                <div key="movement-title" className="flex min-w-0 items-center gap-3">
                   <span className="flex h-10 min-h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-400/15 text-emerald-300">
                     <${ArrowLeftRight} aria-hidden="true" className="h-5 w-5" />
                   </span>
@@ -861,7 +862,7 @@ export function TransactionForm({
                   </div>
                 </div>
 
-                <div className="cs-movement-mode mt-3 grid grid-cols-2 gap-1 rounded-lg p-1">
+                <div key="movement-mode" className="cs-movement-mode mt-3 grid grid-cols-2 gap-1 rounded-lg p-1">
                   <${SegmentButton}
                     active=${isTransfer}
                     onClick=${() => changeMovementMode("transfer")}
@@ -877,7 +878,7 @@ export function TransactionForm({
                 </div>
               `
             : html`
-                <div className="min-w-0">
+                <div key="transaction-title" className="min-w-0">
                   <h2 id="transaction-form-title" className="font-display text-lg font-extrabold text-slate-950 dark:text-white">
                     Catat transaksi
                   </h2>
@@ -886,10 +887,11 @@ export function TransactionForm({
                   </p>
                 </div>
                 <button
+                  key="transaction-close"
                   type="button"
                   aria-label="Tutup"
                   onClick=${onClose}
-                  className="inline-flex h-8 min-h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-200/70 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
+                  className="inline-flex h-11 min-h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-200/70 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
                 >
                   <${X} aria-hidden="true" className="h-4 w-4" />
                 </button>
@@ -910,7 +912,7 @@ export function TransactionForm({
                         type="button"
                         onClick=${() => setEntryType(option.value)}
                         aria-pressed=${entryType === option.value}
-                        className=${`flex min-h-10 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-[11px] font-extrabold transition ${
+                        className=${`flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-md px-2 text-[11px] font-extrabold transition ${
                           entryType === option.value
                             ? option.tone === "rose"
                               ? "bg-rose-500 text-white shadow-[0_10px_22px_rgba(244,63,94,0.18)]"
@@ -968,7 +970,7 @@ export function TransactionForm({
               ? html`
                   ${spendableAccounts.length
                     ? html`
-                        <label className="block">
+                        <label key="entry-account" className="block">
                           <span className="cs-entry-label">${isIncome ? "Masuk ke dompet" : "Keluar dari dompet"}</span>
                           <select
                             value=${form[selectedAccountField] || ""}
@@ -987,7 +989,7 @@ export function TransactionForm({
                         </label>
                       `
                     : html`
-                        <div className="cs-entry-notice rounded-lg px-3 py-3 text-xs leading-5 text-slate-600 dark:text-slate-300">
+                        <div key="entry-account-missing" className="cs-entry-notice rounded-lg px-3 py-3 text-xs leading-5 text-slate-600 dark:text-slate-300">
                           <p className="font-extrabold text-slate-900 dark:text-white">
                             Tambahkan dompet sebelum mencatat transaksi
                           </p>
@@ -999,7 +1001,7 @@ export function TransactionForm({
                                 <button
                                   type="button"
                                   onClick=${onRequestAddWallet}
-                                  className="history-action-primary mt-3 min-h-10 rounded-lg px-3 py-2 text-xs font-extrabold"
+                                  className="history-action-primary mt-3 min-h-11 rounded-lg px-3 py-2 text-xs font-extrabold"
                                 >
                                   Tambah dompet pertama
                                 </button>
@@ -1008,7 +1010,7 @@ export function TransactionForm({
                         </div>
                       `}
 
-                  <label className="block">
+                  <label key="entry-description" className="block">
                     <span className="cs-entry-label">Judul transaksi</span>
                     <input
                       type="text"
@@ -1019,7 +1021,7 @@ export function TransactionForm({
                     />
                   </label>
 
-                  <label className="block">
+                  <label key="entry-amount" className="block">
                     <span className="cs-entry-label">Jumlah (${selectedCurrencyCode})</span>
                     <input
                       type="text"
@@ -1035,7 +1037,7 @@ export function TransactionForm({
 
                   ${isExpense
                     ? html`
-                        <label className="block">
+                        <label key="entry-category" className="block">
                           <span className="cs-entry-label">Kategori</span>
                           <select
                             value=${form.category}
@@ -1052,7 +1054,7 @@ export function TransactionForm({
                           </select>
                         </label>
 
-                        <label className="block">
+                        <label key="entry-target" className="block">
                           <span className="cs-entry-label">Gunakan target</span>
                           <select
                             value=${form.target_id || ""}
@@ -1089,7 +1091,7 @@ export function TransactionForm({
               : html`
                   ${spendableAccounts.length
                     ? html`
-                        <label className="block">
+                        <label key="movement-source" className="block">
                           <span className="cs-entry-label">
                             ${isTransfer ? "Dari Dompet Asal" : "Akun Asal Valas (Dipotong)"}
                           </span>
@@ -1113,7 +1115,7 @@ export function TransactionForm({
                           />
                         </label>
 
-                        <label className="block">
+                        <label key="movement-destination" className="block">
                           <span className="cs-entry-label">
                             ${isTransfer ? "Ke Dompet Tujuan" : "Akun Penerima (Ditambah)"}
                           </span>
@@ -1140,14 +1142,14 @@ export function TransactionForm({
                         </label>
                       `
                     : html`
-                        <div className="cs-entry-notice rounded-lg px-3 py-3 text-xs leading-5 text-slate-600 dark:text-slate-300">
+                        <div key="movement-account-missing" className="cs-entry-notice rounded-lg px-3 py-3 text-xs leading-5 text-slate-600 dark:text-slate-300">
                           <p>Tambahkan minimal dua dompet aktif sebelum membuat transfer atau tukar valas.</p>
                           ${onRequestAddWallet
                             ? html`
                                 <button
                                   type="button"
                                   onClick=${onRequestAddWallet}
-                                  className="history-action-primary mt-3 min-h-10 rounded-lg px-3 py-2 text-xs font-extrabold"
+                                  className="history-action-primary mt-3 min-h-11 rounded-lg px-3 py-2 text-xs font-extrabold"
                                 >
                                   Tambah dompet
                                 </button>
@@ -1158,7 +1160,7 @@ export function TransactionForm({
 
                   ${!isTransfer
                     ? html`
-                        <section className="cs-entry-rate-card rounded-lg p-3">
+                        <section key="movement-rate" className="cs-entry-rate-card rounded-lg p-3">
                           <div className="flex items-start justify-between gap-3">
                             <div>
                               <p className="text-xs font-extrabold text-emerald-400">
@@ -1235,12 +1237,12 @@ export function TransactionForm({
                         </section>
                       `
                     : html`
-                        <div className="cs-entry-notice px-3 py-3 text-xs leading-5 text-slate-600 dark:text-slate-300">
+                        <div key="movement-transfer-note" className="cs-entry-notice px-3 py-3 text-xs leading-5 text-slate-600 dark:text-slate-300">
                           Transfer memakai mata uang yang sama. Saldo dipindahkan tanpa konversi kurs.
                         </div>
                       `}
 
-                  <label className="block">
+                  <label key="movement-from-amount" className="block">
                     <span className="cs-entry-label">
                       ${isTransfer
                         ? `Jumlah Transfer (${form.from_currency})`
@@ -1262,7 +1264,7 @@ export function TransactionForm({
 
                   ${!isTransfer
                     ? html`
-                        <label className="block">
+                        <label key="movement-to-amount" className="block">
                           <span className="cs-entry-label">Akan diterima (${form.to_currency})</span>
                           <input
                             type="text"
@@ -1283,7 +1285,7 @@ export function TransactionForm({
                       `
                     : null}
 
-                  <label className="block">
+                  <label key="movement-fee" className="block">
                     <span className="cs-entry-label">Biaya Admin / Transfer Fee (${form.from_currency})</span>
                     <input
                       type="text"
@@ -1299,7 +1301,7 @@ export function TransactionForm({
 
                   ${parsedFromAmount > 0
                     ? html`
-                        <div className="cs-entry-summary grid gap-1.5 rounded-lg p-3 text-[11px]">
+                        <div key="movement-summary" className="cs-entry-summary grid gap-1.5 rounded-lg p-3 text-[11px]">
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-slate-500 dark:text-slate-400">
                               Anda tukarkan
@@ -1364,7 +1366,7 @@ export function TransactionForm({
 
                   ${parsedFromAmount > 0 && !sourceBalanceSufficient
                     ? html`
-                        <div className="cs-entry-warning rounded-lg px-3 py-2.5 text-[11px] font-semibold leading-5">
+                        <div key="movement-balance-warning" className="cs-entry-warning rounded-lg px-3 py-2.5 text-[11px] font-semibold leading-5">
                           Saldo ${form.from_currency} tidak cukup untuk nominal dan biaya admin.
                         </div>
                       `
@@ -1373,7 +1375,7 @@ export function TransactionForm({
 
             ${!workspace
               ? html`
-            <label className="block">
+            <label key="entry-occurred-at" className="block">
               <span className="cs-entry-label">Tanggal & waktu</span>
               <span className="relative block">
                 <input
@@ -1394,7 +1396,7 @@ export function TransactionForm({
 
             ${isMovement
               ? html`
-                  <label className="block">
+                  <label key="movement-description" className="block">
                     <span className="cs-entry-label">Catatan Transaksi</span>
                     <input
                       type="text"
@@ -1409,7 +1411,7 @@ export function TransactionForm({
 
             ${isExpense && selectedBudgetOverAmount > 0
               ? html`
-                  <div className="cs-entry-warning rounded-lg px-3 py-3 text-xs leading-5">
+                  <div key="entry-budget-warning" className="cs-entry-warning rounded-lg px-3 py-3 text-xs leading-5">
                     Transaksi ini melewati anggaran ${selectedBudgetInsight.categoryLabel} sebesar ${formatCurrency(
                       selectedBudgetOverAmount,
                       selectedBudgetInsight.currency,
@@ -1418,21 +1420,23 @@ export function TransactionForm({
                 `
               : null}
 
-            <button
-              type="submit"
-              disabled=${loading || submitDisabled}
-              className="cs-entry-submit min-h-11 w-full rounded-lg px-4 text-sm font-extrabold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              ${loading
-                ? "Menyimpan..."
-                : isMovement
-                  ? isTransfer
-                    ? "Simpan transfer"
-                    : "Simpan tukar valas"
-                  : isIncome
-                    ? "Simpan pemasukan"
-                    : "Simpan pengeluaran"}
-            </button>
+            <${FormActionDock} key="transaction-submit" aboveNavigation=${workspace}>
+              <button
+                type="submit"
+                disabled=${loading || submitDisabled}
+                className="cs-entry-submit min-h-12 w-full rounded-xl px-4 text-sm font-extrabold text-white transition disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                ${loading
+                  ? "Menyimpan..."
+                  : isMovement
+                    ? isTransfer
+                      ? "Simpan transfer"
+                      : "Simpan tukar valas"
+                    : isIncome
+                      ? "Simpan pemasukan"
+                      : "Simpan pengeluaran"}
+              </button>
+            <//>
           </form>
         </div>
       </section>

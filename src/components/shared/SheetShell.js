@@ -17,7 +17,7 @@ export function SheetShell({ open, title, helper, onClose, children, labelledBy 
 
   return html`
     <div
-      className="fixed inset-0 flex items-end justify-center px-3 pb-3 pt-16 md:items-center md:p-6"
+      className="fixed inset-0 flex items-end justify-center px-2 pb-[calc(.5rem+env(safe-area-inset-bottom))] pt-12 md:items-center md:p-6"
       style=${{ zIndex: 1000 }}
     >
       <button
@@ -30,7 +30,7 @@ export function SheetShell({ open, title, helper, onClose, children, labelledBy 
         role="dialog"
         aria-modal="true"
         aria-labelledby=${labelledBy}
-        className="settings-bottom-sheet relative z-10 w-full max-w-md overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/95 p-4 text-slate-950 shadow-[0_-24px_80px_rgba(15,23,42,0.24)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/95 dark:text-white dark:shadow-black/50"
+        className="settings-bottom-sheet relative z-10 flex max-h-[calc(100dvh-.75rem)] w-full max-w-md flex-col overflow-hidden rounded-[28px] border border-slate-200/80 bg-white/95 p-4 text-slate-950 shadow-[0_-24px_80px_rgba(15,23,42,0.24)] backdrop-blur-2xl md:max-h-[88dvh] dark:border-white/10 dark:bg-slate-950/95 dark:text-white dark:shadow-black/50"
       >
         <div className="mx-auto mb-3 h-1 w-12 rounded-full bg-slate-300 dark:bg-slate-700"></div>
         <div className="flex items-start justify-between gap-3">
@@ -55,7 +55,10 @@ export function SheetShell({ open, title, helper, onClose, children, labelledBy 
             x
           </button>
         </div>
-        <div className="mt-4 max-h-[70svh] overflow-y-auto pr-1">
+        <div
+          data-sheet-scroll="true"
+          className="mt-4 min-h-0 overflow-y-auto overscroll-contain pb-1 pr-1"
+        >
           ${children}
         </div>
       </section>

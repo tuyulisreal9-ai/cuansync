@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import htm from "htm";
 import { CurrencyCombobox } from "../shared/CurrencyCombobox.js";
+import { FormActionDock } from "../shared/FormActionDock.js";
 import { SheetShell } from "../shared/SheetShell.js";
 import { WalletAccountsPage } from "./WalletAccountsPage.js";
 import {
@@ -427,6 +428,7 @@ function AssetAccountForm({
           <span className="mb-2 block text-sm font-medium">Catatan</span>
           <input
             type="text"
+            enterKeyHint="done"
             value=${form.note}
             onChange=${(event) => updateField("note", event.target.value)}
             placeholder="Opsional"
@@ -434,26 +436,28 @@ function AssetAccountForm({
           />
         </label>
 
-        <div className=${onCancel ? "grid gap-3 sm:grid-cols-[0.8fr_1fr]" : ""}>
-          ${onCancel
-            ? html`
-                <button
-                  type="button"
-                  onClick=${onCancel}
-                  className="history-action-secondary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
-                >
-                  Batal
-                </button>
-              `
-            : null}
-          <button
-            type="submit"
-            disabled=${loading}
-            className="history-action-primary min-h-12 w-full rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Simpan akun
-          </button>
-        </div>
+        <${FormActionDock}>
+          <div className=${onCancel ? "grid grid-cols-[0.78fr_1.22fr] gap-2" : ""}>
+            ${onCancel
+              ? html`
+                  <button
+                    type="button"
+                    onClick=${onCancel}
+                    className="history-action-secondary min-h-12 rounded-xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+                  >
+                    Batal
+                  </button>
+                `
+              : null}
+            <button
+              type="submit"
+              disabled=${loading}
+              className="history-action-primary min-h-12 w-full rounded-xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Simpan akun
+            </button>
+          </div>
+        <//>
       </form>
     </div>
   `;
@@ -785,26 +789,28 @@ function GoalForm({
           />
         </label>
 
-        <div className=${onCancel ? "grid gap-3 sm:grid-cols-[0.8fr_1fr]" : ""}>
-          ${onCancel
-            ? html`
-                <button
-                  type="button"
-                  onClick=${onCancel}
-                  className="history-action-secondary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
-                >
-                  Batal
-                </button>
-              `
-            : null}
-          <button
-            type="submit"
-            disabled=${loading}
-            className="history-action-primary min-h-12 w-full rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Simpan target
-          </button>
-        </div>
+        <${FormActionDock}>
+          <div className=${onCancel ? "grid grid-cols-[0.78fr_1.22fr] gap-2" : ""}>
+            ${onCancel
+              ? html`
+                  <button
+                    type="button"
+                    onClick=${onCancel}
+                    className="history-action-secondary min-h-12 rounded-xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+                  >
+                    Batal
+                  </button>
+                `
+              : null}
+            <button
+              type="submit"
+              disabled=${loading}
+              className="history-action-primary min-h-12 w-full rounded-xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Simpan target
+            </button>
+          </div>
+        <//>
       </form>
     </div>
   `;

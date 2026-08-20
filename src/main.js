@@ -5428,12 +5428,14 @@ function App() {
         ${menuOpen
           ? html`
               <button
+                key="profile-menu-backdrop"
                 type="button"
                 aria-label="Tutup menu"
                 onClick=${() => setMenuOpen(false)}
                 className="fixed inset-0 z-20 bg-slate-950/5 backdrop-blur-[1px]"
               ></button>
               <section
+                key="profile-menu-panel"
                 className=${menuPanelClass}
                 onClick=${(event) => event.stopPropagation()}
               >

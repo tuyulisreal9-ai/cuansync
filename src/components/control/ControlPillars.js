@@ -225,7 +225,7 @@ function FoundationCard({
           <button
             type="button"
             onClick=${onAction}
-            className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-950 px-3 text-[10px] font-black text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
+            className="inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg bg-slate-950 px-3 text-[10px] font-black text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-100"
           >
             ${actionLabel}
             <${ArrowRight} aria-hidden="true" className="h-3.5 w-3.5" />
@@ -235,7 +235,7 @@ function FoundationCard({
             aria-expanded=${expanded}
             aria-controls=${`control-${cardKey}-details`}
             onClick=${onToggle}
-            className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-[10px] font-black text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-slate-200 px-3 text-[10px] font-black text-slate-600 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
           >
             ${expanded ? "Tutup rincian" : "Cara dihitung"}
             <${ChevronDown}

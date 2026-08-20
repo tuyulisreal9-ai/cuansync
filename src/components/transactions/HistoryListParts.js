@@ -15,6 +15,7 @@ import {
   getTransactionDisplayTitle,
   getTransactionTone,
 } from "./presentation.js";
+import { FormActionDock } from "../shared/FormActionDock.js";
 
 const html = htm.bind(React.createElement);
 
@@ -191,26 +192,28 @@ export function TransactionFilter({
         </label>
 
       </div>
-      <div className="grid grid-cols-2 gap-2 border-t border-slate-200/70 pt-3 dark:border-white/10">
-        <button
-          type="button"
-          onClick=${onReset}
-          className="cuan-secondary min-h-11 rounded-xl px-3 py-2.5 text-sm font-bold transition"
-        >
-          Reset filter
-        </button>
-        ${onDone
-          ? html`
-              <button
-                type="button"
-                onClick=${onDone}
-                className="history-action-primary min-h-11 rounded-xl px-3 py-2.5 text-sm font-black"
-              >
-                Terapkan
-              </button>
-            `
-          : null}
-      </div>
+      <${FormActionDock}>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick=${onReset}
+            className="cuan-secondary min-h-12 rounded-xl px-3 py-2.5 text-sm font-bold transition"
+          >
+            Reset filter
+          </button>
+          ${onDone
+            ? html`
+                <button
+                  type="button"
+                  onClick=${onDone}
+                  className="history-action-primary min-h-12 rounded-xl px-3 py-2.5 text-sm font-black"
+                >
+                  Terapkan
+                </button>
+              `
+            : null}
+        </div>
+      <//>
     </div>
   `;
 }

@@ -254,7 +254,7 @@ export function TransactionHistoryPage({
               placeholder="Cari transaksi"
               value=${filters.search}
               onChange=${(event) => updateFilter("search", event.target.value)}
-              className="cuan-input min-h-10 w-full rounded-xl py-2 pl-9 pr-10 text-sm transition"
+              className="cuan-input min-h-11 w-full rounded-xl py-2 pl-9 pr-12 text-sm transition"
             />
             ${filters.search
               ? html`
@@ -262,7 +262,7 @@ export function TransactionHistoryPage({
                     type="button"
                     onClick=${() => updateFilter("search", "")}
                     aria-label="Hapus pencarian"
-                    className="absolute right-1 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-200/70 dark:hover:bg-white/10"
+                    className="absolute right-0 top-1/2 inline-flex h-11 min-h-11 w-11 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-200/70 dark:hover:bg-white/10"
                   >
                     <${X} aria-hidden="true" className="h-4 w-4" />
                   </button>
@@ -283,7 +283,7 @@ export function TransactionHistoryPage({
                     <button
                       type="button"
                       onClick=${() => setShowAllHistory((current) => !current)}
-                      className="min-h-9 rounded-lg px-2 text-[10px] font-black text-emerald-600 transition hover:bg-emerald-500/10 dark:text-emerald-300"
+                      className="min-h-11 rounded-lg px-2 text-[10px] font-black text-emerald-600 transition hover:bg-emerald-500/10 dark:text-emerald-300"
                     >
                       ${showAllHistory ? "Ringkas" : "Lihat semua"}
                     </button>
@@ -292,7 +292,7 @@ export function TransactionHistoryPage({
               <button
                 type="button"
                 onClick=${() => setFilterSheetOpen(true)}
-                className="cuan-secondary inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-[10px] font-black transition"
+                className="cuan-secondary inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2.5 text-[10px] font-black transition"
               >
                 <${SlidersHorizontal} aria-hidden="true" className="h-3.5 w-3.5" />
                 ${advancedFilterCount ? `Filter (${advancedFilterCount})` : "Filter"}
@@ -302,7 +302,7 @@ export function TransactionHistoryPage({
                 onClick=${() => setExportSheetOpen(true)}
                 aria-label="Unduh mutasi"
                 title="Unduh mutasi"
-                className="cuan-secondary inline-flex h-9 min-h-9 w-9 items-center justify-center rounded-lg transition"
+                className="cuan-secondary inline-flex h-11 min-h-11 w-11 items-center justify-center rounded-lg transition"
               >
                 <${Download} aria-hidden="true" className="h-4 w-4" />
               </button>
@@ -317,7 +317,7 @@ export function TransactionHistoryPage({
                         key=${chip.key}
                         type="button"
                         onClick=${chip.clear}
-                        className="inline-flex min-h-8 max-w-full items-center gap-1 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2 text-[10px] font-bold text-emerald-700 dark:text-emerald-300"
+                        className="inline-flex min-h-11 max-w-full items-center gap-1 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2 text-[10px] font-bold text-emerald-700 dark:text-emerald-300"
                         aria-label=${`Hapus filter ${chip.label}`}
                       >
                         <span className="truncate">${chip.label}</span>
@@ -328,7 +328,7 @@ export function TransactionHistoryPage({
                   <button
                     type="button"
                     onClick=${resetFilters}
-                    className="min-h-8 rounded-lg px-2 text-[10px] font-black text-slate-500 transition hover:bg-slate-200/60 dark:text-slate-400 dark:hover:bg-white/10"
+                    className="min-h-11 rounded-lg px-2 text-[10px] font-black text-slate-500 transition hover:bg-slate-200/60 dark:text-slate-400 dark:hover:bg-white/10"
                   >
                     Reset filter
                   </button>

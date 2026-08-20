@@ -75,7 +75,7 @@ export function RecentTransactionsPreview({
         <button
           type="button"
           onClick=${onOpenHistory}
-          className="cuan-secondary min-h-10 rounded-2xl px-3 py-2 text-xs font-black"
+          className="cuan-secondary min-h-11 rounded-2xl px-3 py-2 text-xs font-black"
         >
           Riwayat
         </button>

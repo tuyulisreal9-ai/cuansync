@@ -360,7 +360,7 @@ function WalletSummary({
         <button
           type="button"
           onClick=${onOpen}
-          className="inline-flex min-h-9 items-center gap-1 rounded-md px-2.5 text-xs font-bold text-emerald-500 transition hover:bg-emerald-500/10"
+          className="inline-flex min-h-11 items-center gap-1 rounded-md px-2.5 text-xs font-bold text-emerald-500 transition hover:bg-emerald-500/10"
         >
           Kelola
           <${ChevronRight} aria-hidden="true" className="h-4 w-4" />
@@ -488,7 +488,7 @@ function RecentTransactions({
         <button
           type="button"
           onClick=${onOpen}
-          className="inline-flex min-h-9 items-center gap-1 rounded-md px-2.5 text-xs font-bold text-emerald-500 transition hover:bg-emerald-500/10"
+          className="inline-flex min-h-11 items-center gap-1 rounded-md px-2.5 text-xs font-bold text-emerald-500 transition hover:bg-emerald-500/10"
         >
           Lihat semua
           <${ChevronRight} aria-hidden="true" className="h-4 w-4" />
