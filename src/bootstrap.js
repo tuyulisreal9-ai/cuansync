@@ -8,8 +8,7 @@ function renderBootstrapError(error) {
         <div class="boot-badge">Aplikasi bermasalah</div>
         <h1 class="boot-title">Aplikasi belum berhasil dimuat.</h1>
         <p class="boot-copy">
-          Penyebab paling umum di project ini adalah dependensi eksternal tidak bisa diakses,
-          terutama <code>esm.sh</code> untuk React dan <code>cdn.tailwindcss.com</code> untuk Tailwind.
+          Aplikasi tidak dapat memuat bundle lokal atau terhubung ke layanan data.
         </p>
         <div class="boot-panel">
           <p class="boot-label">Detail masalah</p>
@@ -18,9 +17,9 @@ function renderBootstrapError(error) {
         <div class="boot-panel">
           <p class="boot-label">Yang bisa dilakukan sekarang</p>
           <ol class="boot-list">
-            <li>1. Pastikan browser bisa mengakses internet dan CDN eksternal.</li>
-            <li>2. Muat ulang halaman setelah koneksi tersedia.</li>
-            <li>3. Jika mau, saya bisa lanjut ubah project ini jadi versi lokal penuh tanpa CDN.</li>
+            <li>1. Muat ulang halaman untuk mencoba kembali.</li>
+            <li>2. Pastikan proses build atau development server masih berjalan.</li>
+            <li>3. Periksa detail masalah di atas bila kendala tetap muncul.</li>
           </ol>
         </div>
       </section>

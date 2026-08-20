@@ -1,1 +1,1 @@
-export { AuthScreen, CurrencyOnboarding } from "./AuthFlow.js";
+export { AuthScreen } from "./AuthFlow.js";

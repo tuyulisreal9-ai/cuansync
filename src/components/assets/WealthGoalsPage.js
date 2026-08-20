@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "https://esm.sh/react@18.3.1";
-import htm from "https://esm.sh/htm@3.1.1";
+import React, { useEffect, useState } from "react";
+import htm from "htm";
 import { CurrencyCombobox } from "../shared/CurrencyCombobox.js";
 import { SheetShell } from "../shared/SheetShell.js";
 import { WalletAccountsPage } from "./WalletAccountsPage.js";

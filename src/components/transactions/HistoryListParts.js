@@ -1,10 +1,10 @@
-import React from "https://esm.sh/react@18.3.1";
-import htm from "https://esm.sh/htm@3.1.1";
+import React from "react";
+import htm from "htm";
 import {
   ArrowDownLeft,
   ArrowRightLeft,
   ArrowUpRight,
-} from "https://esm.sh/lucide-react@0.468.0?deps=react@18.3.1";
+} from "lucide-react";
 import { getAssetAccountDisplayName } from "../../domain/assets.js";
 import { getTransactionFlow } from "../../domain/transactions.js";
 import { formatNumericInput } from "../../lib/currency.js";
@@ -223,11 +223,11 @@ function getTransactionAccountLabel(transaction, accountById) {
   const flow = getTransactionFlow(transaction);
   if (flow === "income") {
     const account = accountById.get(transaction.destination_account_id);
-    return account ? getShortName(account) : "";
+    return account ? getShortName(account) : "Dompet tidak tercatat";
   }
   if (flow === "expense") {
     const account = accountById.get(transaction.source_account_id);
-    return account ? getShortName(account) : "";
+    return account ? getShortName(account) : "Dompet tidak tercatat";
   }
 
   const source = accountById.get(transaction.source_account_id);
@@ -239,7 +239,7 @@ function getTransactionAccountLabel(transaction, accountById) {
     ? getShortName(source)
     : destination
       ? getShortName(destination)
-      : "";
+      : "Dompet tidak tercatat";
 }
 
 export function TransactionItem({

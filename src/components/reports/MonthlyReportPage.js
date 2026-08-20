@@ -1,5 +1,5 @@
-import React, { useMemo } from "https://esm.sh/react@18.3.1";
-import htm from "https://esm.sh/htm@3.1.1";
+import React, { useMemo } from "react";
+import htm from "htm";
 import {
   buildMonthlyReport,
   getAvailableReportMonths,

@@ -1,11 +1,12 @@
-import React from "https://esm.sh/react@18.3.1";
-import htm from "https://esm.sh/htm@3.1.1";
-import { ArrowLeft } from "https://esm.sh/lucide-react@0.468.0?deps=react@18.3.1";
+import React from "react";
+import htm from "htm";
+import { ArrowLeft } from "lucide-react";
 import { CONTROL_MUTED } from "./ControlPrimitives.js";
 import { ControlPillars } from "./ControlPillars.js";
 import {
   BudgetOverview,
   ConcernList,
+  ControlCoachCard,
   Exposure,
   SafeToSpendCard,
 } from "./ControlSummarySections.js";
@@ -17,6 +18,7 @@ export function ControlCenterPage({
   visible = true,
   onNavigate,
   onOpenBudget,
+  onAddIncome,
 }) {
   return html`
     <div className="mx-auto grid w-full max-w-md gap-3 pb-[calc(7rem+env(safe-area-inset-bottom))] lg:pb-6">
@@ -39,6 +41,12 @@ export function ControlCenterPage({
         </div>
       </header>
 
+      <${ControlCoachCard}
+        summary=${summary}
+        onNavigate=${onNavigate}
+        onOpenBudget=${onOpenBudget}
+        onAddIncome=${onAddIncome}
+      />
       ${summary.safeToSpend.available
         ? html`
             <${SafeToSpendCard}
@@ -47,6 +55,13 @@ export function ControlCenterPage({
             />
           `
         : null}
+      <${ControlPillars}
+        summary=${summary}
+        visible=${visible}
+        onOpenBudget=${onOpenBudget}
+        onNavigate=${onNavigate}
+        onAddIncome=${onAddIncome}
+      />
       <${BudgetOverview}
         summary=${summary}
         visible=${visible}
@@ -57,11 +72,6 @@ export function ControlCenterPage({
         visible=${visible}
         onOpenBudget=${onOpenBudget}
         onNavigate=${onNavigate}
-      />
-      <${ControlPillars}
-        summary=${summary}
-        visible=${visible}
-        onOpenBudget=${onOpenBudget}
       />
       <${Exposure} summary=${summary} />
     </div>

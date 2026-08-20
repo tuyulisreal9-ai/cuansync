@@ -33,38 +33,6 @@
         document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
       } catch {}
     </script>
-    <script src="https://cdn.tailwindcss.com?plugins=forms"></script>
-    <script>
-      if (window.tailwind) {
-        window.tailwind.config = {
-          darkMode: "class",
-          theme: {
-            extend: {
-              fontFamily: {
-                sans: ["Plus Jakarta Sans", "ui-sans-serif", "system-ui"],
-                display: ["Space Grotesk", "ui-sans-serif", "system-ui"],
-              },
-              colors: {
-                brand: {
-                  50: "#f3faf7",
-                  100: "#dbf2e8",
-                  500: "#2aa876",
-                  600: "#1f8a61",
-                  700: "#18674a",
-                  900: "#11352a",
-                },
-                midnight: "#0e1726",
-                ink: "#111827",
-                mist: "#f7faf9",
-              },
-              boxShadow: {
-                float: "0 18px 50px rgba(17, 24, 39, 0.12)",
-              },
-            },
-          },
-        };
-      }
-    </script>
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
   <body class="min-h-full bg-mist text-ink transition-colors duration-300 dark:bg-slate-950 dark:text-slate-50">

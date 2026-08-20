@@ -1,5 +1,5 @@
-import React from "https://esm.sh/react@18.3.1";
-import htm from "https://esm.sh/htm@3.1.1";
+import React from "react";
+import htm from "htm";
 import { getTransactionFlow } from "../../domain/transactions.js";
 import { formatShortTime } from "../../lib/dates.js";
 import {

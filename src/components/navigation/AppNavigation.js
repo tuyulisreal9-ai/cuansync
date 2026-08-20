@@ -1,5 +1,5 @@
-import React from "https://esm.sh/react@18.3.1";
-import htm from "https://esm.sh/htm@3.1.1";
+import React from "react";
+import htm from "htm";
 import {
   ArrowRight,
   House,
@@ -9,7 +9,7 @@ import {
   Target,
   WalletCards,
   X,
-} from "https://esm.sh/lucide-react@0.468.0?deps=react@18.3.1";
+} from "lucide-react";
 
 const html = htm.bind(React.createElement);
 

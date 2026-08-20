@@ -1,10 +1,10 @@
-import React, { useEffect, useMemo, useState } from "https://esm.sh/react@18.3.1";
-import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
-import htm from "https://esm.sh/htm@3.1.1";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.50.0";
+import React, { useEffect, useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
+import htm from "htm";
+import { createClient } from "@supabase/supabase-js";
 import { APP_NAME, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
 import { BudgetWorkspacePage } from "./components/budget/index.js";
-import { AuthScreen, CurrencyOnboarding } from "./components/auth/index.js";
+import { AuthScreen } from "./components/auth/index.js";
 import { WealthGoalsPage } from "./components/assets/index.js";
 import { ControlCenterPage } from "./components/control/index.js";
 import { HomeDashboardPage } from "./components/home/index.js";
@@ -40,6 +40,7 @@ import {
   getCurrentValuationRateForCurrency,
   getDefaultAssetAccountName,
   getSelectableAssetAccounts,
+  isSpendableAssetAccount,
   normalizeAssetAccount,
   normalizeAssetAccounts,
 } from "./domain/assets.js";
@@ -93,6 +94,8 @@ import {
   normalizeTransactions,
   orderTransactions,
   resolveTransactionBaseValue,
+  transactionBelongsToAccount,
+  validateTransactionAccountLinks,
 } from "./domain/transactions.js";
 import {
   DEFAULT_ACTIVE_CURRENCIES,
@@ -291,18 +294,6 @@ function isMissingTransactionRateTypeColumn(error) {
     message.includes("rate_type") &&
     (message.includes("schema cache") || error?.code === "PGRST204")
   );
-}
-
-function getSettingsSyncErrorMessage(error) {
-  if (error?.code === "42P01") {
-    return "Pengaturan tersimpan di perangkat ini. Jalankan schema.sql terbaru agar profil dan mata uang sinkron ke database.";
-  }
-
-  if (isMissingDailyCurrencyColumn(error)) {
-    return "Pengaturan utama tersimpan, tapi kolom daily_currency belum ada di database. Jalankan schema.sql terbaru agar mata uang harian ikut sinkron lintas perangkat.";
-  }
-
-  return error?.message || "Pengaturan tersimpan lokal, tapi gagal sinkron ke database.";
 }
 
 function getCurrencySettingsOwnerId(user) {
@@ -1821,6 +1812,7 @@ function DailyExpenseForm({
   expenseCurrency = DEFAULT_BASE_CURRENCY,
   baseCurrency = getBaseCurrency(),
   accounts = [],
+  onRequestAddWallet,
 }) {
   const dailyCurrency = normalizeCurrencyCode(expenseCurrency);
   const accountOptions = getSelectableAssetAccounts(accounts, dailyCurrency);
@@ -1857,7 +1849,7 @@ function DailyExpenseForm({
     : "-";
   const parsedAmount = Number(normalizeNumericInput(form.amount_thb));
   const submitDisabled =
-    parsedAmount <= 0 || (accountOptions.length > 0 && !form.source_account_id);
+    parsedAmount <= 0 || !accountOptions.length || !form.source_account_id;
 
   useEffect(() => {
     setForm((current) => {
@@ -1882,6 +1874,10 @@ function DailyExpenseForm({
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (!accountOptions.length || !form.source_account_id) {
+      onRequestAddWallet?.();
+      return;
+    }
 
     const succeeded = await onSubmit({
       type: "expense",
@@ -1975,6 +1971,27 @@ function DailyExpenseForm({
       </div>
 
       <form className="relative mt-4 grid gap-3.5 lg:mt-5 lg:grid-cols-2 lg:gap-4" onSubmit=${handleSubmit}>
+        ${!accountOptions.length
+          ? html`
+              <div className="rounded-2xl border border-amber-300/25 bg-amber-400/10 p-4 text-sm leading-6 text-amber-950 dark:border-amber-300/20 dark:text-amber-100 lg:col-span-2">
+                <p className="font-black">Belum ada dompet ${dailyCurrency}</p>
+                <p className="mt-1 text-xs">
+                  Tambahkan dompet agar CUANSYNC tahu saldo mana yang dipakai untuk pengeluaran ini.
+                </p>
+                ${onRequestAddWallet
+                  ? html`
+                      <button
+                        type="button"
+                        onClick=${onRequestAddWallet}
+                        className="mt-3 min-h-10 rounded-xl bg-brand-600 px-3 py-2 text-xs font-black text-white transition hover:bg-brand-700"
+                      >
+                        Tambah dompet
+                      </button>
+                    `
+                  : null}
+              </div>
+            `
+          : null}
         <label className="block lg:col-span-2">
           <span className="mb-2 block text-sm font-medium">Jumlah (${dailyCurrency})</span>
           <input
@@ -2433,7 +2450,6 @@ function App() {
     { configured: Boolean(currencySettings?.configured) },
   );
   const activeCurrencies = normalizedAppCurrencySettings.activeCurrencies;
-  const currencySetupDone = Boolean(currencySettings?.configured);
   const globalRateCurrencies = normalizeCurrencyList([
     ...DEFAULT_ACTIVE_CURRENCIES,
     ...activeCurrencies,
@@ -2476,7 +2492,6 @@ function App() {
   }, [theme, systemPrefersDark]);
 
   useEffect(() => {
-    if (!currencySetupDone) return undefined;
     const baseCurrency = normalizedAppCurrencySettings.baseCurrency;
     const currentSnapshot = normalizeGlobalRateSnapshot(globalRateSnapshot, baseCurrency);
     if (
@@ -2503,7 +2518,6 @@ function App() {
       cancelled = true;
     };
   }, [
-    currencySetupDone,
     normalizedAppCurrencySettings.baseCurrency,
     globalRateCurrencies.join("|"),
   ]);
@@ -3160,10 +3174,13 @@ function App() {
           (account) => account.id === destinationAccountId,
         );
         const isInternalTransfer = fromCurrency === toCurrency;
-        if (isInternalTransfer && (!sourceAccountId || !destinationAccountId)) {
-          throw new Error("Pilih dompet asal dan tujuan untuk transfer.");
+        if (!sourceAccountId || !destinationAccountId) {
+          throw new Error("Pilih dompet asal dan tujuan terlebih dahulu.");
         }
-        if (isInternalTransfer && sourceAccountId === destinationAccountId) {
+        if (!sourceAccount || !destinationAccount) {
+          throw new Error("Dompet asal atau tujuan tidak ditemukan.");
+        }
+        if (sourceAccountId === destinationAccountId) {
           throw new Error("Dompet asal dan tujuan tidak boleh sama.");
         }
         if (isInternalTransfer && Number(exchangeRateValue) !== 1) {
@@ -3198,16 +3215,9 @@ function App() {
         if (!rateValidation.valid || !rate || rate <= 0) {
           throw new Error(rateValidation.message || "Kurs exchange harus lebih besar dari 0.");
         }
-        const balances = computeCurrencyBalances(
-          transactions,
-          getActiveCurrencies(),
+        const availableFromBalance = Number(
+          sourceAccount.balance_amount || sourceAccount.balanceAmount || 0,
         );
-        const availableFromBalance =
-          sourceAccount
-            ? Number(sourceAccount.balance_amount || sourceAccount.balanceAmount || 0)
-            : fromCurrency === getBaseCurrency()
-              ? metrics.balanceIdr
-              : Number(balances[fromCurrency] || 0);
         const totalDebit = addExchangeDecimals(fromAmountValue, feeAmountValue);
         if (
           compareExchangeDecimals(
@@ -3284,20 +3294,6 @@ function App() {
             `Dana tersedia pada ${selectedGoal.name} tidak mencukupi.`,
           );
         }
-        if (!sourceAccountId) {
-          const balances = computeCurrencyBalances(
-            transactions,
-            getActiveCurrencies(),
-          );
-          const availableExpenseBalance =
-            expenseCurrency === getBaseCurrency()
-              ? metrics.balanceIdr
-              : Number(balances[expenseCurrency] || 0);
-          if (availableExpenseBalance < amount) {
-            throw new Error(`Saldo ${expenseCurrency} tidak mencukupi.`);
-          }
-        }
-
         const explicitRate = Number(
           payload.exchange_rate || payload.rate || 0,
         );
@@ -3356,6 +3352,7 @@ function App() {
         record.target_id = targetId;
       }
 
+      validateTransactionAccountLinks(record, assetAccounts);
       const accountBalancePlan = buildAssetAccountBalancePlan(
         assetAccounts,
         getTransactionAccountMovements(record),
@@ -3429,7 +3426,21 @@ function App() {
               .single());
           }
           if (error) throw error;
-          await persistAssetAccountBalancePlan(accountBalancePlan);
+          try {
+            await persistAssetAccountBalancePlan(accountBalancePlan);
+          } catch (balanceError) {
+            const { error: rollbackError } = await supabase
+              .from("transactions")
+              .delete()
+              .eq("id", data.id)
+              .eq("user_id", user.id);
+            if (rollbackError) {
+              throw new Error(
+                "Transaksi tersimpan tetapi saldo dompet gagal diperbarui. Muat ulang aplikasi dan periksa riwayat sebelum mencoba lagi.",
+              );
+            }
+            throw balanceError;
+          }
           savedData = data;
         }
 
@@ -3477,9 +3488,7 @@ function App() {
         throw new Error("Tanggal transaksi tidak valid.");
       }
 
-      const nextType = ["income", "expense", "exchange"].includes(payload.type)
-        ? payload.type
-        : getTransactionFlow(transaction);
+      const nextType = getTransactionFlow(transaction);
       const description = String(payload.description || "").trim();
       const amount = Number(normalizeNumericInput(payload.amount));
       const amountIdr = Number(normalizeNumericInput(payload.amount_idr));
@@ -3534,7 +3543,10 @@ function App() {
         record.base_amount = currency === getBaseCurrency() ? nextAmount : null;
         record.amount_idr = currency === getBaseCurrency() ? nextAmount : null;
         record.amount_thb = currency === "THB" ? nextAmount : null;
-        record.destination_account_id = transaction.destination_account_id || null;
+        record.destination_account_id =
+          payload.destination_account_id !== undefined
+            ? payload.destination_account_id || null
+            : transaction.destination_account_id || null;
       }
 
       if (nextType === "exchange") {
@@ -3577,9 +3589,10 @@ function App() {
         const ratePair = new Set([rateBaseCurrency, rateQuoteCurrency]);
         if (
           isInternalTransfer &&
-          (!transaction.source_account_id ||
-            !transaction.destination_account_id ||
-            transaction.source_account_id === transaction.destination_account_id)
+          (!(payload.source_account_id || transaction.source_account_id) ||
+            !(payload.destination_account_id || transaction.destination_account_id) ||
+            (payload.source_account_id || transaction.source_account_id) ===
+              (payload.destination_account_id || transaction.destination_account_id))
         ) {
           throw new Error("Transfer membutuhkan dompet asal dan tujuan yang berbeda.");
         }
@@ -3625,8 +3638,14 @@ function App() {
         record.category_group = record.category
           ? getDefaultGroupForCategory(record.category)
           : null;
-        record.source_account_id = transaction.source_account_id || null;
-        record.destination_account_id = transaction.destination_account_id || null;
+        record.source_account_id =
+          payload.source_account_id !== undefined
+            ? payload.source_account_id || null
+            : transaction.source_account_id || null;
+        record.destination_account_id =
+          payload.destination_account_id !== undefined
+            ? payload.destination_account_id || null
+            : transaction.destination_account_id || null;
         record.base_amount =
           fromCurrency === getBaseCurrency()
             ? fromAmount
@@ -3737,7 +3756,10 @@ function App() {
               : null;
         record.amount_idr = record.base_amount;
         record.amount_thb = expenseCurrency === "THB" ? nextAmount : null;
-        record.source_account_id = transaction.source_account_id || null;
+        record.source_account_id =
+          payload.source_account_id !== undefined
+            ? payload.source_account_id || null
+            : transaction.source_account_id || null;
         record.target_id = targetId;
       }
 
@@ -3749,6 +3771,7 @@ function App() {
         ...transaction,
         ...record,
       });
+      validateTransactionAccountLinks(updatedTransaction, assetAccounts);
       const accountBalancePlan = buildAssetAccountBalancePlan(
         assetAccounts,
         [
@@ -4163,6 +4186,21 @@ function App() {
   }
 
   async function handleDeleteAssetAccount(account) {
+    const linkedTransactions = transactions.filter((transaction) =>
+      transactionBelongsToAccount(transaction, account.id),
+    );
+    if (linkedTransactions.length) {
+      const countLabel = `${linkedTransactions.length} transaksi`;
+      setMessage(
+        `${account.name} belum bisa dihapus karena masih dipakai oleh ${countLabel}. Hapus atau pindahkan transaksi tersebut terlebih dahulu.`,
+      );
+      setMessageTone("error");
+      setToast({
+        message: `Dompet masih dipakai oleh ${countLabel}.`,
+        tone: "warning",
+      });
+      return;
+    }
     const confirmation = window.confirm(`Hapus akun "${account.name}" dari daftar aset?`);
     if (!confirmation) return;
 
@@ -4736,79 +4774,6 @@ function App() {
     return { synced: true, modern: false };
   }
 
-  async function handleSaveCurrencySettings(nextCurrencySettings, options = {}) {
-    const requestedSettings = Array.isArray(nextCurrencySettings)
-      ? { activeCurrencies: nextCurrencySettings }
-      : nextCurrencySettings || {};
-    const requestedBaseCurrency = normalizeCurrencyCode(
-      requestedSettings.baseCurrency ||
-        requestedSettings.base_currency ||
-        currencySettings?.baseCurrency ||
-        getBaseCurrency(),
-    );
-    const activeCurrencyList = normalizeCurrencyList(
-      requestedSettings.activeCurrencies ||
-        currencySettings?.activeCurrencies ||
-        DEFAULT_SELECTED_CURRENCIES,
-      { baseCurrency: requestedBaseCurrency },
-    );
-    const currentSettings = normalizeCurrencySettings({
-      baseCurrency: requestedBaseCurrency,
-      activeCurrencies: activeCurrencyList,
-      dailyCurrency:
-        requestedSettings.dailyCurrency ||
-        currencySettings?.dailyCurrency ||
-        activeCurrencyList[0],
-    });
-    const nextSettings = saveCurrencySettings(
-      {
-        baseCurrency: currentSettings.baseCurrency,
-        activeCurrencies: activeCurrencyList,
-        dailyCurrency: currentSettings.dailyCurrency,
-      },
-      getCurrencySettingsOwnerId(user),
-    );
-    setRuntimeCurrencySettings(nextSettings);
-    setCurrencySettings(nextSettings);
-    setProfile((current) => {
-      const nextProfile = normalizeProfile({
-        ...(current || {}),
-        base_currency: nextSettings.baseCurrency,
-        daily_currency: nextSettings.dailyCurrency,
-      }, user, {
-        ...nextSettings,
-        theme_mode: theme,
-        hideBalances: !balanceVisible,
-      });
-      if (mode === "demo") writeLocalProfile(user, nextProfile);
-      return nextProfile;
-    });
-    try {
-      const syncResult = await persistUserSettings(nextSettings);
-      if (syncResult?.dailyCurrencyLocalOnly) {
-        const infoMessage =
-          "Mata uang aktif tersimpan. Jalankan schema.sql terbaru agar mata uang harian ikut sinkron lintas perangkat.";
-        setToast({ message: "Mata uang tersimpan." });
-        setMessage(infoMessage);
-        setMessageTone("info");
-        return true;
-      }
-      const successMessage = options.message || "Pilihan mata uang diperbarui.";
-      setToast({ message: successMessage });
-      setMessage(successMessage);
-      setMessageTone("success");
-      return true;
-    } catch (error) {
-      const localMessage = options.localMessage || "Mata uang tersimpan lokal.";
-      setToast({ message: localMessage });
-      setMessage(getSettingsSyncErrorMessage(error));
-      setMessageTone(
-        error.code === "42P01" || isMissingDailyCurrencyColumn(error) ? "info" : "error",
-      );
-      return true;
-    }
-  }
-
   function handleThemeChange(value) {
     const nextTheme = normalizeThemeMode(value);
     setTheme(nextTheme);
@@ -4844,31 +4809,39 @@ function App() {
     `;
   }
 
-  if (!currencySetupDone) {
-    return html`
-      <${CurrencyOnboarding}
-        onSave=${handleSaveCurrencySettings}
-        appName=${APP_NAME}
-        baseCurrency=${DEFAULT_BASE_CURRENCY}
-      />
-    `;
-  }
-
   const dashboardCurrencySettings = normalizeCurrencySettings({
     activeCurrencies: metrics.activeCurrencies || activeCurrencies,
     baseCurrency: currencySettings?.baseCurrency,
     dailyCurrency: currencySettings?.dailyCurrency,
   });
   const dashboardActiveCurrencies = dashboardCurrencySettings.activeCurrencies;
+  const spendableAssetAccounts = normalizeAssetAccounts(assetAccounts).filter(
+    (account) => isSpendableAssetAccount(account),
+  );
+  const spendableCurrencySet = new Set(
+    spendableAssetAccounts.map((account) => normalizeCurrencyCode(account.currency)),
+  );
   const focusedWalletCurrency =
     selectedWalletCurrency &&
-    dashboardActiveCurrencies.includes(
-      normalizeCurrencyCode(selectedWalletCurrency),
-    )
+    spendableCurrencySet.has(normalizeCurrencyCode(selectedWalletCurrency))
       ? normalizeCurrencyCode(selectedWalletCurrency)
       : null;
+  const configuredDailyCurrency = dashboardCurrencySettings.dailyCurrency;
   const dailyExpenseCurrency =
-    focusedWalletCurrency || dashboardCurrencySettings.dailyCurrency;
+    focusedWalletCurrency ||
+    (spendableCurrencySet.has(configuredDailyCurrency)
+      ? configuredDailyCurrency
+      : spendableAssetAccounts[0]?.currency || configuredDailyCurrency);
+  const hasTransferPair = spendableAssetAccounts.some((account, index) =>
+    spendableAssetAccounts.slice(index + 1).some(
+      (candidate) => candidate.currency === account.currency,
+    ),
+  );
+  const hasExchangePair = spendableAssetAccounts.some((account, index) =>
+    spendableAssetAccounts.slice(index + 1).some(
+      (candidate) => candidate.currency !== account.currency,
+    ),
+  );
   const walletBaseCurrency = dashboardCurrencySettings.baseCurrency;
   const controlSummary = buildBudgetControlSummary({
     metrics,
@@ -5117,6 +5090,14 @@ function App() {
 
   function navigateAppTab(tab) {
     if (tab === "add") {
+      if (!spendableAssetAccounts.length) {
+        setToast({
+          message: "Tambahkan dompet terlebih dahulu sebelum mencatat transaksi.",
+          tone: "warning",
+        });
+        openAssetFormFromQuickAction();
+        return;
+      }
       setTransactionFabHintDismissed(true);
       setTransactionEntryType("expense");
       writeAppStorage("transactionFabHintDismissed", true);
@@ -5138,6 +5119,14 @@ function App() {
   }
 
   function openTransactionForm(entryType = "expense", target = null) {
+    if (!spendableAssetAccounts.length) {
+      setToast({
+        message: "Tambahkan dompet terlebih dahulu sebelum mencatat transaksi.",
+        tone: "warning",
+      });
+      openAssetFormFromQuickAction();
+      return;
+    }
     dismissTransactionFabHint();
     setTransactionReturnTab((current) =>
       activeTab === "add" ? current || "overview" : activeTab,
@@ -5153,6 +5142,19 @@ function App() {
   }
 
   function openMovementWorkspace(initialMode = "exchange") {
+    const movementAllowed =
+      initialMode === "transfer" ? hasTransferPair : hasExchangePair;
+    if (!movementAllowed) {
+      setToast({
+        message:
+          initialMode === "transfer"
+            ? "Transfer membutuhkan dua dompet dengan mata uang yang sama."
+            : "Tukar valas membutuhkan dua dompet dengan mata uang berbeda.",
+        tone: "warning",
+      });
+      openAssetFormFromQuickAction();
+      return;
+    }
     dismissTransactionFabHint();
     setMovementInitialMode(initialMode === "transfer" ? "transfer" : "exchange");
     setTransactionEntryType("exchange");
@@ -5203,6 +5205,7 @@ function App() {
             expenseCurrency=${dailyExpenseCurrency}
             baseCurrency=${walletBaseCurrency}
             accounts=${assetAccounts}
+            onRequestAddWallet=${openAssetFormFromQuickAction}
           />
           <${RecentTransactionsPreview}
             transactions=${recentTodayTransactions}
@@ -5252,6 +5255,7 @@ function App() {
                 initialMovementMode=${movementInitialMode}
                 workspace=${true}
                 onClose=${() => navigateAppTab("overview")}
+                onRequestAddWallet=${openAssetFormFromQuickAction}
               />
             </section>
           `
@@ -5273,6 +5277,7 @@ function App() {
                 initialTargetId=${transactionTargetDraft.id}
                 initialExpenseCurrency=${transactionTargetDraft.currency}
                 onClose=${closeTransactionForm}
+                onRequestAddWallet=${openAssetFormFromQuickAction}
               />
             </section>
           `
@@ -5290,7 +5295,7 @@ function App() {
                   emptyMessage="Belum ada transaksi."
                   emptyHint="Mulai dari satu transaksi kecil. Setelah itu, CUANSYNC bisa menampilkan riwayat dan laporan yang lebih berguna."
                   emptyActionLabel="Tambah transaksi"
-                  onEmptyAction=${() => navigateAppTab("add")}
+                  onEmptyAction=${() => openTransactionForm("expense")}
                 />
               </section>
             `
@@ -5308,9 +5313,11 @@ function App() {
                     visible=${balanceVisible}
                     fallbackRate=${latestTransactionRate}
                     onNavigate=${navigateAppTab}
-                    canExchange=${dashboardActiveCurrencies.length > 1}
+                    canTransfer=${hasTransferPair}
+                    canExchange=${hasExchangePair}
                     onAddTransaction=${() => openTransactionForm("expense")}
                     onExchange=${(mode) => openMovementWorkspace(mode)}
+                    onAddWallet=${openAssetFormFromQuickAction}
                   />
                 </section>
               `
@@ -5322,6 +5329,7 @@ function App() {
                       visible=${balanceVisible}
                       onNavigate=${navigateAppTab}
                       onOpenBudget=${openBudgetWorkspace}
+                      onAddIncome=${() => openTransactionForm("income")}
                     />
                   </section>
                 `
@@ -5505,7 +5513,7 @@ function App() {
       />
       <${QuickActionMenu}
         open=${quickActionOpen}
-        canExchange=${assetAccounts.length >= 2}
+        canExchange=${hasExchangePair}
         onClose=${() => setQuickActionOpen(false)}
         onAddTransaction=${() => openTransactionForm("expense")}
         onExchange=${() => openMovementWorkspace("exchange")}
