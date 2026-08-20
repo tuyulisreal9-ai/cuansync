@@ -179,7 +179,7 @@ export function MobileNavigation({
                 <button
                   type="button"
                   onClick=${onDismissHint}
-                  className="mt-2 min-h-8 rounded-md bg-emerald-500 px-3 text-[11px] font-bold text-white transition hover:bg-emerald-400"
+                  className="mt-2 min-h-11 rounded-md bg-emerald-500 px-3 text-[11px] font-bold text-white transition hover:bg-emerald-400"
                 >
                   Mengerti
                 </button>
@@ -281,7 +281,7 @@ export function QuickActionMenu({
             type="button"
             aria-label="Tutup"
             onClick=${onClose}
-            className="inline-flex h-9 min-h-9 w-9 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-200/70 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
+            className="inline-flex h-11 min-h-11 w-11 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-200/70 hover:text-slate-950 dark:hover:bg-slate-800 dark:hover:text-white"
           >
             <${X} aria-hidden="true" className="h-4 w-4" />
           </button>

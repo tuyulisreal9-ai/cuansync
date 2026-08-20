@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import htm from "htm";
 import { AvatarBadge } from "../shared/AvatarBadge.js";
+import { FormActionDock } from "../shared/FormActionDock.js";
 import { SheetShell } from "../shared/SheetShell.js";
 import {
   getProfileDisplayName,
@@ -23,7 +24,7 @@ function SettingsSwitch({ checked, onChange, label }) {
       aria-checked=${checked}
       aria-label=${label}
       onClick=${() => onChange(!checked)}
-      className=${`relative inline-flex h-8 min-h-8 w-14 shrink-0 items-center rounded-full border p-1 transition focus:outline-none focus:ring-2 focus:ring-emerald-500/60 ${
+      className=${`relative inline-flex h-11 min-h-11 w-16 shrink-0 items-center rounded-full border p-2 transition focus:outline-none focus:ring-2 focus:ring-emerald-500/60 ${
         checked
           ? "border-emerald-400/50 bg-emerald-500 shadow-[0_12px_28px_rgba(16,185,129,0.22)]"
           : "border-slate-300/80 bg-slate-200/80 dark:border-white/10 dark:bg-slate-800"
@@ -164,7 +165,8 @@ function ProfileDetailSheet({ open, profile, user, avatarSrc, onClose, onSave })
     setAvatarUrl(nextPhoto);
   }
 
-  async function handleSave() {
+  async function handleSave(event) {
+    event?.preventDefault();
     setSaving(true);
     const succeeded = await onSave({
       display_name: displayName.trim() || getProfileDisplayName(profile, user),
@@ -182,7 +184,7 @@ function ProfileDetailSheet({ open, profile, user, avatarSrc, onClose, onSave })
       helper="Kelola identitas akun tanpa memenuhi halaman utama Pengaturan."
       labelledBy="profile-detail-sheet-title"
     >
-      <div className="grid gap-4">
+      <form className="grid gap-4" onSubmit=${handleSave}>
         <div className="flex items-center gap-3 rounded-2xl border border-slate-200/70 bg-white/62 p-3 dark:border-white/10 dark:bg-white/5">
           <${AvatarBadge} src=${avatarUrl} initials=${initials} size="lg" />
           <div className="grid min-w-0 flex-1 gap-2">
@@ -212,6 +214,7 @@ function ProfileDetailSheet({ open, profile, user, avatarSrc, onClose, onSave })
           </span>
           <input
             type="text"
+            enterKeyHint="done"
             value=${displayName}
             onChange=${(event) => setDisplayName(event.target.value)}
             className=${INPUT_CLASS}
@@ -230,15 +233,16 @@ function ProfileDetailSheet({ open, profile, user, avatarSrc, onClose, onSave })
           />
         </label>
 
-        <button
-          type="button"
-          onClick=${handleSave}
-          disabled=${saving}
-          className="history-action-primary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          ${saving ? "Menyimpan..." : "Simpan perubahan"}
-        </button>
-      </div>
+        <${FormActionDock}>
+          <button
+            type="submit"
+            disabled=${saving}
+            className="history-action-primary min-h-12 w-full rounded-xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            ${saving ? "Menyimpan..." : "Simpan perubahan"}
+          </button>
+        <//>
+      </form>
     <//>
   `;
 }
@@ -253,7 +257,7 @@ function ThemeSegmentedControl({ value, onChange }) {
           key=${option.key}
           type="button"
           onClick=${() => onChange(option.key)}
-          className=${`min-h-10 rounded-[14px] px-2 text-xs font-black transition ${
+          className=${`min-h-11 rounded-[14px] px-2 text-xs font-black transition ${
             normalizedValue === option.key
               ? "bg-brand-600 text-white shadow-[0_12px_28px_rgba(16,185,129,0.22)] dark:bg-emerald-500"
               : "text-slate-600 hover:bg-white/70 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"

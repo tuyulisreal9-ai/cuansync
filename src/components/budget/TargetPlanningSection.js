@@ -20,6 +20,7 @@ import {
 } from "../../lib/currency.js";
 import { formatDateTime } from "../../lib/dates.js";
 import { CurrencyCombobox } from "../shared/CurrencyCombobox.js";
+import { FormActionDock } from "../shared/FormActionDock.js";
 import { SheetShell } from "../shared/SheetShell.js";
 
 const html = htm.bind(React.createElement);
@@ -233,22 +234,24 @@ function TargetForm({
         Saldo rekening tidak akan berubah.
       </p>
 
-      <div className="grid grid-cols-[0.7fr_1.3fr] gap-2">
-        <button
-          type="button"
-          onClick=${onCancel}
-          className="min-h-11 rounded-lg border border-slate-300 text-xs font-bold text-slate-700 dark:border-slate-700 dark:text-slate-300"
-        >
-          Batal
-        </button>
-        <button
-          type="submit"
-          disabled=${loading || allocationInvalid}
-          className="min-h-11 rounded-lg bg-emerald-500 px-3 text-xs font-black text-white disabled:opacity-50"
-        >
-          ${editing ? "Simpan perubahan" : "Buat target"}
-        </button>
-      </div>
+      <${FormActionDock}>
+        <div className="grid grid-cols-[0.78fr_1.22fr] gap-2">
+          <button
+            type="button"
+            onClick=${onCancel}
+            className="min-h-12 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 dark:border-slate-700 dark:text-slate-300"
+          >
+            Batal
+          </button>
+          <button
+            type="submit"
+            disabled=${loading || allocationInvalid}
+            className="min-h-12 rounded-xl bg-emerald-500 px-3 text-xs font-black text-white disabled:opacity-50"
+          >
+            ${editing ? "Simpan perubahan" : "Buat target"}
+          </button>
+        </div>
+      <//>
     </form>
   `;
 }
@@ -375,7 +378,7 @@ export function TargetPlanningSection({
         <button
           type="button"
           onClick=${() => setShowCreateForm(true)}
-          className="min-h-9 shrink-0 rounded-lg bg-emerald-500/12 px-3 text-[11px] font-black text-emerald-700 dark:text-emerald-300"
+          className="min-h-11 shrink-0 rounded-lg bg-emerald-500/12 px-3 text-[11px] font-black text-emerald-700 dark:text-emerald-300"
         >
           + Tambah Target
         </button>
@@ -396,7 +399,7 @@ export function TargetPlanningSection({
                 <select
                   value=${selectedCurrency}
                   onChange=${(event) => setSelectedCurrency(event.target.value)}
-                  className="h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold text-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                  className="h-11 min-h-11 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold text-slate-950 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
                 >
                   ${currencies.map(
                     (currency) =>
@@ -477,7 +480,7 @@ export function TargetPlanningSection({
                           setMenuGoalId((current) =>
                             current === goal.id ? null : goal.id)}
                         aria-label=${`Menu ${goal.name}`}
-                        className="grid h-8 w-8 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
+                        className="grid h-11 min-h-11 w-11 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-950 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-white"
                       >
                         <${MoreHorizontal} aria-hidden="true" className="h-4 w-4" />
                       </button>
@@ -493,7 +496,7 @@ export function TargetPlanningSection({
                               setEditingGoalId(goal.id);
                               setMenuGoalId(null);
                             }}
-                            className="rounded-md px-2 py-2 text-left text-[10px] font-bold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                            className="min-h-11 rounded-md px-2 py-2 text-left text-[10px] font-bold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
                           >
                             Ubah
                           </button>
@@ -503,7 +506,7 @@ export function TargetPlanningSection({
                               await onArchiveGoal(goal);
                               setMenuGoalId(null);
                             }}
-                            className="rounded-md px-2 py-2 text-left text-[10px] font-bold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                            className="min-h-11 rounded-md px-2 py-2 text-left text-[10px] font-bold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
                           >
                             Arsipkan
                           </button>
@@ -513,7 +516,7 @@ export function TargetPlanningSection({
                               onDeleteGoal(goal);
                               setMenuGoalId(null);
                             }}
-                            className="rounded-md px-2 py-2 text-left text-[10px] font-bold text-rose-700 hover:bg-rose-500/10 dark:text-rose-300"
+                            className="min-h-11 rounded-md px-2 py-2 text-left text-[10px] font-bold text-rose-700 hover:bg-rose-500/10 dark:text-rose-300"
                           >
                             Hapus
                           </button>
@@ -571,14 +574,14 @@ export function TargetPlanningSection({
                     <button
                       type="button"
                       onClick=${() => openAction(goal, "assign")}
-                      className="min-h-9 rounded-lg bg-emerald-500 px-2 text-[10px] font-black text-white"
+                      className="min-h-11 rounded-lg bg-emerald-500 px-2 text-[10px] font-black text-white"
                     >
                       Alokasikan Dana
                     </button>
                     <button
                       type="button"
                       onClick=${() => setDetailGoalId(goal.id)}
-                      className="min-h-9 rounded-lg border border-slate-300 px-2 text-[10px] font-black text-slate-700 dark:border-slate-700 dark:text-slate-200"
+                      className="min-h-11 rounded-lg border border-slate-300 px-2 text-[10px] font-black text-slate-700 dark:border-slate-700 dark:text-slate-200"
                     >
                       Detail
                     </button>
@@ -710,13 +713,15 @@ export function TargetPlanningSection({
                 <p className="text-[10px] leading-4 text-slate-600 dark:text-slate-400">
                   Alokasi hanya mengubah tujuan dana. Saldo rekening tidak akan berubah.
                 </p>
-                <button
-                  type="submit"
-                  disabled=${loading || (action?.type === "move" && !destinationGoalId)}
-                  className="min-h-11 rounded-lg bg-emerald-500 text-xs font-black text-white disabled:opacity-50"
-                >
-                  Simpan
-                </button>
+                <${FormActionDock}>
+                  <button
+                    type="submit"
+                    disabled=${loading || (action?.type === "move" && !destinationGoalId)}
+                    className="min-h-12 w-full rounded-xl bg-emerald-500 text-xs font-black text-white disabled:opacity-50"
+                  >
+                    Simpan
+                  </button>
+                <//>
               </form>
             `
           : null}
@@ -778,7 +783,7 @@ export function TargetPlanningSection({
                   <button
                     type="button"
                     onClick=${() => openAction(selectedDetailGoal, "assign")}
-                    className="min-h-10 rounded-lg bg-emerald-500 text-[10px] font-black text-white"
+                    className="min-h-11 rounded-lg bg-emerald-500 text-[10px] font-black text-white"
                   >
                     Alokasikan Dana
                   </button>
@@ -786,7 +791,7 @@ export function TargetPlanningSection({
                     type="button"
                     onClick=${() => openAction(selectedDetailGoal, "release")}
                     disabled=${selectedDetailGoal.availableAmount <= 0}
-                    className="min-h-10 rounded-lg border border-slate-300 text-[10px] font-black text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
+                    className="min-h-11 rounded-lg border border-slate-300 text-[10px] font-black text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
                   >
                     Lepaskan Alokasi
                   </button>
@@ -795,7 +800,7 @@ export function TargetPlanningSection({
                     onClick=${() => openAction(selectedDetailGoal, "move")}
                     disabled=${selectedDetailGoal.availableAmount <= 0 ||
                     !detailMoveTargets.length}
-                    className="min-h-10 rounded-lg border border-slate-300 text-[10px] font-black text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
+                    className="min-h-11 rounded-lg border border-slate-300 text-[10px] font-black text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
                   >
                     Pindahkan Alokasi
                   </button>
@@ -806,7 +811,7 @@ export function TargetPlanningSection({
                       onUseGoal(selectedDetailGoal);
                     }}
                     disabled=${selectedDetailGoal.availableAmount <= 0}
-                    className="min-h-10 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-[10px] font-black text-cyan-700 disabled:opacity-40 dark:text-cyan-200"
+                    className="min-h-11 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-[10px] font-black text-cyan-700 disabled:opacity-40 dark:text-cyan-200"
                   >
                     Gunakan Dana
                   </button>

@@ -241,7 +241,7 @@ function TransactionEditForm({
 
   return html`
     <form className="mt-5 grid gap-3" onSubmit=${handleSubmit}>
-      <div className="rounded-[24px] border border-slate-200/70 bg-white/60 p-4 dark:border-white/10 dark:bg-slate-900/42">
+      <div key="edit-type" className="rounded-[24px] border border-slate-200/70 bg-white/60 p-4 dark:border-white/10 dark:bg-slate-900/42">
         <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
           Jenis transaksi
         </p>
@@ -255,7 +255,7 @@ function TransactionEditForm({
         </div>
       </div>
 
-      <label className="block space-y-2">
+      <label key="edit-description" className="block space-y-2">
         <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
           Catatan
         </span>
@@ -403,7 +403,7 @@ function TransactionEditForm({
 
       ${(isIncome || isExpense) && !isExchange
         ? html`
-            <label className="block space-y-2">
+            <label key="edit-entry-account" className="block space-y-2">
               <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
                 ${isIncome ? "Masuk ke dompet" : "Keluar dari dompet"}
               </span>
@@ -434,7 +434,7 @@ function TransactionEditForm({
                 : null}
             </label>
 
-            <label className="block space-y-2">
+            <label key="edit-entry-amount" className="block space-y-2">
               <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
                 Nominal ${transactionCurrency}
               </span>
@@ -456,7 +456,7 @@ function TransactionEditForm({
 
       ${isExpense
         ? html`
-            <label className="block space-y-2">
+            <label key="edit-category" className="block space-y-2">
               <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
                 Kategori
               </span>
@@ -477,7 +477,7 @@ function TransactionEditForm({
           `
         : null}
 
-      <label className="block space-y-2">
+      <label key="edit-occurred-at" className="block space-y-2">
         <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
           Tanggal
         </span>
@@ -490,7 +490,7 @@ function TransactionEditForm({
         />
       </label>
 
-      <div className="history-detail-actions sticky bottom-0 z-10 -mx-5 mt-2 grid grid-cols-2 gap-3 border-t border-slate-200/70 bg-white/85 p-5 shadow-[0_-18px_50px_rgba(15,23,42,0.08)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/86 dark:shadow-black/28">
+      <div key="edit-actions" className="history-detail-actions sticky bottom-0 z-10 -mx-5 mt-2 grid grid-cols-2 gap-3 border-t border-slate-200/70 bg-white/85 p-5 shadow-[0_-18px_50px_rgba(15,23,42,0.08)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/86 dark:shadow-black/28">
         <button
           type="button"
           onClick=${onCancel}
@@ -633,12 +633,13 @@ export function TransactionDetailSheet({
   return html`
     <div className="fixed inset-0 z-[120] flex items-end justify-center md:items-center">
       <button
+        key="detail-backdrop"
         type="button"
         aria-label="Tutup detail transaksi"
         className="absolute inset-0 bg-slate-950/45 backdrop-blur-sm"
         onClick=${onClose}
       ></button>
-      <section className="history-detail-sheet transaction-sheet relative max-h-[calc(100svh-1rem)] w-full overflow-y-auto rounded-t-[30px] p-5 md:max-h-[86svh] md:max-w-lg md:rounded-[30px]">
+      <section key="detail-panel" className="history-detail-sheet transaction-sheet relative max-h-[calc(100svh-1rem)] w-full overflow-y-auto rounded-t-[30px] p-5 md:max-h-[86svh] md:max-w-lg md:rounded-[30px]">
         <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-slate-300 dark:bg-slate-700 md:hidden"></div>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -675,7 +676,7 @@ export function TransactionDetailSheet({
               />
             `
           : html`
-              <div className="history-receipt-card mt-5 overflow-hidden rounded-[28px] p-4">
+              <div key="detail-receipt" className="history-receipt-card mt-5 overflow-hidden rounded-[28px] p-4">
                 <div className="flex items-start gap-3">
                   <span className=${`flex h-14 w-14 shrink-0 items-center justify-center rounded-[22px] text-xs font-black uppercase tracking-[0.08em] ring-1 ${tone.historyIcon}`}>
                     ${getTransactionIconLabel(transaction)}
@@ -711,7 +712,7 @@ export function TransactionDetailSheet({
                 </div>
               </div>
 
-              <div className="history-detail-actions sticky bottom-0 z-10 -mx-5 mt-5 p-5">
+              <div key="detail-actions" className="history-detail-actions sticky bottom-0 z-10 -mx-5 mt-5 p-5">
                 ${confirmingDelete
                   ? html`
                       <div className="history-delete-confirm rounded-[24px] p-4">

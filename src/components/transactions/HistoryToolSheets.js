@@ -1,6 +1,7 @@
 import React from "react";
 import htm from "htm";
 import { getAssetAccountDisplayName } from "../../domain/assets.js";
+import { FormActionDock } from "../shared/FormActionDock.js";
 import { SheetShell } from "../shared/SheetShell.js";
 import { TransactionFilter } from "./HistoryListParts.js";
 
@@ -108,14 +109,16 @@ export function StatementExportSheet({
           </span>
         </div>
 
-        <button
-          type="button"
-          onClick=${onDownload}
-          disabled=${!monthKey || transactionCount === 0}
-          className="history-action-primary min-h-11 rounded-xl px-4 py-2.5 text-sm font-black disabled:cursor-not-allowed disabled:opacity-45"
-        >
-          Unduh mutasi
-        </button>
+        <${FormActionDock}>
+          <button
+            type="button"
+            onClick=${onDownload}
+            disabled=${!monthKey || transactionCount === 0}
+            className="history-action-primary min-h-12 w-full rounded-xl px-4 py-2.5 text-sm font-black disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            Unduh mutasi
+          </button>
+        <//>
       </div>
     <//>
   `;

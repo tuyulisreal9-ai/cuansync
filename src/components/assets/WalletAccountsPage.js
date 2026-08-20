@@ -144,7 +144,7 @@ function AccountCard({
           aria-label=${`Ubah warna ${account.name}`}
           aria-expanded=${paletteOpen}
           title="Ubah warna dompet"
-          className="cs-wallet-accent-button inline-flex h-8 min-h-8 w-8 items-center justify-center rounded-md transition hover:bg-white/10"
+          className="cs-wallet-accent-button inline-flex h-11 min-h-11 w-11 items-center justify-center rounded-lg transition hover:bg-white/10"
         >
           <${Palette} aria-hidden="true" className="h-3.5 w-3.5" />
         </button>
@@ -153,7 +153,7 @@ function AccountCard({
           onClick=${() => onDelete(account)}
           aria-label=${`Hapus ${account.name}`}
           title="Hapus akun"
-          className="cs-wallet-delete inline-flex h-8 min-h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-500/10 hover:text-rose-400"
+          className="cs-wallet-delete inline-flex h-11 min-h-11 w-11 items-center justify-center rounded-lg text-slate-400 transition hover:bg-rose-500/10 hover:text-rose-400"
         >
           <${Trash2} aria-hidden="true" className="h-3.5 w-3.5" />
         </button>
@@ -370,7 +370,7 @@ export function WalletAccountsPage({
               onClick=${onAddAccount}
               aria-label="Tambah dompet"
               title="Tambah dompet"
-              className="inline-flex h-10 min-h-10 w-10 items-center justify-center rounded-lg bg-emerald-500 text-white shadow-[0_10px_24px_rgba(16,185,129,0.25)] transition hover:bg-emerald-400"
+              className="inline-flex h-11 min-h-11 w-11 items-center justify-center rounded-lg bg-emerald-500 text-white shadow-[0_10px_24px_rgba(16,185,129,0.25)] transition hover:bg-emerald-400"
             >
               <${Plus} aria-hidden="true" className="h-5 w-5" />
             </button>
@@ -379,7 +379,7 @@ export function WalletAccountsPage({
               onClick=${() => setMenuOpen((current) => !current)}
               aria-label="Menu dompet"
               aria-expanded=${menuOpen}
-              className="inline-flex h-10 min-h-10 w-10 items-center justify-center rounded-lg border border-white/10 bg-white/[0.07] text-slate-300 transition hover:bg-white/[0.12] hover:text-white"
+              className="inline-flex h-11 min-h-11 w-11 items-center justify-center rounded-lg border border-white/10 bg-white/[0.07] text-slate-300 transition hover:bg-white/[0.12] hover:text-white"
             >
               <${MoreHorizontal} aria-hidden="true" className="h-5 w-5" />
             </button>
@@ -393,7 +393,7 @@ export function WalletAccountsPage({
                         setMenuOpen(false);
                         onOpenGoals();
                       }}
-                      className="flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-bold text-slate-700 transition hover:bg-emerald-500/10 dark:text-slate-200"
+                      className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-bold text-slate-700 transition hover:bg-emerald-500/10 dark:text-slate-200"
                     >
                       <${Target} aria-hidden="true" className="h-4 w-4 text-emerald-500" />
                       Target dana
@@ -404,7 +404,7 @@ export function WalletAccountsPage({
                         setMenuOpen(false);
                         onOpenReport();
                       }}
-                      className="flex min-h-10 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-bold text-slate-700 transition hover:bg-emerald-500/10 dark:text-slate-200"
+                      className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-xs font-bold text-slate-700 transition hover:bg-emerald-500/10 dark:text-slate-200"
                     >
                       <${WalletCards} aria-hidden="true" className="h-4 w-4 text-sky-500" />
                       Laporan bulanan

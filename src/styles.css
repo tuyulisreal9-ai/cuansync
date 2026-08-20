@@ -211,6 +211,25 @@ textarea {
   background: var(--cs-surface-soft);
 }
 
+.settings-bottom-sheet [data-sheet-scroll="true"] {
+  scroll-padding-block: 1rem 5.75rem;
+  scrollbar-gutter: stable;
+}
+
+.settings-bottom-sheet input,
+.settings-bottom-sheet select,
+.settings-bottom-sheet textarea {
+  scroll-margin-block: 1rem 5.75rem;
+}
+
+.cs-form-action-dock {
+  box-shadow: 0 -14px 30px -24px rgba(15, 23, 42, 0.42);
+}
+
+:root.dark .cs-form-action-dock {
+  box-shadow: 0 -14px 30px -24px rgba(0, 0, 0, 0.78);
+}
+
 .cs-wallet-summary {
   border: 1px solid rgba(52, 211, 153, 0.18);
   background:
@@ -545,7 +564,7 @@ textarea {
   }
 
   .cs-home-hero-action {
-    min-height: 38px;
+    min-height: 44px;
     min-width: 0;
     max-width: 100%;
   }

@@ -519,7 +519,7 @@ function HistoryBalanceSummary({
               type="button"
               onClick=${() => onSelectCurrency(currency)}
               aria-current=${selected ? "true" : undefined}
-              className=${`min-h-9 rounded-lg border px-2 text-[11px] font-black transition ${
+              className=${`min-h-11 rounded-lg border px-2 text-[11px] font-black transition ${
                 selected
                   ? "border-emerald-400/70 bg-emerald-500 text-white shadow-[0_8px_22px_rgba(16,185,129,0.18)]"
                   : "border-slate-300/60 bg-white/55 text-slate-700 hover:bg-white dark:border-white/10 dark:bg-white/5 dark:text-slate-200 dark:hover:bg-white/10"
@@ -534,7 +534,7 @@ function HistoryBalanceSummary({
               <button
                 type="button"
                 onClick=${onOpenAll}
-                className="min-h-9 rounded-lg border border-slate-300/60 bg-white/55 px-2 text-[11px] font-black text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
+                className="min-h-11 rounded-lg border border-slate-300/60 bg-white/55 px-2 text-[11px] font-black text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
               >
                 Lainnya
               </button>
@@ -649,6 +649,7 @@ export function WalletHeader({
             : null
           : html`
               <${PrimaryBalanceHero}
+                key="primary-balance"
                 focusCurrency=${normalizedSelectedCurrency}
                 focusBalance=${focusBalance}
                 totalValueBase=${normalizedTotalValueBase}
@@ -658,6 +659,7 @@ export function WalletHeader({
               />
 
               <${CurrencySelectorRail}
+                key="currency-selector"
                 currencies=${currencies}
                 selectedCurrency=${normalizedSelectedCurrency}
                 dailyCurrency=${normalizedDailyCurrency}
@@ -671,6 +673,7 @@ export function WalletHeader({
     </header>
 
     <${WalletBottomSheet}
+        key="wallet-currency-sheet"
         open=${sheetOpen}
         onClose=${() => setSheetOpen(false)}
         currencies=${currencies}
