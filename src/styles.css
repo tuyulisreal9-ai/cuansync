@@ -237,6 +237,135 @@ textarea {
   box-shadow: 0 16px 38px rgba(2, 6, 23, 0.2);
 }
 
+.cs-pocket-tile {
+  --wallet-accent: var(--cs-accent);
+  --wallet-accent-soft: var(--cs-accent-soft);
+  position: relative;
+  min-width: 0;
+  min-height: 11rem;
+  overflow: hidden;
+  border: 1px solid var(--cs-border);
+  border-radius: 0.75rem;
+  background: var(--cs-surface);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.cs-pocket-tile:hover {
+  transform: translateY(-2px);
+}
+
+.cs-pocket-pay {
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--wallet-accent) 5%, transparent), transparent 62%),
+    var(--cs-surface);
+}
+
+.cs-pocket-pay:hover,
+.cs-pocket-pay.is-selected {
+  border-color: var(--wallet-accent);
+}
+
+.cs-pocket-pay.is-selected {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--wallet-accent) 24%, transparent),
+    0 10px 28px color-mix(in srgb, var(--wallet-accent) 12%, transparent);
+}
+
+.cs-pocket-pay .cs-pocket-icon {
+  color: var(--wallet-accent);
+  background: var(--wallet-accent-soft);
+}
+
+.cs-pocket-saving {
+  background:
+    linear-gradient(145deg, rgba(6, 182, 212, 0.08), transparent 64%),
+    var(--cs-surface);
+}
+
+.cs-pocket-saving:hover,
+.cs-pocket-saving.is-selected {
+  border-color: rgb(6 182 212 / 0.9);
+}
+
+.cs-pocket-saving.is-selected {
+  box-shadow:
+    inset 0 0 0 1px rgb(6 182 212 / 0.22),
+    0 10px 28px rgb(6 182 212 / 0.1);
+}
+
+.cs-pocket-saving .cs-pocket-icon {
+  color: rgb(6 182 212);
+  background: rgb(6 182 212 / 0.14);
+}
+
+.cs-pocket-manage {
+  transition:
+    color 160ms ease,
+    background-color 160ms ease,
+    transform 160ms ease;
+}
+
+.cs-pocket-manage:hover,
+.cs-pocket-manage:focus-visible {
+  color: var(--cs-text);
+  background: color-mix(in srgb, var(--cs-text) 8%, transparent);
+}
+
+.cs-pocket-manage:active {
+  transform: scale(0.94);
+}
+
+.cs-pocket-valuation {
+  color: var(--wallet-accent);
+}
+
+.cs-pocket-create {
+  min-width: 0;
+  border: 1px dashed rgb(16 185 129 / 0.65);
+  background: rgb(16 185 129 / 0.035);
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.cs-pocket-create:hover {
+  transform: translateY(-2px);
+  border-color: rgb(16 185 129);
+  background: rgb(16 185 129 / 0.08);
+}
+
+.cs-pocket-filter,
+.cs-pocket-choice {
+  border: 1px solid var(--cs-border);
+  background: var(--cs-surface-soft);
+  color: var(--cs-muted);
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.cs-pocket-filter:hover,
+.cs-pocket-choice:hover {
+  border-color: rgb(16 185 129 / 0.65);
+  color: var(--cs-text);
+}
+
+.cs-pocket-filter.is-active {
+  border-color: rgb(16 185 129 / 0.7);
+  background: rgb(16 185 129 / 0.12);
+  color: rgb(16 185 129);
+}
+
+.cs-pocket-choice:hover {
+  transform: translateY(-2px);
+}
+
 .cs-wallet-account,
 .cs-wallet-activity,
 .cs-wallet-empty,
@@ -447,6 +576,32 @@ textarea {
 .cs-entry-segment {
   border: 1px solid var(--cs-border);
   background: var(--cs-surface-soft);
+}
+
+.cs-entry-funding-compact {
+  border: 1px solid var(--cs-border);
+  background:
+    linear-gradient(120deg, rgba(6, 182, 212, 0.055), transparent 58%),
+    var(--cs-surface-soft);
+}
+
+.cs-entry-funding-compact > button {
+  transition: background-color 160ms ease;
+}
+
+.cs-entry-funding-compact > button:hover {
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.cs-entry-funding-picker {
+  background: color-mix(in srgb, var(--cs-surface-raised) 72%, transparent);
+}
+
+.cs-entry-amount .cs-entry-input {
+  min-height: 3rem;
+  background:
+    linear-gradient(120deg, rgba(16, 185, 129, 0.055), transparent 64%),
+    var(--cs-surface-soft);
 }
 
 .cs-entry-label {

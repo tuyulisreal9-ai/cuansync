@@ -19,6 +19,7 @@ import {
   getTransactionCurrency,
   getTransactionFlow,
   getTransactionMainAmount,
+  FUTURE_TRANSACTION_DATE_MESSAGE,
   resolveTransactionBaseValue,
 } from "../../domain/transactions.js";
 import {
@@ -188,10 +189,14 @@ function TransactionEditForm({
       )
     : Boolean(entryAccountId);
   const descriptionValid = String(form.description || "").trim().length > 0;
+  const occurredAtTime = new Date(form.occurred_at).getTime();
+  const transactionDateInvalid =
+    Number.isNaN(occurredAtTime) || occurredAtTime > Date.now();
   const submitDisabled =
     loading ||
     !descriptionValid ||
     !accountLinksValid ||
+    transactionDateInvalid ||
     ((isIncome || isExpense) && amountValue <= 0) ||
     (isExchange &&
       (fromAmount <= 0 ||
@@ -484,10 +489,18 @@ function TransactionEditForm({
         <input
           type="datetime-local"
           required
+          max=${toInputDateTime()}
           value=${form.occurred_at}
           onChange=${(event) => updateField("occurred_at", event.target.value)}
           className=${INPUT_CLASS}
         />
+        ${transactionDateInvalid
+          ? html`
+              <span className="block text-xs font-bold text-rose-500">
+                ${FUTURE_TRANSACTION_DATE_MESSAGE}
+              </span>
+            `
+          : null}
       </label>
 
       <div key="edit-actions" className="history-detail-actions sticky bottom-0 z-10 -mx-5 mt-2 grid grid-cols-2 gap-3 border-t border-slate-200/70 bg-white/85 p-5 shadow-[0_-18px_50px_rgba(15,23,42,0.08)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/86 dark:shadow-black/28">

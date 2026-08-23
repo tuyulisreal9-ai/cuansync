@@ -7,6 +7,34 @@ import {
 export const GOAL_TYPE_HOLD_BALANCE = "hold_balance";
 export const GOAL_TYPE_COLLECT_BY_DATE = "collect_by_date";
 
+export const GOAL_PROTECTION_MODES = [
+  {
+    value: "flexible",
+    label: "Fleksibel",
+    description: "Peringatkan dan minta pilihan target saat dana akan terpakai.",
+  },
+  {
+    value: "strict",
+    label: "Ketat",
+    description: "Dana hanya dapat dipakai melalui target yang terhubung.",
+  },
+  {
+    value: "informational",
+    label: "Informasi saja",
+    description: "Pantau progres tanpa mengurangi saldo tersedia akun.",
+  },
+];
+
+const GOAL_PROTECTION_VALUES = new Set(
+  GOAL_PROTECTION_MODES.map((mode) => mode.value),
+);
+
+const GOAL_FUNDING_STATUSES = new Set([
+  "funded",
+  "plan_only",
+  "unmapped_legacy",
+]);
+
 export const GOAL_TYPES = [
   {
     value: GOAL_TYPE_HOLD_BALANCE,
@@ -25,6 +53,8 @@ export const GOAL_ACTIVITY_TYPES = new Set([
   "release",
   "spend",
   "adjustment",
+  "transfer_in",
+  "transfer_out",
 ]);
 
 const GOAL_STATUSES = new Set([
@@ -81,6 +111,35 @@ export function normalizeGoal(row, index = 0) {
         ? GOAL_TYPE_COLLECT_BY_DATE
         : GOAL_TYPE_HOLD_BALANCE;
   const storedStatus = GOAL_STATUSES.has(row?.status) ? row.status : "active";
+  const protectionMode = GOAL_PROTECTION_VALUES.has(
+    row?.protection_mode ?? row?.protectionMode,
+  )
+    ? row?.protection_mode ?? row?.protectionMode
+    : "flexible";
+  const rawFundingAccounts = Array.isArray(
+    row?.goal_funding_accounts ?? row?.fundingAccounts,
+  )
+    ? row?.goal_funding_accounts ?? row?.fundingAccounts
+    : [];
+  const fundingAccounts = rawFundingAccounts
+    .map((funding) => ({
+      ...funding,
+      goal_id: funding.goal_id || row?.id || null,
+      account_id: funding.account_id || funding.accountId || null,
+      currency: normalizeCurrencyCode(funding.currency || currency),
+      is_primary: Boolean(funding.is_primary ?? funding.isPrimary),
+    }))
+    .filter((funding) => funding.account_id);
+  const inferredFundingStatus = fundingAccounts.length
+    ? "funded"
+    : legacyAllocatedAmount > 0
+      ? "unmapped_legacy"
+      : "plan_only";
+  const fundingStatus = GOAL_FUNDING_STATUSES.has(
+    row?.funding_status ?? row?.fundingStatus,
+  )
+    ? row?.funding_status ?? row?.fundingStatus
+    : inferredFundingStatus;
 
   return {
     ...row,
@@ -97,6 +156,27 @@ export function normalizeGoal(row, index = 0) {
       Number.isFinite(legacyAllocatedAmount) && legacyAllocatedAmount > 0
         ? legacyAllocatedAmount
         : 0,
+    protection_mode: protectionMode,
+    protectionMode,
+    funding_status: fundingStatus,
+    fundingStatus,
+    spending_reduces_progress:
+      typeof (row?.spending_reduces_progress ?? row?.spendingReducesProgress) ===
+      "boolean"
+        ? row?.spending_reduces_progress ?? row?.spendingReducesProgress
+        : true,
+    spendingReducesProgress:
+      typeof (row?.spending_reduces_progress ?? row?.spendingReducesProgress) ===
+      "boolean"
+        ? row?.spending_reduces_progress ?? row?.spendingReducesProgress
+        : true,
+    fundingAccounts,
+    primaryFundingAccountId:
+      fundingAccounts.find((funding) => funding.is_primary)?.account_id ||
+      fundingAccounts[0]?.account_id ||
+      row?.account_id ||
+      row?.accountId ||
+      null,
     deadline: row?.deadline || null,
     note: String(row?.note || "").trim(),
     status: storedStatus,
@@ -129,6 +209,15 @@ export function normalizeGoalActivity(row, index = 0) {
     amount: Number.isFinite(amount) ? amount : 0,
     currency: normalizeCurrencyCode(row?.currency),
     transaction_id: row?.transaction_id || row?.transactionId || null,
+    account_id: row?.account_id || row?.accountId || null,
+    mapping_status:
+      row?.mapping_status || row?.mappingStatus ||
+      (row?.account_id || row?.accountId ? "mapped" : "unmapped_legacy"),
+    mappingStatus:
+      row?.mapping_status || row?.mappingStatus ||
+      (row?.account_id || row?.accountId ? "mapped" : "unmapped_legacy"),
+    event_group_id: row?.event_group_id || row?.eventGroupId || null,
+    client_request_id: row?.client_request_id || row?.clientRequestId || null,
     note: String(row?.note || "").trim(),
     created_at: row?.created_at || row?.createdAt || new Date().toISOString(),
   };
@@ -147,7 +236,12 @@ export function normalizeGoalActivities(rows = []) {
 export function getGoalActivityEffect(activity) {
   const normalized = normalizeGoalActivity(activity);
   if (normalized.type === "assign") return Math.abs(normalized.amount);
-  if (normalized.type === "release" || normalized.type === "spend") {
+  if (normalized.type === "transfer_in") return Math.abs(normalized.amount);
+  if (
+    normalized.type === "release" ||
+    normalized.type === "spend" ||
+    normalized.type === "transfer_out"
+  ) {
     return -Math.abs(normalized.amount);
   }
   return normalized.amount;
@@ -161,6 +255,103 @@ export function computeLiquidPools(accounts = []) {
       Number(totals[currency] || 0) + Number(account.balance_amount || 0);
     return totals;
   }, {});
+}
+
+export function computeAccountAvailability(accounts = [], goals = [], activities = []) {
+  const normalizedAccounts = normalizeAssetAccounts(accounts);
+  const normalizedGoals = goals.map(normalizeGoal);
+  const normalizedActivities = normalizeGoalActivities(activities);
+  const goalMap = new Map(normalizedGoals.map((goal) => [goal.id, goal]));
+  const reservationByAccount = normalizedActivities.reduce((totals, activity) => {
+    if (activity.mapping_status !== "mapped" || !activity.account_id) return totals;
+    const goal = goalMap.get(activity.goal_id);
+    if (
+      !goal ||
+      !["strict", "flexible"].includes(goal.protectionMode) ||
+      ["archived", "used"].includes(goal.status)
+    ) {
+      return totals;
+    }
+    const effect = getGoalActivityEffect(activity);
+    totals[activity.account_id] = Number(totals[activity.account_id] || 0) + effect;
+    return totals;
+  }, {});
+
+  return Object.fromEntries(
+    normalizedAccounts.map((account) => {
+      const actualBalance = Number(account.balance_amount || 0);
+      const reservedBalance = Math.max(
+        Number(reservationByAccount[account.id] || 0),
+        0,
+      );
+      return [
+        account.id,
+        {
+          accountId: account.id,
+          currency: account.currency,
+          actualBalance,
+          reservedBalance,
+          availableBalance: actualBalance - reservedBalance,
+          isCovered: actualBalance - reservedBalance >= -0.0001,
+        },
+      ];
+    }),
+  );
+}
+
+export function getGoalFundingAccountOptions({
+  goal,
+  type = "assign",
+  accounts = [],
+} = {}) {
+  const normalizedGoal = normalizeGoal(goal);
+  const linkedAccountIds = new Set(
+    normalizedGoal.fundingAccounts.map((funding) => funding.account_id),
+  );
+  const allocationByAccount = new Map(
+    (normalizedGoal.accountBreakdown || []).map((item) => [
+      item.accountId,
+      Math.max(Number(item.amount || 0), 0),
+    ]),
+  );
+  const needsExistingAllocation = type === "release" || type === "move";
+
+  return normalizeAssetAccounts(accounts)
+    .filter(
+      (account) =>
+        account.currency === normalizedGoal.currency &&
+        !account.is_archived &&
+        isAllocatableAssetAccount(account),
+    )
+    .map((account) => ({
+      id: account.id,
+      name: account.name,
+      currency: account.currency,
+      availableBalance: Math.max(Number(account.availableBalance || 0), 0),
+      allocatedAmount: Number(allocationByAccount.get(account.id) || 0),
+      isGoalFunding:
+        linkedAccountIds.has(account.id) || allocationByAccount.has(account.id),
+      isGoalPrimary: normalizedGoal.primaryFundingAccountId === account.id,
+      isPrimary: Boolean(account.isPrimary || account.is_primary),
+    }))
+    .filter(
+      (account) =>
+        !needsExistingAllocation || account.allocatedAmount > 0.0001,
+    )
+    .sort((a, b) => {
+      if (a.isGoalPrimary !== b.isGoalPrimary) return a.isGoalPrimary ? -1 : 1;
+      if (a.isGoalFunding !== b.isGoalFunding) return a.isGoalFunding ? -1 : 1;
+      if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
+      const amountDifference = needsExistingAllocation
+        ? b.allocatedAmount - a.allocatedAmount
+        : b.availableBalance - a.availableBalance;
+      if (Math.abs(amountDifference) > 0.0001) return amountDifference;
+      return a.name.localeCompare(b.name);
+    });
+}
+
+export function getDefaultGoalFundingAccountId(options = {}) {
+  return getGoalFundingAccountOptions(options)[0]?.id || "";
 }
 
 function getDeadlineMeta(goal, now) {
@@ -220,7 +411,8 @@ export function computeGoalAllocationState({
 } = {}) {
   const normalizedGoals = goals.map(normalizeGoal);
   const normalizedActivities = normalizeGoalActivities(activities);
-  const liquidByCurrency = computeLiquidPools(accounts);
+  const normalizedAccounts = normalizeAssetAccounts(accounts);
+  const liquidByCurrency = computeLiquidPools(normalizedAccounts);
   const activitiesByGoal = normalizedActivities.reduce((groups, activity) => {
     const current = groups.get(activity.goal_id) || [];
     current.push(activity);
@@ -232,6 +424,20 @@ export function computeGoalAllocationState({
     const goalActivities = activitiesByGoal.get(goal.id) || [];
     const activityTotal = goalActivities.reduce(
       (sum, activity) => sum + getGoalActivityEffect(activity),
+      0,
+    );
+    const mappedActivities = goalActivities.filter(
+      (activity) => activity.mapping_status === "mapped" && activity.account_id,
+    );
+    const mappedAvailableAmount = mappedActivities.reduce(
+      (sum, activity) => sum + getGoalActivityEffect(activity),
+      0,
+    );
+    const unmappedActivityAmount = goalActivities
+      .filter((activity) => activity.mapping_status !== "mapped" || !activity.account_id)
+      .reduce((sum, activity) => sum + getGoalActivityEffect(activity), 0);
+    const unmappedAmount = Math.max(
+      Number(goal.legacyAllocatedAmount || 0) + unmappedActivityAmount,
       0,
     );
     const rawAvailableAmount = goal.legacyAllocatedAmount + activityTotal;
@@ -250,6 +456,10 @@ export function computeGoalAllocationState({
     return {
       ...goal,
       activities: goalActivities,
+      mappedActivities,
+      mappedAvailableAmount: Math.max(mappedAvailableAmount, 0),
+      unmappedAmount,
+      hasUnmappedFunding: unmappedAmount > 0.0001 || goal.fundingStatus === "unmapped_legacy",
       rawAvailableAmount,
       availableAmount,
       savedAmount: availableAmount,
@@ -268,10 +478,29 @@ export function computeGoalAllocationState({
     };
   });
 
+  const accountAvailability = computeAccountAvailability(
+    normalizedAccounts,
+    baseInsights,
+    normalizedActivities,
+  );
+
+  const goalAccountAmounts = normalizedActivities.reduce((groups, activity) => {
+    if (activity.mapping_status !== "mapped" || !activity.account_id) return groups;
+    const key = `${activity.goal_id}|${activity.account_id}`;
+    groups[key] = Number(groups[key] || 0) + getGoalActivityEffect(activity);
+    return groups;
+  }, {});
+
   const allocatedByCurrency = baseInsights.reduce((totals, goal) => {
     const currency = normalizeCurrencyCode(goal.currency);
+    if (
+      !["strict", "flexible"].includes(goal.protectionMode) ||
+      ["archived", "used"].includes(goal.status)
+    ) {
+      return totals;
+    }
     totals[currency] =
-      Number(totals[currency] || 0) + Number(goal.availableAmount || 0);
+      Number(totals[currency] || 0) + Number(goal.mappedAvailableAmount || 0);
     return totals;
   }, {});
   const currencyCodes = new Set([
@@ -305,6 +534,19 @@ export function computeGoalAllocationState({
       };
       return {
         ...goal,
+        accountBreakdown: Object.entries(goalAccountAmounts)
+          .filter(([key]) => key.startsWith(`${goal.id}|`))
+          .map(([key, amount]) => {
+            const accountId = key.slice(goal.id.length + 1);
+            const account = normalizedAccounts.find((item) => item.id === accountId);
+            return {
+              accountId,
+              accountName: account?.name || "Akun tidak ditemukan",
+              amount: Math.max(Number(amount || 0), 0),
+              currency: goal.currency,
+            };
+          })
+          .filter((item) => item.amount > 0.0001),
         allocationCovered: summary.isCovered,
         statusLabel: getGoalStatusLabel(goal.derivedStatus, summary.isCovered),
       };
@@ -330,6 +572,7 @@ export function computeGoalAllocationState({
   return {
     goals: insights,
     activities: normalizedActivities,
+    accountAvailability,
     liquidByCurrency,
     allocatedByCurrency,
     summaries,
@@ -340,6 +583,7 @@ export function validateGoalActivity({
   goal,
   type,
   amount,
+  accountId,
   allocationState,
 }) {
   const normalizedGoal = normalizeGoal(goal);
@@ -353,18 +597,30 @@ export function validateGoalActivity({
   const insight = allocationState.goals.find(
     (item) => item.id === normalizedGoal.id,
   );
-  const summary = allocationState.summaries[normalizedGoal.currency] || {
-    unallocatedAmount: 0,
-  };
-  if (type === "assign" && numericAmount > summary.unallocatedAmount + 0.0001) {
+  const resolvedAccountId = accountId || normalizedGoal.primaryFundingAccountId;
+  const accountSummary = allocationState.accountAvailability?.[resolvedAccountId];
+  if (!resolvedAccountId || !accountSummary) {
     return {
       valid: false,
-      message: `Dana belum dialokasikan ${normalizedGoal.currency} tidak mencukupi.`,
+      message: "Pilih akun sumber target terlebih dahulu.",
+    };
+  }
+  if (
+    type === "assign" &&
+    numericAmount > Number(accountSummary.availableBalance || 0) + 0.0001
+  ) {
+    return {
+      valid: false,
+      message: `Dana tersedia pada akun sumber ${normalizedGoal.currency} tidak mencukupi.`,
     };
   }
   if (
     (type === "release" || type === "spend") &&
-    numericAmount > Number(insight?.availableAmount || 0) + 0.0001
+    numericAmount >
+      Number(
+        insight?.accountBreakdown?.find((item) => item.accountId === resolvedAccountId)
+          ?.amount || 0,
+      ) + 0.0001
   ) {
     return {
       valid: false,
@@ -372,6 +628,98 @@ export function validateGoalActivity({
     };
   }
   return { valid: true, message: "" };
+}
+
+export function evaluateAccountDebit({
+  allocationState,
+  accountId,
+  amount,
+  targetId = null,
+} = {}) {
+  const numericAmount = Number(amount || 0);
+  const account = allocationState?.accountAvailability?.[accountId];
+  if (!account || numericAmount <= 0) {
+    return {
+      allowed: false,
+      requiresDecision: false,
+      message: "Akun sumber atau nominal transaksi tidak valid.",
+      compatibleGoals: [],
+    };
+  }
+  if (numericAmount > Number(account.actualBalance || 0) + 0.0001) {
+    return {
+      allowed: false,
+      requiresDecision: false,
+      message: "Saldo aktual akun sumber tidak mencukupi.",
+      compatibleGoals: [],
+    };
+  }
+
+  const compatibleGoals = (allocationState?.goals || [])
+    .filter((goal) =>
+      !["archived", "used"].includes(goal.status) &&
+      goal.accountBreakdown?.some(
+        (item) => item.accountId === accountId && Number(item.amount || 0) > 0,
+      ),
+    )
+    .map((goal) => ({
+      id: goal.id,
+      name: goal.name,
+      protectionMode: goal.protectionMode,
+      amount: Number(
+        goal.accountBreakdown.find((item) => item.accountId === accountId)?.amount || 0,
+      ),
+    }));
+
+  if (targetId) {
+    const target = (allocationState?.goals || []).find((goal) => goal.id === targetId);
+    const targetAmount = Number(
+      target?.accountBreakdown?.find((item) => item.accountId === accountId)?.amount ||
+        0,
+    );
+    if (!target || targetAmount + 0.0001 < numericAmount) {
+      return {
+        allowed: false,
+        requiresDecision: false,
+        message: "Dana target pada akun sumber tidak mencukupi.",
+        compatibleGoals,
+      };
+    }
+    const protectedTargetAmount = ["strict", "flexible"].includes(
+      target.protectionMode,
+    )
+      ? targetAmount
+      : 0;
+    const otherReserved = Math.max(
+      Number(account.reservedBalance || 0) - protectedTargetAmount,
+      0,
+    );
+    if (
+      numericAmount > Number(account.actualBalance || 0) - otherReserved + 0.0001
+    ) {
+      return {
+        allowed: false,
+        requiresDecision: false,
+        message: "Transaksi akan memakai dana target lain yang dilindungi.",
+        compatibleGoals,
+      };
+    }
+    return { allowed: true, requiresDecision: false, message: "", compatibleGoals };
+  }
+
+  if (numericAmount <= Number(account.availableBalance || 0) + 0.0001) {
+    return { allowed: true, requiresDecision: false, message: "", compatibleGoals };
+  }
+
+  return {
+    allowed: false,
+    requiresDecision: true,
+    message:
+      "Nominal melewati dana tersedia akun. Pilih target yang memang ingin digunakan atau kurangi nominal.",
+    compatibleGoals: compatibleGoals.filter(
+      (goal) => goal.amount + Number(account.availableBalance || 0) + 0.0001 >= numericAmount,
+    ),
+  };
 }
 
 export function buildTransactionGoalActivity(transaction) {
@@ -388,6 +736,8 @@ export function buildTransactionGoalActivity(transaction) {
     type: "spend",
     amount: Number(transaction.amount),
     currency: transaction.currency,
+    account_id: transaction.source_account_id,
+    mapping_status: transaction.source_account_id ? "mapped" : "unmapped_legacy",
     transaction_id: transaction.id,
     created_at: transaction.occurred_at || transaction.created_at,
     note: transaction.description || "Pengeluaran menggunakan target",

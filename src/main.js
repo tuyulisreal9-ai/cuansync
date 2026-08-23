@@ -75,6 +75,7 @@ import {
 import {
   GOAL_TYPE_HOLD_BALANCE,
   computeGoalAllocationState,
+  evaluateAccountDebit,
   normalizeGoal,
   normalizeGoalActivities,
   normalizeGoalActivity,
@@ -96,6 +97,7 @@ import {
   resolveTransactionBaseValue,
   transactionBelongsToAccount,
   validateTransactionAccountLinks,
+  validateTransactionOccurredAt,
 } from "./domain/transactions.js";
 import {
   DEFAULT_ACTIVE_CURRENCIES,
@@ -656,8 +658,24 @@ function computeMetrics(
     ordered,
     configuredCurrencies,
   );
+  const goalAllocationState = computeGoalAllocationState({
+    goals,
+    activities: goalActivities,
+    accounts: assetAccounts,
+  });
+  const accountsWithAvailability = assetAccounts.map((account) => ({
+    ...account,
+    ...(goalAllocationState.accountAvailability?.[account.id]
+      ? {
+          reserved_balance:
+            goalAllocationState.accountAvailability[account.id].reservedBalance,
+          available_balance:
+            goalAllocationState.accountAvailability[account.id].availableBalance,
+        }
+      : {}),
+  }));
   const assetAccountSummary = buildAssetAccountInsights(
-    assetAccounts,
+    accountsWithAvailability,
     globalRateSnapshot,
     baseCurrency,
   );
@@ -789,11 +807,6 @@ function computeMetrics(
   const budgetUsageTotal =
     budgetLimitTotal > 0 ? budgetSpentTotal / budgetLimitTotal : 0;
 
-  const goalAllocationState = computeGoalAllocationState({
-    goals,
-    activities: goalActivities,
-    accounts: assetAccounts,
-  });
   const goalInsights = goalAllocationState.goals;
   const totalGoalTarget = goalInsights.reduce(
     (sum, item) => sum + Number(item.targetAmount || 0),
@@ -1848,8 +1861,21 @@ function DailyExpenseForm({
       : `- ${formatCurrency(Math.abs(budget.todayRemainingSafe), dailyCurrency)}`
     : "-";
   const parsedAmount = Number(normalizeNumericInput(form.amount_thb));
+  const selectedQuickAccount = accountOptions.find(
+    (account) => account.id === form.source_account_id,
+  );
+  const quickAvailableBalance = Number(
+    selectedQuickAccount?.availableBalance ??
+      selectedQuickAccount?.available_balance ??
+      selectedQuickAccount?.balance_amount ??
+      0,
+  );
+  const crossesProtectedFunds = parsedAmount > quickAvailableBalance + 0.0001;
   const submitDisabled =
-    parsedAmount <= 0 || !accountOptions.length || !form.source_account_id;
+    parsedAmount <= 0 ||
+    !accountOptions.length ||
+    !form.source_account_id ||
+    crossesProtectedFunds;
 
   useEffect(() => {
     setForm((current) => {
@@ -1863,7 +1889,10 @@ function DailyExpenseForm({
       }
       return {
         ...current,
-        source_account_id: accountOptions[0].id,
+        source_account_id:
+          accountOptions.find((account) => account.isPrimary || account.is_primary)?.id ||
+          accountOptions.find((account) => account.account_purpose === "daily")?.id ||
+          accountOptions[0].id,
       };
     });
   }, [dailyCurrency, accountOptionsKey]);
@@ -2036,12 +2065,23 @@ function DailyExpenseForm({
                   ${accountOptions.map(
                     (account) => html`
                       <option key=${account.id} value=${account.id}>
-                        ${getAssetAccountDisplayName(account)}
+                        ${getAssetAccountDisplayName(account)} — tersedia ${formatCurrency(
+                          account.availableBalance ?? account.balance_amount,
+                          account.currency,
+                        )}
                       </option>
                     `,
                   )}
                 </select>
               </label>
+              ${crossesProtectedFunds
+                ? html`
+                    <p className="rounded-xl border border-amber-400/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-700 dark:text-amber-200 lg:col-span-2">
+                      Nominal memakai dana target. Buka formulir lengkap untuk memilih target
+                      yang ingin digunakan.
+                    </p>
+                  `
+                : null}
             `
           : null}
 
@@ -2405,7 +2445,9 @@ function App() {
   const [budgets, setBudgets] = useState([]);
   const [goals, setGoals] = useState([]);
   const [goalActivities, setGoalActivities] = useState([]);
+  const [goalFundingAccounts, setGoalFundingAccounts] = useState([]);
   const [assetAccounts, setAssetAccounts] = useState([]);
+  const [accountPreferences, setAccountPreferences] = useState([]);
   const [profilePhotos, setProfilePhotos] = useState(() =>
     readAppStorage("profilePhotos", {}),
   );
@@ -2638,8 +2680,21 @@ function App() {
         setGoalActivities(
           normalizeGoalActivities(readAppStorage("demoGoalActivities", [])),
         );
+        const demoPreferences = readAppStorage("demoAccountPreferences", []);
+        const demoPrimaryIds = new Set(
+          demoPreferences
+            .filter((preference) => preference.flow_type === "expense")
+            .map((preference) => preference.account_id),
+        );
+        setGoalFundingAccounts(readAppStorage("demoGoalFundingAccounts", []));
+        setAccountPreferences(demoPreferences);
         setAssetAccounts(
-          normalizeAssetAccounts(readAppStorage("demoAssetAccounts", [])),
+          normalizeAssetAccounts(
+            readAppStorage("demoAssetAccounts", []).map((account) => ({
+              ...account,
+              is_primary: demoPrimaryIds.has(account.id),
+            })),
+          ),
         );
         setProfile(localProfile);
         setTheme(localProfile.theme_mode);
@@ -2661,7 +2716,9 @@ function App() {
         budgetResult,
         goalResult,
         goalActivityResult,
+        goalFundingResult,
         assetAccountResult,
+        accountPreferenceResult,
         settingsResult,
         profileResult,
         currencyResult,
@@ -2689,10 +2746,19 @@ function App() {
           .eq("user_id", user.id)
           .order("created_at", { ascending: true }),
         supabase
+          .from("goal_funding_accounts")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: true }),
+        supabase
           .from("asset_accounts")
           .select("*")
           .eq("user_id", user.id)
           .order("created_at", { ascending: true }),
+        supabase
+          .from("account_preferences")
+          .select("*")
+          .eq("user_id", user.id),
         supabase
           .from("user_settings")
           .select("*")
@@ -2751,7 +2817,20 @@ function App() {
               : goalResult.error.message,
         });
       } else {
-        setGoals((goalResult.data || []).map(normalizeGoal));
+        const fundingRows = goalFundingResult.error
+          ? []
+          : goalFundingResult.data || [];
+        setGoalFundingAccounts(fundingRows);
+        setGoals(
+          (goalResult.data || []).map((goal) =>
+            normalizeGoal({
+              ...goal,
+              goal_funding_accounts: fundingRows.filter(
+                (funding) => funding.goal_id === goal.id,
+              ),
+            }),
+          ),
+        );
       }
 
       if (goalActivityResult.error) {
@@ -2784,7 +2863,23 @@ function App() {
               : assetAccountResult.error.message,
         });
       } else {
-        setAssetAccounts(normalizeAssetAccounts(assetAccountResult.data || []));
+        const preferenceRows = accountPreferenceResult.error
+          ? []
+          : accountPreferenceResult.data || [];
+        setAccountPreferences(preferenceRows);
+        const primaryIds = new Set(
+          preferenceRows
+            .filter((preference) => preference.flow_type === "expense")
+            .map((preference) => preference.account_id),
+        );
+        setAssetAccounts(
+          normalizeAssetAccounts(
+            (assetAccountResult.data || []).map((account) => ({
+              ...account,
+              is_primary: primaryIds.has(account.id),
+            })),
+          ),
+        );
       }
 
       const legacySettings = settingsResult.error
@@ -3042,8 +3137,25 @@ function App() {
     setGoalActivities(normalized);
   }
 
+  function applyAccountPrimaryPreferences(
+    nextAccounts,
+    preferences = accountPreferences,
+  ) {
+    const primaryIds = new Set(
+      preferences
+        .filter((preference) => preference.flow_type === "expense")
+        .map((preference) => preference.account_id),
+    );
+    return normalizeAssetAccounts(
+      nextAccounts.map((account) => ({
+        ...account,
+        is_primary: primaryIds.has(account.id),
+      })),
+    );
+  }
+
   async function persistDemoAssetAccounts(nextAccounts) {
-    const normalized = normalizeAssetAccounts(nextAccounts);
+    const normalized = applyAccountPrimaryPreferences(nextAccounts);
     writeAppStorage("demoAssetAccounts", normalized);
     setAssetAccounts(normalized);
   }
@@ -3068,7 +3180,7 @@ function App() {
       if (error) throw error;
     }
 
-    setAssetAccounts(plan.nextAccounts);
+    setAssetAccounts(applyAccountPrimaryPreferences(plan.nextAccounts));
   }
 
   async function handleCreateTransaction(payload) {
@@ -3076,6 +3188,7 @@ function App() {
       setLoading(true);
       setMessage("");
       setToast(null);
+      validateTransactionOccurredAt(payload.occurred_at);
 
       const record = {
         id: crypto.randomUUID(),
@@ -3106,6 +3219,7 @@ function App() {
         source_account_id: null,
         destination_account_id: null,
         target_id: null,
+        client_request_id: crypto.randomUUID(),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -3352,6 +3466,30 @@ function App() {
         record.target_id = targetId;
       }
 
+      if (record.type === "expense") {
+        const debitCheck = evaluateAccountDebit({
+          allocationState: metrics.goalAllocationState,
+          accountId: record.source_account_id,
+          amount: record.amount,
+          targetId: record.target_id,
+        });
+        if (!debitCheck.allowed) throw new Error(debitCheck.message);
+      }
+      if (record.type === "exchange") {
+        const debitCheck = evaluateAccountDebit({
+          allocationState: metrics.goalAllocationState,
+          accountId: record.source_account_id,
+          amount: Number(record.from_amount || 0) + Number(record.fee_amount || 0),
+        });
+        if (!debitCheck.allowed) {
+          throw new Error(
+            debitCheck.requiresDecision
+              ? "Dana tersedia akun asal tidak cukup karena sebagian saldo dilindungi target. Lepaskan atau pindahkan alokasi lebih dulu."
+              : debitCheck.message,
+          );
+        }
+      }
+
       validateTransactionAccountLinks(record, assetAccounts);
       const accountBalancePlan = buildAssetAccountBalancePlan(
         assetAccounts,
@@ -3366,85 +3504,13 @@ function App() {
           syncGoalActivityForTransaction(goalActivities, savedTransaction),
         );
       } else {
-        const shouldUseAtomicExchange =
-          record.type === "exchange" &&
-          record.source_account_id &&
-          record.destination_account_id;
-        let savedData = null;
-        let usedAtomicExchange = false;
-
-        if (shouldUseAtomicExchange) {
-          const { data, error } = await supabase.rpc(
-            "create_exchange_transaction_atomic",
-            { p_transaction: record },
-          );
-          const missingRpc =
-            error &&
-            (error.code === "PGRST202" ||
-              error.code === "42883" ||
-              String(error.message || "").includes(
-                "create_exchange_transaction_atomic",
-              ));
-          if (missingRpc) {
-            throw new Error(
-              "Pembaruan database tukar valas belum dipasang. Jalankan migrasi kurs terbaru sebelum menyimpan transaksi.",
-            );
-          }
-          if (error) throw error;
-          if (!error) {
-            savedData = Array.isArray(data) ? data[0] : data;
-            usedAtomicExchange = true;
-            setAssetAccounts(accountBalancePlan.nextAccounts);
-          }
-        }
-
-        if (!usedAtomicExchange) {
-          const {
-            rate_base_currency: _rateBaseCurrency,
-            rate_quote_currency: _rateQuoteCurrency,
-            exchange_rate: _exchangeRate,
-            ...legacyCompatibleRecord
-          } = record;
-          let insertRecord =
-            record.type === "exchange" ? record : legacyCompatibleRecord;
-          let { data, error } = await supabase
-            .from("transactions")
-            .insert(insertRecord)
-            .select()
-            .single();
-          if (
-            record.type !== "exchange" &&
-            isMissingTransactionRateTypeColumn(error)
-          ) {
-            const { rate_type: _rateType, ...recordWithoutRateType } =
-              insertRecord;
-            insertRecord = recordWithoutRateType;
-            ({ data, error } = await supabase
-              .from("transactions")
-              .insert(insertRecord)
-              .select()
-              .single());
-          }
-          if (error) throw error;
-          try {
-            await persistAssetAccountBalancePlan(accountBalancePlan);
-          } catch (balanceError) {
-            const { error: rollbackError } = await supabase
-              .from("transactions")
-              .delete()
-              .eq("id", data.id)
-              .eq("user_id", user.id);
-            if (rollbackError) {
-              throw new Error(
-                "Transaksi tersimpan tetapi saldo dompet gagal diperbarui. Muat ulang aplikasi dan periksa riwayat sebelum mencoba lagi.",
-              );
-            }
-            throw balanceError;
-          }
-          savedData = data;
-        }
-
-        savedTransaction = normalizeTransaction(savedData);
+        const { data, error } = await supabase.rpc("record_transaction_atomic", {
+          p_transaction: record,
+          p_reserved_action: record.target_id ? "use_goal" : null,
+        });
+        if (error) throw error;
+        savedTransaction = normalizeTransaction(Array.isArray(data) ? data[0] : data);
+        setAssetAccounts(applyAccountPrimaryPreferences(accountBalancePlan.nextAccounts));
         setTransactions((current) =>
           orderTransactions([...current, savedTransaction]),
         );
@@ -3483,10 +3549,7 @@ function App() {
       setMessage("");
       setToast(null);
 
-      const occurredAt = new Date(payload.occurred_at);
-      if (Number.isNaN(occurredAt.getTime())) {
-        throw new Error("Tanggal transaksi tidak valid.");
-      }
+      const occurredAt = validateTransactionOccurredAt(payload.occurred_at);
 
       const nextType = getTransactionFlow(transaction);
       const description = String(payload.description || "").trim();
@@ -3771,6 +3834,37 @@ function App() {
         ...transaction,
         ...record,
       });
+      const revertedBalancePlan = buildAssetAccountBalancePlan(
+        assetAccounts,
+        getTransactionAccountMovements(transaction, { reverse: true }),
+        { skipMissing: true },
+      );
+      const allocationStateBeforeUpdate = computeGoalAllocationState({
+        goals,
+        activities: goalActivities.filter(
+          (activity) => activity.transaction_id !== transaction.id,
+        ),
+        accounts: revertedBalancePlan.nextAccounts,
+      });
+      if (updatedTransaction.type === "expense") {
+        const debitCheck = evaluateAccountDebit({
+          allocationState: allocationStateBeforeUpdate,
+          accountId: updatedTransaction.source_account_id,
+          amount: updatedTransaction.amount,
+          targetId: updatedTransaction.target_id,
+        });
+        if (!debitCheck.allowed) throw new Error(debitCheck.message);
+      }
+      if (updatedTransaction.type === "exchange") {
+        const debitCheck = evaluateAccountDebit({
+          allocationState: allocationStateBeforeUpdate,
+          accountId: updatedTransaction.source_account_id,
+          amount:
+            Number(updatedTransaction.from_amount || 0) +
+            Number(updatedTransaction.fee_amount || 0),
+        });
+        if (!debitCheck.allowed) throw new Error(debitCheck.message);
+      }
       validateTransactionAccountLinks(updatedTransaction, assetAccounts);
       const accountBalancePlan = buildAssetAccountBalancePlan(
         assetAccounts,
@@ -3793,39 +3887,22 @@ function App() {
           syncGoalActivityForTransaction(goalActivities, updatedTransaction),
         );
       } else {
-        const {
-          rate_base_currency: _rateBaseCurrency,
-          rate_quote_currency: _rateQuoteCurrency,
-          exchange_rate: _exchangeRate,
-          ...legacyCompatibleRecord
-        } = record;
-        let updateRecord =
-          nextType === "exchange" ? record : legacyCompatibleRecord;
-        let { data, error } = await supabase
-          .from("transactions")
-          .update(updateRecord)
-          .eq("id", transaction.id)
-          .eq("user_id", user.id)
-          .select()
-          .single();
-        if (
-          nextType !== "exchange" &&
-          isMissingTransactionRateTypeColumn(error)
-        ) {
-          const { rate_type: _rateType, ...recordWithoutRateType } =
-            updateRecord;
-          updateRecord = recordWithoutRateType;
-          ({ data, error } = await supabase
-            .from("transactions")
-            .update(updateRecord)
-            .eq("id", transaction.id)
-            .eq("user_id", user.id)
-            .select()
-            .single());
-        }
+        const { data, error } = await supabase.rpc("update_transaction_atomic", {
+          p_transaction_id: transaction.id,
+          p_transaction: {
+            ...transaction,
+            ...record,
+            id: transaction.id,
+            client_request_id:
+              transaction.client_request_id || crypto.randomUUID(),
+          },
+          p_reserved_action: record.target_id ? "use_goal" : null,
+        });
         if (error) throw error;
-        await persistAssetAccountBalancePlan(accountBalancePlan);
-        const normalizedUpdated = normalizeTransaction(data);
+        setAssetAccounts(applyAccountPrimaryPreferences(accountBalancePlan.nextAccounts));
+        const normalizedUpdated = normalizeTransaction(
+          Array.isArray(data) ? data[0] : data,
+        );
         setTransactions((current) =>
           orderTransactions(
             current.map((item) =>
@@ -3888,13 +3965,11 @@ function App() {
           ),
         );
       } else {
-        const { error } = await supabase
-          .from("transactions")
-          .delete()
-          .eq("id", transactionId)
-          .eq("user_id", user.id);
+        const { error } = await supabase.rpc("delete_transaction_atomic", {
+          p_transaction_id: transactionId,
+        });
         if (error) throw error;
-        await persistAssetAccountBalancePlan(accountBalancePlan);
+        setAssetAccounts(applyAccountPrimaryPreferences(accountBalancePlan.nextAccounts));
         setTransactions((current) =>
           current.filter((item) => item.id !== transactionId),
         );
@@ -4149,6 +4224,14 @@ function App() {
         user_id: user.id,
         name,
         account_type: accountType,
+        account_purpose:
+          ["daily", "savings", "bills", "general", "investment"].includes(
+            payload.account_purpose,
+          )
+            ? payload.account_purpose
+            : accountType === "investment"
+              ? "investment"
+              : "general",
         currency,
         balance_amount: balanceAmount,
         is_allocatable:
@@ -4157,6 +4240,7 @@ function App() {
             : ["bank", "cash", "ewallet"].includes(accountType),
         note: String(payload.note || "").trim(),
         created_at: new Date().toISOString(),
+        is_archived: false,
       };
 
       if (mode === "demo") {
@@ -4234,6 +4318,71 @@ function App() {
     }
   }
 
+  async function handleSetPrimaryAccount(account, flowType = "expense") {
+    try {
+      setLoading(true);
+      const preference = {
+        user_id: user.id,
+        currency: normalizeCurrencyCode(account.currency),
+        flow_type: flowType,
+        account_id: account.id,
+        updated_at: new Date().toISOString(),
+      };
+      if (mode === "demo") {
+        const nextPreferences = [
+          ...accountPreferences.filter(
+            (item) =>
+              !(
+                item.currency === preference.currency &&
+                item.flow_type === preference.flow_type
+              ),
+          ),
+          preference,
+        ];
+        writeAppStorage("demoAccountPreferences", nextPreferences);
+        setAccountPreferences(nextPreferences);
+      } else {
+        const { data, error } = await supabase.rpc("set_account_preference", {
+          p_currency: preference.currency,
+          p_flow_type: preference.flow_type,
+          p_account_id: preference.account_id,
+        });
+        if (error) throw error;
+        setAccountPreferences((current) => [
+          ...current.filter(
+            (item) =>
+              !(
+                item.currency === preference.currency &&
+                item.flow_type === preference.flow_type
+              ),
+          ),
+          data || preference,
+        ]);
+      }
+      setAssetAccounts((current) =>
+        normalizeAssetAccounts(
+          current.map((item) => ({
+            ...item,
+            is_primary:
+              item.currency === preference.currency
+                ? item.id === preference.account_id
+                : item.is_primary,
+          })),
+        ),
+      );
+      setMessage(`${account.name} menjadi akun utama pengeluaran ${preference.currency}.`);
+      setMessageTone("success");
+      setToast({ message: "Akun utama diperbarui.", tone: "success" });
+      return true;
+    } catch (error) {
+      setMessage(error.message || "Gagal memperbarui akun utama.");
+      setMessageTone("error");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function getCurrentGoalAllocationState(
     nextGoals = goals,
     nextActivities = goalActivities,
@@ -4248,20 +4397,65 @@ function App() {
 
   async function persistGoalActivityRecord(record) {
     const normalized = normalizeGoalActivity(record);
+    let saved = normalized;
     if (mode === "demo") {
       await persistDemoGoalActivities([...goalActivities, normalized]);
-      return normalized;
+    } else {
+      const { data, error } = await supabase.rpc("record_goal_activity_atomic", {
+        p_goal_id: normalized.goal_id,
+        p_account_id: normalized.account_id,
+        p_type: normalized.type,
+        p_amount: normalized.amount,
+        p_note: normalized.note || "",
+        p_client_request_id: normalized.client_request_id || crypto.randomUUID(),
+      });
+      if (error) throw error;
+      saved = normalizeGoalActivity(data);
+      setGoalActivities((current) =>
+        normalizeGoalActivities([...current, saved]),
+      );
     }
-    const { data, error } = await supabase
-      .from("goal_allocations")
-      .insert(normalized)
-      .select()
-      .single();
-    if (error) throw error;
-    const saved = normalizeGoalActivity(data);
-    setGoalActivities((current) =>
-      normalizeGoalActivities([...current, saved]),
-    );
+
+    if (saved.mapping_status === "mapped" && saved.account_id) {
+      const funding = {
+        goal_id: saved.goal_id,
+        account_id: saved.account_id,
+        user_id: user.id,
+        currency: saved.currency,
+        is_primary: false,
+      };
+      setGoalFundingAccounts((current) =>
+        current.some(
+          (item) =>
+            item.goal_id === funding.goal_id &&
+            item.account_id === funding.account_id,
+        )
+          ? current
+          : [...current, funding],
+      );
+      setGoals((current) =>
+        current.map((item) => {
+          if (item.id !== saved.goal_id) return item;
+          const existingFunding = item.fundingAccounts || [];
+          const hasFunding = existingFunding.some(
+            (itemFunding) => itemFunding.account_id === saved.account_id,
+          );
+          return normalizeGoal({
+            ...item,
+            funding_status: "funded",
+            goal_funding_accounts: hasFunding
+              ? existingFunding
+              : [
+                  ...existingFunding,
+                  {
+                    ...funding,
+                    is_primary: existingFunding.length === 0,
+                  },
+                ],
+          });
+        }),
+      );
+    }
     return saved;
   }
 
@@ -4284,6 +4478,12 @@ function App() {
         payload.target_type === "collect_by_date"
           ? "collect_by_date"
           : GOAL_TYPE_HOLD_BALANCE;
+      const accountId = payload.account_id || null;
+      const protectionMode = ["strict", "flexible", "informational"].includes(
+        payload.protection_mode,
+      )
+        ? payload.protection_mode
+        : "flexible";
 
       if (!name) throw new Error("Nama target wajib diisi.");
       if (!targetAmount || targetAmount <= 0) {
@@ -4293,13 +4493,16 @@ function App() {
         throw new Error("Alokasi awal tidak boleh negatif.");
       }
 
-      const currentSummary =
-        getCurrentGoalAllocationState().summaries[currency] || {
-          unallocatedAmount: 0,
-        };
-      if (initialAllocation > currentSummary.unallocatedAmount + 0.0001) {
+      const allocationState = getCurrentGoalAllocationState();
+      const sourceAvailability = allocationState.accountAvailability?.[accountId];
+      if (initialAllocation > 0 && !sourceAvailability) {
+        throw new Error("Pilih akun sumber untuk alokasi awal.");
+      }
+      if (
+        initialAllocation > Number(sourceAvailability?.availableBalance || 0) + 0.0001
+      ) {
         throw new Error(
-          `Alokasi awal melebihi dana ${currency} yang belum dialokasikan.`,
+          `Alokasi awal melebihi dana tersedia pada akun sumber ${currency}.`,
         );
       }
 
@@ -4316,39 +4519,79 @@ function App() {
         deadline: payload.deadline || null,
         note: String(payload.note || "").trim(),
         status: "active",
+        protection_mode: protectionMode,
+        funding_status: accountId ? "funded" : "plan_only",
+        spending_reduces_progress: payload.spending_reduces_progress !== false,
+        goal_funding_accounts: accountId
+          ? [{
+              goal_id: null,
+              account_id: accountId,
+              user_id: user.id,
+              currency,
+              is_primary: true,
+            }]
+          : [],
         created_at: now,
         updated_at: now,
       });
       let savedGoal = record;
 
       if (mode === "demo") {
+        record.fundingAccounts = record.fundingAccounts.map((funding) => ({
+          ...funding,
+          goal_id: record.id,
+        }));
+        record.primaryFundingAccountId = accountId;
         await persistDemoGoals([...goals, record]);
+        if (accountId) {
+          const fundingRows = [
+            ...goalFundingAccounts,
+            ...record.fundingAccounts,
+          ];
+          writeAppStorage("demoGoalFundingAccounts", fundingRows);
+          setGoalFundingAccounts(fundingRows);
+        }
       } else {
-        const { data, error } = await supabase
-          .from("goals")
-          .insert({
-            id: record.id,
-            user_id: record.user_id,
-            name: record.name,
-            currency: record.currency,
-            target_amount: record.targetAmount,
-            target_amount_idr: record.targetAmount,
-            saved_amount_idr: 0,
-            target_type: record.targetType,
-            deadline: record.deadline,
-            note: record.note,
-            status: "active",
-            created_at: record.created_at,
-            updated_at: record.updated_at,
-          })
-          .select()
-          .single();
+        const requestId = crypto.randomUUID();
+        const { data, error } = await supabase.rpc(
+          "create_goal_with_funding_atomic",
+          {
+            p_goal: {
+              id: record.id,
+              name: record.name,
+              currency: record.currency,
+              target_amount: record.targetAmount,
+              target_type: record.targetType,
+              deadline: record.deadline,
+              note: record.note,
+              protection_mode: record.protectionMode,
+              spending_reduces_progress: record.spendingReducesProgress,
+              created_at: record.created_at,
+            },
+            p_account_id: accountId,
+            p_initial_allocation: initialAllocation,
+            p_client_request_id: requestId,
+          },
+        );
         if (error) throw error;
-        savedGoal = normalizeGoal(data);
+        const fundingRows = accountId
+          ? [{
+              goal_id: record.id,
+              account_id: accountId,
+              user_id: user.id,
+              currency,
+              is_primary: true,
+            }]
+          : [];
+        savedGoal = normalizeGoal({
+          ...(Array.isArray(data) ? data[0] : data),
+          goal_funding_accounts: fundingRows,
+        });
+        setGoalFundingAccounts((current) => [...current, ...fundingRows]);
         setGoals((current) => [...current, savedGoal]);
       }
 
-      if (initialAllocation > 0) {
+      if (initialAllocation > 0 && mode === "demo") {
         await persistGoalActivityRecord({
           id: crypto.randomUUID(),
           user_id: user.id,
@@ -4356,6 +4599,8 @@ function App() {
           type: "assign",
           amount: initialAllocation,
           currency,
+          account_id: accountId,
+          mapping_status: "mapped",
           note: "Alokasi awal",
           created_at: now,
         });
@@ -4410,17 +4655,29 @@ function App() {
     }
   }
 
-  async function handleGoalActivity(goal, rawAmount, type = "assign", note = "") {
+  async function handleGoalActivity(
+    goal,
+    rawAmount,
+    type = "assign",
+    note = "",
+    requestedAccountId = null,
+  ) {
     try {
       setLoading(true);
       setMessage("");
 
       const amount = Number(rawAmount);
       const normalizedGoal = normalizeGoal(goal);
+      const accountId =
+        requestedAccountId ||
+        normalizedGoal.primaryFundingAccountId ||
+        normalizedGoal.accountBreakdown?.[0]?.accountId ||
+        null;
       const validation = validateGoalActivity({
         goal: normalizedGoal,
         type,
         amount,
+        accountId,
         allocationState: getCurrentGoalAllocationState(),
       });
       if (!validation.valid) throw new Error(validation.message);
@@ -4432,6 +4689,9 @@ function App() {
         type,
         amount,
         currency: normalizedGoal.currency,
+        account_id: accountId,
+        mapping_status: "mapped",
+        client_request_id: crypto.randomUUID(),
         note,
         created_at: new Date().toISOString(),
       });
@@ -4456,6 +4716,7 @@ function App() {
     sourceGoal,
     destinationGoal,
     rawAmount,
+    requestedAccountId = null,
   ) {
     try {
       setLoading(true);
@@ -4463,6 +4724,11 @@ function App() {
       const source = normalizeGoal(sourceGoal);
       const destination = normalizeGoal(destinationGoal);
       const amount = Number(rawAmount);
+      const accountId =
+        requestedAccountId ||
+        source.primaryFundingAccountId ||
+        source.accountBreakdown?.[0]?.accountId ||
+        null;
       if (source.id === destination.id) {
         throw new Error("Pilih target tujuan yang berbeda.");
       }
@@ -4474,6 +4740,7 @@ function App() {
         goal: source,
         type: "release",
         amount,
+        accountId,
         allocationState: state,
       });
       if (!releaseValidation.valid) throw new Error(releaseValidation.message);
@@ -4487,6 +4754,8 @@ function App() {
           type: "release",
           amount,
           currency: source.currency,
+          account_id: accountId,
+          mapping_status: "mapped",
           note: `Dipindahkan ke ${destination.name}`,
           created_at: timestamp,
         }),
@@ -4497,6 +4766,8 @@ function App() {
           type: "assign",
           amount,
           currency: destination.currency,
+          account_id: accountId,
+          mapping_status: "mapped",
           note: `Dipindahkan dari ${source.name}`,
           created_at: timestamp,
         }),
@@ -4505,10 +4776,16 @@ function App() {
       if (mode === "demo") {
         await persistDemoGoalActivities([...goalActivities, ...records]);
       } else {
-        const { data, error } = await supabase
-          .from("goal_allocations")
-          .insert(records)
-          .select();
+        const { data, error } = await supabase.rpc(
+          "move_goal_allocation_atomic",
+          {
+            p_source_goal_id: source.id,
+            p_destination_goal_id: destination.id,
+            p_account_id: accountId,
+            p_amount: amount,
+            p_client_request_id: crypto.randomUUID(),
+          },
+        );
         if (error) throw error;
         setGoalActivities((current) =>
           normalizeGoalActivities([...current, ...(data || [])]),
@@ -4552,6 +4829,15 @@ function App() {
             : GOAL_TYPE_HOLD_BALANCE,
         deadline: payload.deadline || null,
         note: String(payload.note || "").trim(),
+        protection_mode:
+          ["strict", "flexible", "informational"].includes(
+            payload.protection_mode,
+          )
+            ? payload.protection_mode
+            : normalizedGoal.protectionMode,
+        spending_reduces_progress:
+          payload.spending_reduces_progress ??
+          normalizedGoal.spendingReducesProgress,
         updated_at: new Date().toISOString(),
       };
       if (mode === "demo") {
@@ -4591,7 +4877,7 @@ function App() {
     try {
       setLoading(true);
       const normalizedGoal = normalizeGoal(goal);
-      if (Number(goal.availableAmount || 0) > 0.0001) {
+      if (Number(goal.mappedAvailableAmount || 0) > 0.0001) {
         throw new Error(
           "Lepaskan atau pindahkan seluruh alokasi sebelum mengarsipkan target.",
         );
@@ -4673,11 +4959,18 @@ function App() {
     );
   }
 
-  async function handleAddGoalProgress(goal, rawAmount, action = "deposit") {
+  async function handleAddGoalProgress(
+    goal,
+    rawAmount,
+    action = "deposit",
+    accountId = null,
+  ) {
     return handleGoalActivity(
       goal,
       rawAmount,
       action === "withdraw" ? "release" : "assign",
+      "",
+      accountId,
     );
   }
 
@@ -5204,7 +5497,7 @@ function App() {
             todaySpentCurrency=${todaySpentCurrency}
             expenseCurrency=${dailyExpenseCurrency}
             baseCurrency=${walletBaseCurrency}
-            accounts=${assetAccounts}
+            accounts=${metrics.assetAccountInsights}
             onRequestAddWallet=${openAssetFormFromQuickAction}
           />
           <${RecentTransactionsPreview}
@@ -5247,7 +5540,7 @@ function App() {
                 activeCurrencies=${dashboardActiveCurrencies}
                 dailyCurrency=${dailyExpenseCurrency}
                 baseCurrency=${walletBaseCurrency}
-                assetAccounts=${assetAccounts}
+                assetAccounts=${metrics.assetAccountInsights}
                 budgetInsights=${metrics.budgetInsights}
                 goalInsights=${metrics.goalInsights}
                 globalRateSnapshot=${globalRateSnapshot}
@@ -5269,7 +5562,7 @@ function App() {
                 activeCurrencies=${dashboardActiveCurrencies}
                 dailyCurrency=${dailyExpenseCurrency}
                 baseCurrency=${walletBaseCurrency}
-                assetAccounts=${assetAccounts}
+                assetAccounts=${metrics.assetAccountInsights}
                 budgetInsights=${metrics.budgetInsights}
                 goalInsights=${metrics.goalInsights}
                 globalRateSnapshot=${globalRateSnapshot}
@@ -5372,9 +5665,11 @@ function App() {
                         baseCurrency=${walletBaseCurrency}
                         onCreateAssetAccount=${handleCreateAssetAccount}
                         onDeleteAssetAccount=${handleDeleteAssetAccount}
+                        onSetPrimaryAccount=${handleSetPrimaryAccount}
                         onCreateGoal=${handleCreateGoal}
                         onDeleteGoal=${handleDeleteGoal}
                         onContribute=${handleAddGoalProgress}
+                        onUseGoal=${(goal) => openTransactionForm("expense", goal)}
                         onOpenGoals=${() => navigateAppTab("budget")}
                         onOpenReport=${() => navigateAppTab("report")}
                         onSelectAccountCurrency=${setSelectedWalletCurrency}

@@ -23,6 +23,26 @@ const LEGACY_EXCHANGE_KEYWORDS = [
   "currency exchange",
 ];
 
+export const FUTURE_TRANSACTION_DATE_MESSAGE =
+  "Tanggal dan waktu transaksi tidak boleh melewati waktu sekarang.";
+
+export function validateTransactionOccurredAt(value, now = new Date()) {
+  const occurredAt = new Date(value);
+  const nowTime = new Date(now).getTime();
+
+  if (Number.isNaN(occurredAt.getTime())) {
+    throw new Error("Tanggal transaksi tidak valid.");
+  }
+  if (Number.isNaN(nowTime)) {
+    throw new Error("Waktu saat ini tidak valid.");
+  }
+  if (occurredAt.getTime() > nowTime) {
+    throw new Error(FUTURE_TRANSACTION_DATE_MESSAGE);
+  }
+
+  return occurredAt;
+}
+
 function looksLikeLegacyExchange(row) {
   if (row.type !== "income") return false;
   const amountThb = Number(row.amount_thb || 0);

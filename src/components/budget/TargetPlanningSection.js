@@ -7,7 +7,10 @@ import {
 import {
   GOAL_TYPE_COLLECT_BY_DATE,
   GOAL_TYPE_HOLD_BALANCE,
+  GOAL_PROTECTION_MODES,
   GOAL_TYPES,
+  getDefaultGoalFundingAccountId,
+  getGoalFundingAccountOptions,
 } from "../../domain/goals.js";
 import {
   DEFAULT_BASE_CURRENCY,
@@ -72,13 +75,15 @@ function getActivitySign(activity) {
     : "-";
 }
 
-function TargetForm({
+export function TargetForm({
   goal = null,
   summaries,
   currencies,
   loading,
   onSubmit,
   onCancel,
+  accounts = [],
+  createLabel = "Buat tabungan",
 }) {
   const editing = Boolean(goal);
   const [form, setForm] = useState(() => ({
@@ -88,17 +93,31 @@ function TargetForm({
     target_amount: goal?.targetAmount ? String(goal.targetAmount) : "",
     deadline: goal?.deadline || "",
     initial_allocation: "",
+    account_id: goal?.primaryFundingAccountId || "",
+    protection_mode: goal?.protectionMode || "flexible",
+    spending_reduces_progress: goal?.spendingReducesProgress ?? true,
     note: goal?.note || "",
   }));
   const currency = normalizeCurrencyCode(form.currency);
+  const compatibleAccounts = accounts.filter(
+    (account) =>
+      account.currency === currency &&
+      account.is_allocatable !== false &&
+      !account.is_archived,
+  );
+  const selectedAccount = compatibleAccounts.find(
+    (account) => account.id === form.account_id,
+  );
   const unallocated = Number(
-    summaries[currency]?.unallocatedAmount || 0,
+    selectedAccount?.availableBalance ?? selectedAccount?.balance_amount ?? 0,
   );
   const initialAllocation = Number(
     normalizeNumericInput(form.initial_allocation),
   );
   const allocationInvalid =
-    !editing && initialAllocation > unallocated + 0.0001;
+    !editing &&
+    (initialAllocation > unallocated + 0.0001 ||
+      (initialAllocation > 0 && !selectedAccount));
 
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -114,6 +133,7 @@ function TargetForm({
       initial_allocation: editing
         ? 0
         : normalizeNumericInput(form.initial_allocation),
+      account_id: form.account_id || null,
     });
     if (ok) onCancel();
   }
@@ -121,7 +141,7 @@ function TargetForm({
   return html`
     <form className="grid gap-3" onSubmit=${submit}>
       <label className="block">
-        <span className="cs-entry-label">Nama target</span>
+        <span className="cs-entry-label">Nama tabungan</span>
         <input
           required
           value=${form.name}
@@ -132,7 +152,7 @@ function TargetForm({
       </label>
 
       <fieldset>
-        <legend className="cs-entry-label">Jenis target</legend>
+        <legend className="cs-entry-label">Jenis tabungan</legend>
         <div className="grid grid-cols-2 gap-2">
           ${GOAL_TYPES.map(
             (type) => html`
@@ -162,7 +182,7 @@ function TargetForm({
             value=${form.currency}
             onChange=${(value) => updateField("currency", value)}
             currencies=${currencies}
-            ariaLabel="Mata uang target"
+            ariaLabel="Mata uang tabungan"
             buttonClassName=${INPUT_CLASS}
           />
         </div>
@@ -179,6 +199,57 @@ function TargetForm({
           />
         </label>
       </div>
+
+      ${!editing
+        ? html`
+            <div key="goal-funding" className="grid gap-3">
+            <label className="block">
+              <span className="cs-entry-label">Dompet sumber tabungan</span>
+              <select
+                value=${form.account_id}
+                onChange=${(event) => updateField("account_id", event.target.value)}
+                className=${INPUT_CLASS}
+              >
+                <option value="">Rencana saja — belum mengikat saldo</option>
+                ${compatibleAccounts.map(
+                  (account) => html`
+                    <option key=${account.id} value=${account.id}>
+                      ${account.name} — tersedia ${formatCurrency(
+                        account.availableBalance ?? account.balance_amount,
+                        account.currency,
+                      )}
+                    </option>
+                  `,
+                )}
+              </select>
+            </label>
+
+            <fieldset>
+              <legend className="cs-entry-label">Perlindungan saldo</legend>
+              <div className="grid gap-2">
+                ${GOAL_PROTECTION_MODES.map(
+                  (mode) => html`
+                    <button
+                      key=${mode.value}
+                      type="button"
+                      aria-pressed=${form.protection_mode === mode.value}
+                      onClick=${() => updateField("protection_mode", mode.value)}
+                      className=${`rounded-lg border p-3 text-left transition ${
+                        form.protection_mode === mode.value
+                          ? "border-emerald-400 bg-emerald-500/12"
+                          : "border-slate-300 bg-white/50 dark:border-slate-700 dark:bg-slate-900/40"
+                      }`}
+                    >
+                      <strong className="block text-xs text-slate-950 dark:text-white">${mode.label}</strong>
+                      <span className="mt-1 block text-[10px] leading-4 text-slate-600 dark:text-slate-400">${mode.description}</span>
+                    </button>
+                  `,
+                )}
+              </div>
+            </fieldset>
+            </div>
+          `
+        : null}
 
       <label className="block">
         <span className="cs-entry-label">Batas waktu opsional</span>
@@ -212,7 +283,7 @@ function TargetForm({
                     : "text-slate-600 dark:text-slate-400"
                 }`}
               >
-                Dana belum dialokasikan:
+                Dana tersedia pada ${selectedAccount?.name || "akun yang dipilih"}:
                 ${formatCurrency(unallocated, currency)}
               </span>
             </label>
@@ -229,9 +300,10 @@ function TargetForm({
         ></textarea>
       </label>
 
-      <p className="rounded-lg border border-emerald-400/20 bg-emerald-500/8 px-3 py-2 text-[10px] leading-4 text-emerald-100">
-        Alokasi hanya memberikan tujuan pada dana yang sudah kamu miliki.
-        Saldo rekening tidak akan berubah.
+      <p className="rounded-lg border border-emerald-400/20 bg-emerald-500/8 px-3 py-2 text-[10px] leading-4 text-emerald-700 dark:text-emerald-300">
+        Ringkasan: ${form.account_id ? selectedAccount?.name : "rencana tanpa akun"},
+        perlindungan ${GOAL_PROTECTION_MODES.find((mode) => mode.value === form.protection_mode)?.label || "Fleksibel"}.
+        Alokasi tidak mengubah saldo aktual rekening.
       </p>
 
       <${FormActionDock}>
@@ -248,7 +320,7 @@ function TargetForm({
             disabled=${loading || allocationInvalid}
             className="min-h-12 rounded-xl bg-emerald-500 px-3 text-xs font-black text-white disabled:opacity-50"
           >
-            ${editing ? "Simpan perubahan" : "Buat target"}
+            ${editing ? "Simpan perubahan" : createLabel}
           </button>
         </div>
       <//>
@@ -270,6 +342,7 @@ export function TargetPlanningSection({
   onGoalActivity,
   onMoveAllocation,
   onUseGoal,
+  accounts = [],
 }) {
   const currencies = normalizeCurrencyList(
     [
@@ -289,6 +362,7 @@ export function TargetPlanningSection({
   const [menuGoalId, setMenuGoalId] = useState(null);
   const [action, setAction] = useState(null);
   const [actionAmount, setActionAmount] = useState("");
+  const [actionAccountId, setActionAccountId] = useState("");
   const [destinationGoalId, setDestinationGoalId] = useState("");
   const summary = summaries[selectedCurrency] || {
     currency: selectedCurrency,
@@ -306,6 +380,27 @@ export function TargetPlanningSection({
     goals.find((goal) => goal.id === detailGoalId) || null;
   const editingGoal = goals.find((goal) => goal.id === editingGoalId) || null;
   const actionGoal = goals.find((goal) => goal.id === action?.goalId) || null;
+  const actionAccountOptions = actionGoal
+    ? getGoalFundingAccountOptions({
+        goal: actionGoal,
+        type: action?.type,
+        accounts,
+      })
+    : [];
+  const selectedActionAccount = actionAccountOptions.find(
+    (account) => account.id === actionAccountId,
+  );
+  const numericActionAmount = Number(normalizeNumericInput(actionAmount));
+  const selectedAccountLimit = Number(
+    action?.type === "assign"
+      ? selectedActionAccount?.availableBalance || 0
+      : selectedActionAccount?.allocatedAmount || 0,
+  );
+  const actionInvalid =
+    !selectedActionAccount ||
+    !Number.isFinite(numericActionAmount) ||
+    numericActionAmount <= 0 ||
+    numericActionAmount > selectedAccountLimit + 0.0001;
   const moveTargets = actionGoal
     ? goals.filter(
         (goal) =>
@@ -344,6 +439,9 @@ export function TargetPlanningSection({
     setDetailGoalId(null);
     setAction({ goalId: goal.id, type });
     setActionAmount("");
+    setActionAccountId(
+      getDefaultGoalFundingAccountId({ goal, type, accounts }),
+    );
     setDestinationGoalId("");
   }
 
@@ -357,11 +455,19 @@ export function TargetPlanningSection({
             actionGoal,
             goals.find((goal) => goal.id === destinationGoalId),
             amount,
+            actionAccountId,
           )
-        : await onGoalActivity(actionGoal, amount, action.type);
+        : await onGoalActivity(
+            actionGoal,
+            amount,
+            action.type,
+            "",
+            actionAccountId,
+          );
     if (ok) {
       setAction(null);
       setActionAmount("");
+      setActionAccountId("");
       setDestinationGoalId("");
     }
   }
@@ -372,7 +478,7 @@ export function TargetPlanningSection({
         <div className="flex min-w-0 items-center gap-2">
           <${Target} aria-hidden="true" className="h-4 w-4 shrink-0 text-emerald-400" />
           <h2 className="text-[11px] font-black leading-4 text-slate-950 dark:text-white sm:text-sm">
-            Target Tabungan & Rencana Finansial
+            Tabungan & Rencana Finansial
           </h2>
         </div>
         <button
@@ -380,7 +486,7 @@ export function TargetPlanningSection({
           onClick=${() => setShowCreateForm(true)}
           className="min-h-11 shrink-0 rounded-lg bg-emerald-500/12 px-3 text-[11px] font-black text-emerald-700 dark:text-emerald-300"
         >
-          + Tambah Target
+          + Tambah Tabungan
         </button>
       </div>
 
@@ -542,6 +648,27 @@ export function TargetPlanningSection({
                     ></div>
                   </div>
 
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-[8px] font-black">
+                    <span className="rounded-full bg-slate-500/10 px-2 py-1 text-slate-600 dark:text-slate-300">
+                      ${GOAL_PROTECTION_MODES.find((mode) => mode.value === goal.protectionMode)?.label || "Fleksibel"}
+                    </span>
+                    ${goal.accountBreakdown?.map(
+                      (funding) => html`
+                        <span key=${funding.accountId} className="rounded-full bg-emerald-500/10 px-2 py-1 text-emerald-700 dark:text-emerald-300">
+                          ${funding.accountName}: ${formatCurrency(funding.amount, goal.currency)}
+                        </span>
+                      `,
+                    )}
+                  </div>
+                  ${goal.hasUnmappedFunding
+                    ? html`
+                        <p className="mt-2 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-[9px] leading-4 text-amber-700 dark:text-amber-200">
+                          ${formatCurrency(goal.unmappedAmount, goal.currency)} adalah progres legacy
+                          tanpa sumber akun. Nilai ini tidak mengurangi dana tersedia sampai dipetakan.
+                        </p>
+                      `
+                    : null}
+
                   <div className="mt-2 grid grid-cols-2 gap-2 text-[9px]">
                     <p className="text-slate-600 dark:text-slate-400">
                       Kurang
@@ -576,7 +703,7 @@ export function TargetPlanningSection({
                       onClick=${() => openAction(goal, "assign")}
                       className="min-h-11 rounded-lg bg-emerald-500 px-2 text-[10px] font-black text-white"
                     >
-                      Alokasikan Dana
+                      Tambah Saldo
                     </button>
                     <button
                       type="button"
@@ -592,10 +719,10 @@ export function TargetPlanningSection({
           : html`
               <div className="rounded-xl border border-dashed border-slate-300 bg-white/35 px-4 py-6 text-center dark:border-slate-800 dark:bg-transparent">
                 <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Belum ada target ${selectedCurrency}.
+                  Belum ada tabungan ${selectedCurrency}.
                 </p>
                 <p className="mt-1 text-[10px] text-slate-600 dark:text-slate-500">
-                  Buat target untuk memberi tujuan pada dana yang sudah kamu miliki.
+                  Buat tabungan untuk memberi tujuan pada dana yang sudah kamu miliki.
                 </p>
               </div>
             `}
@@ -603,7 +730,7 @@ export function TargetPlanningSection({
 
       <${SheetShell}
         open=${showCreateForm}
-        title="Tambah Target"
+        title="Tambah Tabungan"
         helper="Tentukan tujuan dana tanpa membuat rekening baru."
         onClose=${() => setShowCreateForm(false)}
         labelledBy="create-goal-title"
@@ -612,6 +739,7 @@ export function TargetPlanningSection({
           summaries=${summaries}
           currencies=${currencies}
           loading=${loading}
+          accounts=${accounts}
           onSubmit=${onCreateGoal}
           onCancel=${() => setShowCreateForm(false)}
         />
@@ -619,7 +747,7 @@ export function TargetPlanningSection({
 
       <${SheetShell}
         open=${Boolean(editingGoal)}
-        title="Ubah Target"
+        title="Ubah Tabungan"
         helper="Perbarui rencana tanpa mengubah riwayat alokasi."
         onClose=${() => setEditingGoalId(null)}
         labelledBy="edit-goal-title"
@@ -632,6 +760,7 @@ export function TargetPlanningSection({
                 summaries=${summaries}
                 currencies=${currencies}
                 loading=${loading}
+                accounts=${accounts}
                 onSubmit=${(payload) => onUpdateGoal(editingGoal, payload)}
                 onCancel=${() => setEditingGoalId(null)}
               />
@@ -642,10 +771,10 @@ export function TargetPlanningSection({
       <${SheetShell}
         open=${Boolean(actionGoal)}
         title=${action?.type === "release"
-          ? "Lepaskan Alokasi"
+          ? "Batalkan Alokasi"
           : action?.type === "move"
-            ? "Pindahkan Alokasi"
-            : "Alokasikan Dana"}
+            ? "Pindahkan Tabungan"
+            : "Tambah Saldo Tabungan"}
         helper=${actionGoal
           ? `${actionGoal.name} - ${actionGoal.currency}`
           : ""}
@@ -658,6 +787,7 @@ export function TargetPlanningSection({
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-[10px] leading-4 text-slate-700 dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-300">
                   ${action?.type === "assign"
                     ? html`
+                        <span key="assign-account-summary">
                         Dana belum dialokasikan:
                         <strong className="text-emerald-700 dark:text-emerald-300">
                           ${formatCurrency(
@@ -665,8 +795,10 @@ export function TargetPlanningSection({
                             actionGoal.currency,
                           )}
                         </strong>
+                        </span>
                       `
                     : html`
+                        <span key="release-account-summary">
                         Dana tersedia:
                         <strong className="text-slate-950 dark:text-white">
                           ${formatCurrency(
@@ -674,13 +806,55 @@ export function TargetPlanningSection({
                             actionGoal.currency,
                           )}
                         </strong>
+                        </span>
                       `}
                 </div>
+
+                <label>
+                  <span className="cs-entry-label">
+                    ${action?.type === "assign"
+                      ? "Rekening sumber"
+                      : "Rekening alokasi"}
+                  </span>
+                  <select
+                    required
+                    value=${actionAccountId}
+                    onChange=${(event) => setActionAccountId(event.target.value)}
+                    className=${INPUT_CLASS}
+                  >
+                    <option value="">Pilih rekening</option>
+                    ${actionAccountOptions.map(
+                      (account) => html`
+                        <option key=${account.id} value=${account.id}>
+                          ${account.name} — ${action?.type === "assign"
+                            ? `tersedia ${formatCurrency(
+                                account.availableBalance,
+                                account.currency,
+                              )}`
+                            : `dialokasikan ${formatCurrency(
+                                account.allocatedAmount,
+                                account.currency,
+                              )}`}
+                        </option>
+                      `,
+                    )}
+                  </select>
+                </label>
+
+                ${actionAccountOptions.length === 0
+                  ? html`
+                      <p className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-[10px] leading-4 text-amber-700 dark:text-amber-200">
+                        ${action?.type === "assign"
+                          ? `Belum ada rekening ${actionGoal.currency} yang dapat dipakai. Tambahkan atau aktifkan rekening terlebih dahulu.`
+                          : "Target ini belum memiliki alokasi berbasis rekening yang dapat dipilih."}
+                      </p>
+                    `
+                  : null}
 
                 ${action?.type === "move"
                   ? html`
                       <label>
-                        <span className="cs-entry-label">Target tujuan</span>
+                        <span className="cs-entry-label">Tabungan tujuan</span>
                         <select
                           required
                           value=${destinationGoalId}
@@ -688,7 +862,7 @@ export function TargetPlanningSection({
                             setDestinationGoalId(event.target.value)}
                           className=${INPUT_CLASS}
                         >
-                          <option value="">Pilih target</option>
+                          <option value="">Pilih tabungan</option>
                           ${moveTargets.map(
                             (goal) =>
                               html`<option key=${goal.id} value=${goal.id}>${goal.name}</option>`,
@@ -711,12 +885,15 @@ export function TargetPlanningSection({
                   />
                 </label>
                 <p className="text-[10px] leading-4 text-slate-600 dark:text-slate-400">
-                  Alokasi hanya mengubah tujuan dana. Saldo rekening tidak akan berubah.
+                  ${action?.type === "assign"
+                    ? "Dana akan ditandai sebagai tabungan pada dompet pilihan. Saldo aktual dompet tidak berubah."
+                    : "Pembatalan atau pemindahan hanya dapat memakai saldo tabungan pada dompet pilihan."}
                 </p>
                 <${FormActionDock}>
                   <button
                     type="submit"
-                    disabled=${loading || (action?.type === "move" && !destinationGoalId)}
+                    disabled=${loading || actionInvalid ||
+                    (action?.type === "move" && !destinationGoalId)}
                     className="min-h-12 w-full rounded-xl bg-emerald-500 text-xs font-black text-white disabled:opacity-50"
                   >
                     Simpan
@@ -729,7 +906,7 @@ export function TargetPlanningSection({
 
       <${SheetShell}
         open=${Boolean(selectedDetailGoal)}
-        title=${selectedDetailGoal?.name || "Detail Target"}
+        title=${selectedDetailGoal?.name || "Detail Tabungan"}
         helper=${selectedDetailGoal
           ? `${selectedDetailGoal.currency} - ${selectedDetailGoal.statusLabel}`
           : ""}
@@ -785,7 +962,7 @@ export function TargetPlanningSection({
                     onClick=${() => openAction(selectedDetailGoal, "assign")}
                     className="min-h-11 rounded-lg bg-emerald-500 text-[10px] font-black text-white"
                   >
-                    Alokasikan Dana
+                    Tambah Saldo
                   </button>
                   <button
                     type="button"
@@ -793,7 +970,7 @@ export function TargetPlanningSection({
                     disabled=${selectedDetailGoal.availableAmount <= 0}
                     className="min-h-11 rounded-lg border border-slate-300 text-[10px] font-black text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
                   >
-                    Lepaskan Alokasi
+                    Batalkan Alokasi
                   </button>
                   <button
                     type="button"
@@ -802,7 +979,7 @@ export function TargetPlanningSection({
                     !detailMoveTargets.length}
                     className="min-h-11 rounded-lg border border-slate-300 text-[10px] font-black text-slate-700 disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
                   >
-                    Pindahkan Alokasi
+                    Pindahkan Tabungan
                   </button>
                   <button
                     type="button"
@@ -813,7 +990,7 @@ export function TargetPlanningSection({
                     disabled=${selectedDetailGoal.availableAmount <= 0}
                     className="min-h-11 rounded-lg border border-cyan-500/30 bg-cyan-500/10 text-[10px] font-black text-cyan-700 disabled:opacity-40 dark:text-cyan-200"
                   >
-                    Gunakan Dana
+                    Gunakan Tabungan
                   </button>
                 </div>
 
@@ -862,7 +1039,7 @@ export function TargetPlanningSection({
 
                 <div>
                   <h3 className="text-xs font-black text-slate-950 dark:text-white">
-                    Transaksi yang menggunakan target
+                    Transaksi yang menggunakan tabungan
                   </h3>
                   <div className="mt-2 grid gap-2">
                     ${selectedGoalTransactions.length
@@ -891,7 +1068,7 @@ export function TargetPlanningSection({
                         )
                       : html`
                           <p className="rounded-lg border border-dashed border-slate-300 p-3 text-[10px] text-slate-600 dark:border-slate-800 dark:text-slate-500">
-                            Belum ada transaksi yang memakai target ini.
+                            Belum ada transaksi yang memakai tabungan ini.
                           </p>
                         `}
                   </div>

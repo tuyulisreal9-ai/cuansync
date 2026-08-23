@@ -1,14 +1,21 @@
 import React, { useEffect, useState } from "react";
 import htm from "htm";
+import { Target, WalletCards } from "lucide-react";
 import { CurrencyCombobox } from "../shared/CurrencyCombobox.js";
 import { FormActionDock } from "../shared/FormActionDock.js";
 import { SheetShell } from "../shared/SheetShell.js";
 import { WalletAccountsPage } from "./WalletAccountsPage.js";
+import { TargetForm } from "../budget/TargetPlanningSection.js";
 import {
   ASSET_ACCOUNT_TYPES,
+  ASSET_ACCOUNT_PURPOSES,
   getAssetAccountValuationLabel,
   getDefaultAssetAccountName,
 } from "../../domain/assets.js";
+import {
+  getDefaultGoalFundingAccountId,
+  getGoalFundingAccountOptions,
+} from "../../domain/goals.js";
 import {
   DEFAULT_ACTIVE_CURRENCIES,
   DEFAULT_BASE_CURRENCY,
@@ -25,16 +32,39 @@ const html = htm.bind(React.createElement);
 const PANEL_CLASS = "relative overflow-hidden rounded-[30px] cuan-card";
 const INPUT_CLASS =
   "w-full min-h-12 rounded-2xl px-4 py-3.5 text-sm transition cuan-input";
-function GoalTracker({ goals, onDelete, onContribute }) {
+function GoalTracker({ goals, accounts = [], onDelete, onContribute }) {
   const [openGoalId, setOpenGoalId] = useState(null);
   const [openAction, setOpenAction] = useState("deposit");
   const [amount, setAmount] = useState("");
+  const [accountId, setAccountId] = useState("");
+
+  function openContribution(goal, action) {
+    const isClosing = openGoalId === goal.id && openAction === action;
+    setOpenGoalId(isClosing ? null : goal.id);
+    setOpenAction(action);
+    setAmount("");
+    setAccountId(
+      isClosing
+        ? ""
+        : getDefaultGoalFundingAccountId({
+            goal,
+            type: action === "withdraw" ? "release" : "assign",
+            accounts,
+          }),
+    );
+  }
 
   function submitContribution(event, goal) {
     event.preventDefault();
-    onContribute(goal, normalizeNumericInput(amount), openAction).then((ok) => {
+    onContribute(
+      goal,
+      normalizeNumericInput(amount),
+      openAction,
+      accountId,
+    ).then((ok) => {
       if (ok) {
         setAmount("");
+        setAccountId("");
         setOpenGoalId(null);
         setOpenAction("deposit");
       }
@@ -103,24 +133,14 @@ function GoalTracker({ goals, onDelete, onContribute }) {
                     <div className="mt-4 grid grid-cols-3 gap-2">
                       <button
                         type="button"
-                        onClick=${() => {
-                          setOpenAction("deposit");
-                          setOpenGoalId((current) =>
-                            current === goal.id ? null : goal.id,
-                          );
-                        }}
+                        onClick=${() => openContribution(goal, "deposit")}
                         className="min-h-11 rounded-2xl border border-white/10 bg-white/10 px-3 py-2 text-xs font-black text-slate-700 backdrop-blur-xl transition hover:-translate-y-0.5 dark:bg-slate-900/40 dark:text-slate-200"
                       >
                         Setor
                       </button>
                       <button
                         type="button"
-                        onClick=${() => {
-                          setOpenAction("withdraw");
-                          setOpenGoalId((current) =>
-                            current === goal.id ? null : goal.id,
-                          );
-                        }}
+                        onClick=${() => openContribution(goal, "withdraw")}
                         className="min-h-11 rounded-2xl border border-sky-300/25 bg-sky-400/10 px-3 py-2 text-xs font-black text-sky-700 transition hover:-translate-y-0.5 dark:border-sky-400/20 dark:bg-sky-500/10 dark:text-sky-200"
                       >
                         Tarik
@@ -135,11 +155,40 @@ function GoalTracker({ goals, onDelete, onContribute }) {
                     </div>
 
                     ${openGoalId === goal.id
-                      ? html`
+                      ? (() => {
+                          const accountOptions = getGoalFundingAccountOptions({
+                            goal,
+                            type: openAction === "withdraw" ? "release" : "assign",
+                            accounts,
+                          });
+                          return html`
                           <form
-                            className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]"
+                            className="mt-4 grid gap-3"
                             onSubmit=${(event) => submitContribution(event, goal)}
                           >
+                            <select
+                              required
+                              value=${accountId}
+                              onChange=${(event) => setAccountId(event.target.value)}
+                              className=${INPUT_CLASS}
+                            >
+                              <option value="">Pilih rekening ${goal.currency}</option>
+                              ${accountOptions.map(
+                                (account) => html`
+                                  <option key=${account.id} value=${account.id}>
+                                    ${account.name} — ${openAction === "withdraw"
+                                      ? `dialokasikan ${formatCurrency(
+                                          account.allocatedAmount,
+                                          account.currency,
+                                        )}`
+                                      : `tersedia ${formatCurrency(
+                                          account.availableBalance,
+                                          account.currency,
+                                        )}`}
+                                  </option>
+                                `,
+                              )}
+                            </select>
                             <input
                               type="text"
                               inputMode="decimal"
@@ -154,12 +203,14 @@ function GoalTracker({ goals, onDelete, onContribute }) {
                             />
                             <button
                               type="submit"
+                              disabled=${!accountId || !amount}
                               className="rounded-2xl border border-white/10 bg-brand-600 px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-brand-700"
                             >
                               ${openAction === "withdraw" ? "Tarik" : "Setor"}
                             </button>
                           </form>
-                        `
+                        `;
+                        })()
                       : null}
                   </div>
                 `,
@@ -309,6 +360,7 @@ function AssetAccountForm({
   const [form, setForm] = useState({
     name: "",
     account_type: "bank",
+    account_purpose: "general",
     currency: currencyOptions[0]?.value || DEFAULT_BASE_CURRENCY,
     balance_amount: "",
     note: "",
@@ -340,6 +392,7 @@ function AssetAccountForm({
       setForm({
         name: "",
         account_type: "bank",
+        account_purpose: "general",
         currency: currencyOptions[0]?.value || DEFAULT_BASE_CURRENCY,
         balance_amount: "",
         note: "",
@@ -409,6 +462,26 @@ function AssetAccountForm({
             />
           </div>
         </div>
+
+        <label className="block">
+          <span className="mb-2 block text-sm font-medium">Peran akun</span>
+          <select
+            value=${form.account_purpose}
+            onChange=${(event) => updateField("account_purpose", event.target.value)}
+            className=${INPUT_CLASS}
+          >
+            ${ASSET_ACCOUNT_PURPOSES.map(
+              (purpose) => html`
+                <option key=${purpose.value} value=${purpose.value}>
+                  ${purpose.label}
+                </option>
+              `,
+            )}
+          </select>
+          <span className="mt-1.5 block text-xs text-slate-500 dark:text-slate-400">
+            Dipakai untuk memilih akun default yang paling relevan.
+          </span>
+        </label>
 
         <label className="block">
           <span className="mb-2 block text-sm font-medium">Saldo saat ini (${form.currency})</span>
@@ -824,9 +897,11 @@ export function WealthGoalsPage({
   baseCurrency = DEFAULT_BASE_CURRENCY,
   onCreateAssetAccount,
   onDeleteAssetAccount,
+  onSetPrimaryAccount,
   onCreateGoal,
   onDeleteGoal,
   onContribute,
+  onUseGoal,
   onOpenGoals,
   onOpenReport,
   onSelectAccountCurrency,
@@ -836,6 +911,7 @@ export function WealthGoalsPage({
   const [activeSection, setActiveSection] = useState("accounts");
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [showAssetForm, setShowAssetForm] = useState(false);
+  const [showPocketChooser, setShowPocketChooser] = useState(false);
 
   useEffect(() => {
     if (openAssetFormRequest > 0) {
@@ -855,16 +931,27 @@ export function WealthGoalsPage({
 
   function openAssetForm() {
     setActiveSection("accounts");
+    setShowPocketChooser(false);
     setShowAssetForm(true);
   }
 
   function openGoalForm() {
+    setActiveSection("accounts");
+    setShowPocketChooser(false);
+    setShowGoalForm(true);
+  }
+
+  function openGoalPlanning() {
     if (onOpenGoals) {
       onOpenGoals();
       return;
     }
     setActiveSection("goals");
-    setShowGoalForm(true);
+  }
+
+  function openPocketChooser() {
+    setActiveSection("accounts");
+    setShowPocketChooser(true);
   }
 
   return html`
@@ -874,11 +961,14 @@ export function WealthGoalsPage({
             <${WalletAccountsPage}
               metrics=${metrics}
               transactions=${transactions}
-              onAddAccount=${openAssetForm}
+              loading=${loading}
+              onCreatePocket=${openPocketChooser}
               onDeleteAccount=${onDeleteAssetAccount}
+              onSetPrimaryAccount=${onSetPrimaryAccount}
+              onDeleteGoal=${onDeleteGoal}
+              onContributeGoal=${onContribute}
+              onUseGoal=${onUseGoal}
               baseCurrency=${baseCurrency}
-              onOpenGoals=${openGoalForm}
-              onOpenReport=${() => setActiveSection("report")}
               onSelectAccountCurrency=${onSelectAccountCurrency}
             />
           `
@@ -904,6 +994,7 @@ export function WealthGoalsPage({
             </div>
             <${GoalTracker}
               goals=${metrics.goalInsights}
+              accounts=${metrics.assetAccountInsights}
               onDelete=${onDeleteGoal}
               onContribute=${onContribute}
             />
@@ -927,8 +1018,41 @@ export function WealthGoalsPage({
         : null}
 
       <${SheetShell}
+        open=${showPocketChooser}
+        title="Tambah Baru"
+        helper="Pilih Dompet untuk saldo aktual atau Tabungan untuk dana yang sedang dikumpulkan."
+        onClose=${() => setShowPocketChooser(false)}
+        labelledBy="pocket-chooser-sheet-title"
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick=${openAssetForm}
+            className="cs-pocket-choice flex min-h-36 flex-col items-center justify-center rounded-lg p-4 text-center"
+          >
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-500">
+              <${WalletCards} aria-hidden="true" className="h-5 w-5" />
+            </span>
+            <strong className="mt-3 text-sm font-black text-slate-950 dark:text-white">Dompet</strong>
+            <span className="mt-1 text-[10px] leading-4 text-slate-500 dark:text-slate-400">Bank, e-wallet, atau uang tunai.</span>
+          </button>
+          <button
+            type="button"
+            onClick=${openGoalForm}
+            className="cs-pocket-choice flex min-h-36 flex-col items-center justify-center rounded-lg p-4 text-center"
+          >
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-500/15 text-cyan-500">
+              <${Target} aria-hidden="true" className="h-5 w-5" />
+            </span>
+            <strong className="mt-3 text-sm font-black text-slate-950 dark:text-white">Tabungan</strong>
+            <span className="mt-1 text-[10px] leading-4 text-slate-500 dark:text-slate-400">Dana tabungan dengan dompet sumber yang jelas.</span>
+          </button>
+        </div>
+      <//>
+
+      <${SheetShell}
         open=${showAssetForm}
-        title="Tambah Dompet"
+        title="Buat Dompet"
         helper="Tambahkan bank, wallet, atau uang tunai beserta mata uangnya."
         onClose=${() => setShowAssetForm(false)}
         labelledBy="asset-account-sheet-title"
@@ -945,17 +1069,23 @@ export function WealthGoalsPage({
 
       <${SheetShell}
         open=${showGoalForm}
-        title="Tambah Target"
-        helper="Buat target dana darurat, mudik, atau tabungan lain tanpa memenuhi halaman utama."
+        title="Buat Tabungan"
+        helper="Tentukan target dan rekening atau cash yang menjadi sumber dananya."
         onClose=${() => setShowGoalForm(false)}
         labelledBy="goal-sheet-title"
       >
-        <${GoalForm}
-          onSubmit=${handleCreateGoal}
+        <${TargetForm}
+          goal=${null}
+          summaries=${metrics.goalAllocationSummaries}
+          currencies=${normalizeCurrencyList([
+            ...activeCurrencies,
+            ...metrics.assetAccountInsights.map((account) => account.currency),
+          ])}
           loading=${loading}
+          onSubmit=${handleCreateGoal}
           onCancel=${() => setShowGoalForm(false)}
-          onSuccess=${() => setShowGoalForm(false)}
-          embedded=${true}
+          accounts=${metrics.assetAccountInsights}
+          createLabel="Buat Tabungan"
         />
       <//>
     </div>
