@@ -12,8 +12,9 @@ Aplikasi web pengatur keuangan pribadi untuk alur multi-mata uang:
 - Tab `Anggaran & Target` untuk batas kategori dan rencana dana per mata uang
 - Budget tracker universal `uang keluar` dengan indikator overspending
 - Overspending canggih: limit bulanan otomatis dipecah jadi batas aman harian dinamis (`sisa budget / sisa hari`)
-- Target seperti dana darurat, mudik, dan liburan memakai alokasi dana per mata uang
+- Target seperti dana darurat, mudik, dan liburan memakai alokasi dana per rekening dan mata uang
 - Alokasi target tidak mengubah saldo rekening dan tidak menambah total aset
+- Setiap rekening menampilkan saldo aktual, dana target yang dilindungi, dan dana yang tersedia dipakai
 - Bank & wallet tracker untuk mencatat beberapa akun seperti BCA IDR, Wise USD, Cash, atau bank luar negeri
 - Valuasi aset multi-currency memakai global current rate, bukan rate tukar historis
 
@@ -55,15 +56,18 @@ Jika `src/config.js` masih kosong, aplikasi tetap bisa dijalankan melalui **Demo
 ## Setup Supabase
 
 1. Buat project Supabase.
-2. Jalankan SQL terbaru dari `supabase/schema.sql`.
-3. Di menu `Authentication > Providers`, aktifkan `Google`.
-4. Tambahkan redirect URL:
+2. Jalankan SQL dasar dari `supabase/schema.sql`.
+3. Terapkan file di `supabase/migrations` menurut urutan timestamp. Migration
+   `20260821090000_account_aware_goal_integrity.sql` wajib untuk sumber rekening
+   target, preferensi rekening utama, dan RPC transaksi atomik.
+4. Di menu `Authentication > Providers`, aktifkan `Google`.
+5. Tambahkan redirect URL:
 
 ```text
 http://localhost:4173
 ```
 
-5. Salin `Project URL` dan `anon public key` ke `src/config.js`.
+6. Salin `Project URL` dan `anon public key` ke `src/config.js`.
 
 Untuk database yang sudah memiliki data lama, jalankan
 `supabase/safe_expense_category_migration.sql`. Migrasi ini memindahkan
@@ -95,8 +99,10 @@ transaksi.
 - Kategori pengeluaran aktif: Makan Harian, Belanja Kebutuhan, Transportasi,
   Tagihan, Kesehatan, Tempat Tinggal, Hiburan & Gaya Hidup, dan Lainnya.
 - `goals`: tujuan, nominal, jenis target, mata uang, status, dan batas waktu opsional.
-- `goal_allocations`: riwayat alokasi, pelepasan, penggunaan, dan penyesuaian dana target.
-- `asset_accounts`: daftar bank, cash, e-wallet, dan akun investasi per mata uang.
+- `goal_allocations`: ledger alokasi per rekening; baris lama tanpa sumber dipertahankan sebagai `unmapped_legacy` dan tidak mengunci saldo.
+- `goal_funding_accounts`: rekening sumber yang sah untuk setiap target.
+- `asset_accounts`: daftar bank, cash, e-wallet, dan akun investasi per mata uang, termasuk peran akun dan status arsip.
+- `account_preferences`: rekening utama per mata uang dan jenis alur transaksi.
 - `transactions.source_account_id` / `transactions.destination_account_id`: relasi opsional agar pengeluaran dan pemasukan bisa mengubah saldo akun.
 
 ## Catatan implementasi

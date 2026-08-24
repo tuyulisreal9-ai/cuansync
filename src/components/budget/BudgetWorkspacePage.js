@@ -795,6 +795,7 @@ export function BudgetWorkspacePage({
           activeCurrencies=${activeCurrencies}
           baseCurrency=${budgetCurrency}
           transactions=${transactions}
+          accounts=${metrics.assetAccountInsights}
           loading=${loading}
           onCreateGoal=${onCreateGoal}
           onUpdateGoal=${onUpdateGoal}

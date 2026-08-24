@@ -11,7 +11,9 @@ import {
   ArrowRight,
   ArrowUpRight,
   CalendarDays,
+  ChevronDown,
   Landmark,
+  PiggyBank,
   WalletCards,
   X,
 } from "lucide-react";
@@ -49,6 +51,7 @@ import {
   normalizeNumericInput,
 } from "../../lib/currency.js";
 import { toInputDateTime } from "../../lib/dates.js";
+import { FUTURE_TRANSACTION_DATE_MESSAGE } from "../../domain/transactions.js";
 import { FormActionDock } from "../shared/FormActionDock.js";
 
 const html = htm.bind(React.createElement);
@@ -60,19 +63,37 @@ function normalizeEntryType(value) {
 }
 
 function getAccountLabel(account) {
-  const balance = Number(account.balance_amount ?? account.balanceAmount ?? 0);
-  return `${account.name} (${account.currency}) - Saldo ${formatCurrency(
+  const balance = Number(
+    account.availableBalance ?? account.available_balance ??
+      account.balance_amount ?? account.balanceAmount ?? 0,
+  );
+  return `${account.name} (${account.currency}) - Tersedia ${formatCurrency(
     balance,
     account.currency,
   )}`;
 }
 
+function getGoalSpendingAccountId(goal) {
+  if (!goal) return "";
+  const mappedSources = (goal.accountBreakdown || [])
+    .filter((source) => Number(source.amount || 0) > 0.0001)
+    .sort((left, right) => Number(right.amount || 0) - Number(left.amount || 0));
+  return mappedSources.find(
+    (source) => source.accountId === goal.primaryFundingAccountId,
+  )?.accountId || mappedSources[0]?.accountId || "";
+}
+
 function getAccountBalance(account) {
   if (!account) return "";
-  return `Saldo tersedia ${formatCurrency(
-    Number(account.balance_amount ?? account.balanceAmount ?? 0),
+  const actual = Number(account.balance_amount ?? account.balanceAmount ?? 0);
+  const reserved = Number(account.reservedBalance ?? account.reserved_balance ?? 0);
+  const available = Number(
+    account.availableBalance ?? account.available_balance ?? actual - reserved,
+  );
+  return `Aktual ${formatCurrency(actual, account.currency)} • Dilindungi ${formatCurrency(
+    reserved,
     account.currency,
-  )}`;
+  )} • Tersedia ${formatCurrency(available, account.currency)}`;
 }
 
 function formatExchangeAmount(value, currency) {
@@ -173,6 +194,8 @@ export function TransactionForm({
   );
   const [rateMode, setRateMode] = useState("global");
   const [rateResetMessage, setRateResetMessage] = useState("");
+  const [fundingPickerOpen, setFundingPickerOpen] = useState(false);
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [exchangeAutoTarget, setExchangeAutoTarget] = useState("to_amount");
   const exchangeAutoTargetRef = useRef("to_amount");
   const previousExchangeDirectionRef = useRef("");
@@ -238,22 +261,73 @@ export function TransactionForm({
     [assetAccounts],
   );
   const spendableAccountsKey = spendableAccounts
-    .map((account) => `${account.id}:${account.currency}:${account.balance_amount}`)
+    .map(
+      (account) =>
+        `${account.id}:${account.currency}:${account.balance_amount}:${account.availableBalance}:${account.isPrimary}`,
+    )
     .join("|");
   const accountById = new Map(spendableAccounts.map((account) => [account.id, account]));
-  const selectedEntryAccount = accountById.get(form[selectedAccountField]) || null;
   const eligibleGoals = isExpense
     ? goalInsights.filter(
         (goal) =>
-          goal.currency === selectedCurrencyCode &&
           !["archived", "used"].includes(goal.status) &&
           Number(goal.availableAmount || 0) > 0,
       )
     : [];
   const selectedGoal =
     eligibleGoals.find((goal) => goal.id === form.target_id) || null;
+  const selectedGoalSources = selectedGoal?.accountBreakdown?.filter(
+    (source) => Number(source.amount || 0) > 0.0001,
+  ) || [];
+  const selectedGoalSourceIds = new Set(
+    selectedGoalSources.map((source) => source.accountId),
+  );
+  const entryAccountOptions = isExpense && selectedGoal
+    ? spendableAccounts.filter((account) => selectedGoalSourceIds.has(account.id))
+    : spendableAccounts;
+  const selectedEntryAccount = accountById.get(form[selectedAccountField]) || null;
+  const selectedGoalSource = selectedGoalSources.find(
+    (source) => source.accountId === selectedEntryAccount?.id,
+  ) || null;
   const sourceAccount = accountById.get(form.source_account_id) || null;
   const destinationAccount = accountById.get(form.destination_account_id) || null;
+  const entryAmount = Number(normalizeNumericInput(form.amount) || 0);
+  const selectedAvailableBalance = Number(
+    selectedEntryAccount?.availableBalance ??
+      selectedEntryAccount?.available_balance ??
+      selectedEntryAccount?.balance_amount ??
+      0,
+  );
+  const crossesProtectedFunds =
+    isExpense &&
+    !form.target_id &&
+    entryAmount > selectedAvailableBalance + 0.0001;
+  const exceedsSelectedSavings =
+    isExpense &&
+    Boolean(selectedGoal) &&
+    entryAmount > Number(selectedGoalSource?.amount || 0) + 0.0001;
+  const exceedsActualAccountBalance =
+    isExpense &&
+    Boolean(selectedGoal) &&
+    entryAmount > Number(
+      selectedEntryAccount?.balance_amount ?? selectedEntryAccount?.balanceAmount ?? 0,
+    ) + 0.0001;
+  const expenseFundingTitle = selectedGoal
+    ? selectedGoal.name
+    : selectedEntryAccount?.name || "Pilih dompet";
+  const expenseFundingSubtitle = selectedGoal
+    ? selectedEntryAccount
+      ? `${selectedEntryAccount.name} • ${formatCurrency(
+          selectedGoalSource?.amount || 0,
+          selectedGoal.currency,
+        )} tersedia`
+      : "Dompet sumber belum terhubung"
+    : selectedEntryAccount
+      ? `${selectedEntryAccount.currency} • ${formatCurrency(
+          selectedAvailableBalance,
+          selectedEntryAccount.currency,
+        )} tersedia`
+      : "Sumber dana belum dipilih";
   const movementDestinationOptions = sourceAccount
     ? spendableAccounts.filter((account) =>
         isTransfer
@@ -375,13 +449,22 @@ export function TransactionForm({
     (isTransfer
       ? sourceAccount.currency === destinationAccount.currency && parsedExchangeRate === 1
       : sourceAccount.currency !== destinationAccount.currency && parsedExchangeRate > 0);
+  const occurredAtTime = new Date(form.occurred_at).getTime();
+  const transactionDateInvalid =
+    Number.isNaN(occurredAtTime) || occurredAtTime > Date.now();
   const submitDisabled = isMovement
     ? parsedFromAmount <= 0 ||
       parsedToAmount <= 0 ||
       !movementReady ||
       !exchangeRateValidation.valid ||
-      !sourceBalanceSufficient
-    : parsedAmount <= 0 || !selectedEntryAccount;
+      !sourceBalanceSufficient ||
+      transactionDateInvalid
+    : parsedAmount <= 0 ||
+      !selectedEntryAccount ||
+      crossesProtectedFunds ||
+      exceedsSelectedSavings ||
+      exceedsActualAccountBalance ||
+      transactionDateInvalid;
 
   useEffect(() => {
     setEntryType(workspace ? "exchange" : normalizeEntryType(initialEntryType));
@@ -431,9 +514,34 @@ export function TransactionForm({
     if (isMovement || !spendableAccounts.length) return;
     const field = isIncome ? "destination_account_id" : "source_account_id";
     const selected = accountById.get(form[field]);
-    if (selected) return;
+    const contextualGoal = goalInsights.find(
+      (goal) => goal.id === (form.target_id || initialTargetId),
+    );
+    const selectedMatchesGoal = !contextualGoal || contextualGoal.accountBreakdown?.some(
+      (source) =>
+        source.accountId === selected?.id && Number(source.amount || 0) > 0.0001,
+    );
+    if (selected && selectedMatchesGoal) return;
+    const compatible = spendableAccounts.filter(
+      (account) => account.currency === selectedCurrencyCode,
+    );
+    const goalAccountId = getGoalSpendingAccountId(contextualGoal);
+    const recentTransaction = [...transactions]
+      .reverse()
+      .find(
+        (transaction) =>
+          transaction.type === (isIncome ? "income" : "expense") &&
+          transaction.currency === selectedCurrencyCode,
+      );
+    const recentAccountId = isIncome
+      ? recentTransaction?.destination_account_id
+      : recentTransaction?.source_account_id;
     const fallback =
-      spendableAccounts.find((account) => account.currency === selectedCurrencyCode) ||
+      compatible.find((account) => account.id === goalAccountId) ||
+      compatible.find((account) => account.isPrimary || account.is_primary) ||
+      compatible.find((account) => account.id === recentAccountId) ||
+      compatible.find((account) => account.account_purpose === "daily") ||
+      compatible[0] ||
       spendableAccounts[0];
     if (!fallback) return;
     setForm((current) => ({ ...current, [field]: fallback.id }));
@@ -444,7 +552,55 @@ export function TransactionForm({
     isIncome,
     selectedCurrencyCode,
     spendableAccountsKey,
+    form.target_id,
+    goalInsights,
+    transactions,
   ]);
+
+  function selectTarget(targetId) {
+    const target = goalInsights.find((goal) => goal.id === targetId);
+    const targetAccountId = getGoalSpendingAccountId(target);
+    if (target?.currency) setExpenseCurrency(target.currency);
+    setForm((current) => ({
+      ...current,
+      target_id: targetId,
+      source_account_id: targetId ? targetAccountId : current.source_account_id,
+    }));
+  }
+
+  function selectExpenseFundingMode(mode) {
+    if (mode === "savings") {
+      const target = selectedGoal || eligibleGoals[0] || null;
+      const targetAccountId = getGoalSpendingAccountId(target);
+      if (target?.currency) setExpenseCurrency(target.currency);
+      setForm((current) => ({
+        ...current,
+        target_id: target?.id || "",
+        source_account_id: targetAccountId,
+      }));
+      return;
+    }
+
+    const compatible = spendableAccounts.filter(
+      (account) => account.currency === selectedCurrencyCode,
+    );
+    const fallback =
+      compatible.find(
+        (account) =>
+          Number(account.availableBalance ?? account.available_balance ?? 0) > 0.0001 &&
+          (account.isPrimary || account.is_primary),
+      ) ||
+      compatible.find(
+        (account) => Number(account.availableBalance ?? account.available_balance ?? 0) > 0.0001,
+      ) ||
+      compatible[0] ||
+      null;
+    setForm((current) => ({
+      ...current,
+      target_id: "",
+      source_account_id: fallback?.id || "",
+    }));
+  }
 
   useEffect(() => {
     if (!isExpense || !form.target_id) return;
@@ -724,6 +880,10 @@ export function TransactionForm({
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (transactionDateInvalid) {
+      setShowMoreOptions(true);
+      return;
+    }
     if (!spendableAccounts.length) {
       onRequestAddWallet?.();
       return;
@@ -845,7 +1005,7 @@ export function TransactionForm({
       >
         <header className=${workspace
           ? "cs-movement-hero shrink-0 px-4 py-3"
-          : "flex shrink-0 items-start justify-between gap-3 border-b border-slate-200/70 px-4 py-4 dark:border-slate-800"}>
+          : "flex shrink-0 items-center justify-between gap-3 border-b border-slate-200/70 px-4 py-2.5 dark:border-slate-800"}>
           ${workspace
             ? html`
                 <div key="movement-title" className="flex min-w-0 items-center gap-3">
@@ -879,10 +1039,10 @@ export function TransactionForm({
               `
             : html`
                 <div key="transaction-title" className="min-w-0">
-                  <h2 id="transaction-form-title" className="font-display text-lg font-extrabold text-slate-950 dark:text-white">
+                  <h2 id="transaction-form-title" className="font-display text-base font-extrabold text-slate-950 dark:text-white">
                     Catat transaksi
                   </h2>
-                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                  <p className="mt-0.5 hidden text-[10px] text-slate-500 sm:block dark:text-slate-400">
                     Catat pemasukan atau pengeluaran dengan cepat.
                   </p>
                 </div>
@@ -900,7 +1060,7 @@ export function TransactionForm({
 
         <div className=${workspace
           ? "cs-movement-form-card mt-4 min-h-0 rounded-xl px-4 pb-5 pt-4"
-          : "min-h-0 overflow-y-auto px-4 pb-5 pt-3"}>
+          : "min-h-0 overflow-y-auto px-4 pb-4 pt-2"}>
           ${!workspace
             ? html`
                 <div className="cs-entry-segment grid grid-cols-2 gap-1 rounded-lg p-1">
@@ -965,30 +1125,138 @@ export function TransactionForm({
               `
             : null}
 
-          <form className="mt-4 grid gap-3" onSubmit=${handleSubmit}>
+          <form className="mt-2.5 grid gap-2.5" onSubmit=${handleSubmit}>
             ${!isMovement
               ? html`
-                  ${spendableAccounts.length
+                  ${isExpense && spendableAccounts.length
+                    ? html`
+                        <section key="entry-funding" className="cs-entry-funding-compact overflow-hidden rounded-lg">
+                          <button
+                            type="button"
+                            aria-expanded=${fundingPickerOpen}
+                            onClick=${() => setFundingPickerOpen((current) => !current)}
+                            className="flex min-h-14 w-full items-center gap-3 px-3 py-2 text-left"
+                          >
+                            <span className=${`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selectedGoal ? "bg-cyan-500/15 text-cyan-500" : "bg-emerald-500/15 text-emerald-500"}`}>
+                              ${selectedGoal
+                                ? html`<${PiggyBank} aria-hidden="true" className="h-4 w-4" />`
+                                : html`<${WalletCards} aria-hidden="true" className="h-4 w-4" />`}
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="block text-[9px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                                ${selectedGoal ? "Tabungan" : "Saldo Dompet"}
+                              </span>
+                              <strong className="mt-0.5 block truncate text-xs text-slate-950 dark:text-white">
+                                ${expenseFundingTitle}
+                              </strong>
+                              <span className="mt-0.5 block truncate text-[9px] text-slate-500 dark:text-slate-400">
+                                ${expenseFundingSubtitle}
+                              </span>
+                            </span>
+                            <span className="shrink-0 text-[10px] font-black text-cyan-600 dark:text-cyan-300">
+                              ${fundingPickerOpen ? "Tutup" : "Ubah"}
+                            </span>
+                          </button>
+
+                          ${fundingPickerOpen
+                            ? html`
+                                <div className="cs-entry-funding-picker grid gap-2 border-t border-slate-200 px-3 pb-3 pt-2 dark:border-slate-800">
+                                  <div className="grid grid-cols-2 gap-1 rounded-lg bg-slate-500/10 p-1">
+                                    <button
+                                      type="button"
+                                      aria-pressed=${!form.target_id}
+                                      onClick=${() => selectExpenseFundingMode("wallet")}
+                                      className=${`min-h-11 rounded-md px-2 text-[10px] font-black ${!form.target_id ? "bg-emerald-500 text-white" : "text-slate-500 dark:text-slate-300"}`}
+                                    >
+                                      Dompet
+                                    </button>
+                                    <button
+                                      type="button"
+                                      aria-pressed=${Boolean(form.target_id)}
+                                      onClick=${() => selectExpenseFundingMode("savings")}
+                                      disabled=${eligibleGoals.length === 0}
+                                      className=${`min-h-11 rounded-md px-2 text-[10px] font-black disabled:cursor-not-allowed disabled:opacity-40 ${form.target_id ? "bg-cyan-500 text-white" : "text-slate-500 dark:text-slate-300"}`}
+                                    >
+                                      Tabungan
+                                    </button>
+                                  </div>
+
+                                  ${form.target_id
+                                    ? html`
+                                        <label className="block">
+                                          <span className="sr-only">Tabungan yang digunakan</span>
+                                          <select
+                                            value=${form.target_id}
+                                            onChange=${(event) => selectTarget(event.target.value)}
+                                            className=${INPUT_CLASS}
+                                          >
+                                            ${eligibleGoals.map(
+                                              (goal) => html`
+                                                <option key=${goal.id} value=${goal.id}>
+                                                  ${goal.name} — ${formatCurrency(goal.availableAmount, goal.currency)}
+                                                </option>
+                                              `,
+                                            )}
+                                          </select>
+                                        </label>
+                                      `
+                                    : null}
+
+                                  <label className="block">
+                                    <span className="sr-only">Dompet sumber dana</span>
+                                    <select
+                                      required
+                                      value=${form.source_account_id || ""}
+                                      onChange=${(event) => selectEntryAccount(event.target.value)}
+                                      className=${INPUT_CLASS}
+                                    >
+                                      ${entryAccountOptions.length
+                                        ? entryAccountOptions.map(
+                                            (account) => {
+                                              const savedAmount = selectedGoalSources.find(
+                                                (source) => source.accountId === account.id,
+                                              )?.amount;
+                                              return html`
+                                                <option key=${account.id} value=${account.id}>
+                                                  ${selectedGoal
+                                                    ? `${account.name} — tabungan ${formatCurrency(savedAmount || 0, account.currency)}`
+                                                    : getAccountLabel(account)}
+                                                </option>
+                                              `;
+                                            },
+                                          )
+                                        : html`<option value="">Dompet sumber belum terhubung</option>`}
+                                    </select>
+                                  </label>
+                                </div>
+                              `
+                            : null}
+                        </section>
+                      `
+                    : null}
+
+                  ${isIncome && spendableAccounts.length
                     ? html`
                         <label key="entry-account" className="block">
-                          <span className="cs-entry-label">${isIncome ? "Masuk ke dompet" : "Keluar dari dompet"}</span>
+                          <span className="cs-entry-label">Masuk ke dompet</span>
                           <select
-                            value=${form[selectedAccountField] || ""}
+                            required
+                            value=${form.destination_account_id || ""}
                             onChange=${(event) => selectEntryAccount(event.target.value)}
                             className=${INPUT_CLASS}
                           >
                             ${spendableAccounts.map(
                               (account) => html`
-                                <option key=${account.id} value=${account.id}>
-                                  ${getAccountLabel(account)}
-                                </option>
+                                <option key=${account.id} value=${account.id}>${getAccountLabel(account)}</option>
                               `,
                             )}
                           </select>
-                          <${AccountBalanceHint} account=${selectedEntryAccount} />
                         </label>
                       `
-                    : html`
+                    : null}
+
+                  ${!spendableAccounts.length
+                    ? html`
                         <div key="entry-account-missing" className="cs-entry-notice rounded-lg px-3 py-3 text-xs leading-5 text-slate-600 dark:text-slate-300">
                           <p className="font-extrabold text-slate-900 dark:text-white">
                             Tambahkan dompet sebelum mencatat transaksi
@@ -1008,21 +1276,15 @@ export function TransactionForm({
                               `
                             : null}
                         </div>
-                      `}
+                      `
+                    : null}
 
-                  <label key="entry-description" className="block">
-                    <span className="cs-entry-label">Judul transaksi</span>
-                    <input
-                      type="text"
-                      value=${form.description}
-                      onChange=${(event) => updateField("description", event.target.value)}
-                      placeholder=${isIncome ? "Contoh: Gaji bulanan" : "Contoh: Makan siang"}
-                      className=${INPUT_CLASS}
-                    />
-                  </label>
-
-                  <label key="entry-amount" className="block">
-                    <span className="cs-entry-label">Jumlah (${selectedCurrencyCode})</span>
+                  <label key="entry-amount" className="cs-entry-amount block">
+                    <span className="cs-entry-label">Nominal</span>
+                    <span className="relative block">
+                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 rounded-md bg-slate-500/10 px-2 py-1 text-[9px] font-black text-slate-500 dark:text-slate-300">
+                        ${selectedCurrencyCode}
+                      </span>
                     <input
                       type="text"
                       inputMode="decimal"
@@ -1031,13 +1293,26 @@ export function TransactionForm({
                       value=${form.amount}
                       onChange=${(event) => updateField("amount", formatNumericInput(event.target.value))}
                       placeholder="0"
-                      className=${INPUT_CLASS}
+                      className=${`${INPUT_CLASS} pl-[4.25rem] font-display text-base font-black tabular-nums`}
                     />
+                    </span>
                   </label>
 
-                  ${isExpense
-                    ? html`
-                        <label key="entry-category" className="block">
+                  <div className=${`grid gap-2 ${isExpense ? "grid-cols-[minmax(0,1.15fr)_minmax(0,.85fr)]" : ""}`}>
+                    <label key="entry-description" className="min-w-0">
+                      <span className="cs-entry-label">Judul</span>
+                      <input
+                        type="text"
+                        value=${form.description}
+                        onChange=${(event) => updateField("description", event.target.value)}
+                        placeholder=${isIncome ? "Gaji bulanan" : "Makan siang"}
+                        className=${INPUT_CLASS}
+                      />
+                    </label>
+
+                    ${isExpense
+                      ? html`
+                        <label key="entry-category" className="min-w-0">
                           <span className="cs-entry-label">Kategori</span>
                           <select
                             value=${form.category}
@@ -1053,38 +1328,43 @@ export function TransactionForm({
                             )}
                           </select>
                         </label>
+                        `
+                      : null}
+                  </div>
 
-                        <label key="entry-target" className="block">
-                          <span className="cs-entry-label">Gunakan target</span>
-                          <select
-                            value=${form.target_id || ""}
-                            onChange=${(event) =>
-                              updateField("target_id", event.target.value)}
-                            className=${INPUT_CLASS}
-                          >
-                            <option value="">Tanpa target</option>
-                            ${eligibleGoals.map(
-                              (goal) => html`
-                                <option key=${goal.id} value=${goal.id}>
-                                  ${goal.name} - Tersedia ${formatCurrency(
-                                    goal.availableAmount,
-                                    goal.currency,
-                                  )}
-                                </option>
-                              `,
-                            )}
-                          </select>
-                          <p className="mt-1.5 text-[10px] leading-4 text-slate-500 dark:text-slate-400">
-                            ${selectedGoal
-                              ? `Dana tersedia ${formatCurrency(
-                                  selectedGoal.availableAmount,
-                                  selectedGoal.currency,
-                                )}. Pengeluaran ini akan mengurangi rekening dan target.`
-                              : eligibleGoals.length
-                                ? "Opsional. Pilih target bila pengeluaran memakai dana yang sudah dialokasikan."
-                                : `Belum ada target ${selectedCurrencyCode} dengan dana tersedia.`}
-                          </p>
-                        </label>
+                  ${isExpense
+                    ? html`
+                        ${crossesProtectedFunds
+                          ? html`
+                              <div key="protected-funds-warning" className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-700 dark:text-amber-200">
+                                Nominal melewati saldo bebas di dompet ini. Pilih Tabungan bila dana
+                                memang berasal dari tabungan, ganti dompet, atau kurangi nominal.
+                              </div>
+                            `
+                          : null}
+                        ${selectedGoal && !entryAccountOptions.length
+                          ? html`
+                              <div key="savings-source-missing" className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-700 dark:text-amber-200">
+                                Tabungan ini belum memiliki saldo yang terhubung ke dompet sumber.
+                                Buka detail Tabungan lalu pilih Tambah Saldo dari dompet yang benar.
+                              </div>
+                            `
+                          : null}
+                        ${exceedsSelectedSavings
+                          ? html`
+                              <div key="savings-balance-warning" className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-700 dark:text-amber-200">
+                                Nominal lebih besar dari saldo ${selectedGoal.name} yang tersimpan di
+                                ${selectedEntryAccount?.name}. Kurangi nominal atau pilih dompet sumber lain.
+                              </div>
+                            `
+                          : null}
+                        ${exceedsActualAccountBalance
+                          ? html`
+                              <div key="savings-account-warning" className="rounded-lg border border-rose-400/30 bg-rose-500/10 p-3 text-xs leading-5 text-rose-700 dark:text-rose-200">
+                                Saldo aktual ${selectedEntryAccount?.name} tidak mencukupi untuk pengeluaran ini.
+                              </div>
+                            `
+                          : null}
                       `
                     : null}
                 `
@@ -1375,22 +1655,51 @@ export function TransactionForm({
 
             ${!workspace
               ? html`
-            <label key="entry-occurred-at" className="block">
-              <span className="cs-entry-label">Tanggal & waktu</span>
-              <span className="relative block">
-                <input
-                  type="datetime-local"
-                  required
-                  value=${form.occurred_at}
-                  onChange=${(event) => updateField("occurred_at", event.target.value)}
-                  className=${`${INPUT_CLASS} pr-10`}
-                />
-                <${CalendarDays}
+            <div key="entry-more-options" className="rounded-lg border border-slate-200/80 dark:border-slate-800">
+              <button
+                type="button"
+                aria-expanded=${showMoreOptions}
+                onClick=${() => setShowMoreOptions((current) => !current)}
+                className="flex min-h-11 w-full items-center justify-between gap-3 px-3 text-left text-[10px] font-black text-slate-600 dark:text-slate-300"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <${CalendarDays} aria-hidden="true" className="h-3.5 w-3.5 text-slate-400" />
+                  Opsi lainnya
+                </span>
+                <${ChevronDown}
                   aria-hidden="true"
-                  className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                  className=${`h-4 w-4 text-slate-400 transition ${showMoreOptions ? "rotate-180" : ""}`}
                 />
-              </span>
-            </label>
+              </button>
+              ${showMoreOptions
+                ? html`
+                    <label className="block border-t border-slate-200/80 px-3 pb-3 pt-2 dark:border-slate-800">
+                      <span className="cs-entry-label">Tanggal & waktu</span>
+                      <span className="relative block">
+                        <input
+                          type="datetime-local"
+                          required
+                          max=${toInputDateTime()}
+                          value=${form.occurred_at}
+                          onChange=${(event) => updateField("occurred_at", event.target.value)}
+                          className=${`${INPUT_CLASS} pr-10`}
+                        />
+                        <${CalendarDays}
+                          aria-hidden="true"
+                          className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+                        />
+                      </span>
+                      ${transactionDateInvalid
+                        ? html`
+                            <span className="mt-1.5 block text-[10px] font-bold text-rose-500">
+                              ${FUTURE_TRANSACTION_DATE_MESSAGE}
+                            </span>
+                          `
+                        : null}
+                    </label>
+                  `
+                : null}
+            </div>
                 `
               : null}
 

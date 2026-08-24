@@ -17,6 +17,18 @@ export const ASSET_ACCOUNT_TYPE_LOOKUP = Object.fromEntries(
   ASSET_ACCOUNT_TYPES.map((item) => [item.value, item]),
 );
 
+export const ASSET_ACCOUNT_PURPOSES = [
+  { value: "daily", label: "Harian" },
+  { value: "savings", label: "Tabungan" },
+  { value: "bills", label: "Tagihan" },
+  { value: "general", label: "Umum" },
+  { value: "investment", label: "Investasi" },
+];
+
+export const ASSET_ACCOUNT_PURPOSE_LOOKUP = Object.fromEntries(
+  ASSET_ACCOUNT_PURPOSES.map((item) => [item.value, item]),
+);
+
 const SPENDABLE_ASSET_ACCOUNT_TYPES = new Set([
   "bank",
   "cash",
@@ -69,6 +81,14 @@ export function normalizeAssetAccount(row, index = 0) {
   const balanceAmount = Number(
     row?.balance_amount ?? row?.balanceAmount ?? row?.opening_balance ?? 0,
   );
+  const reservedBalance = Number(
+    row?.reserved_balance ?? row?.reservedBalance ?? 0,
+  );
+  const accountPurpose = ASSET_ACCOUNT_PURPOSE_LOOKUP[row?.account_purpose]
+    ? row.account_purpose
+    : accountType === "investment"
+      ? "investment"
+      : "general";
   return {
     ...row,
     id: row?.id || createLegacyAssetAccountId(row || {}, index),
@@ -76,12 +96,30 @@ export function normalizeAssetAccount(row, index = 0) {
     account_type: accountType,
     currency,
     balance_amount: Number.isFinite(balanceAmount) ? balanceAmount : 0,
+    actualBalance: Number.isFinite(balanceAmount) ? balanceAmount : 0,
+    reservedBalance:
+      Number.isFinite(reservedBalance) && reservedBalance > 0
+        ? reservedBalance
+        : 0,
+    availableBalance: Number.isFinite(Number(row?.available_balance))
+      ? Number(row.available_balance)
+      : Math.max(
+          (Number.isFinite(balanceAmount) ? balanceAmount : 0) -
+            (Number.isFinite(reservedBalance) ? Math.max(reservedBalance, 0) : 0),
+          0,
+        ),
     is_allocatable:
       typeof row?.is_allocatable === "boolean"
         ? row.is_allocatable
         : typeof row?.isAllocatable === "boolean"
           ? row.isAllocatable
           : DEFAULT_ALLOCATABLE_ASSET_ACCOUNT_TYPES.has(accountType),
+    account_purpose: accountPurpose,
+    accountPurpose,
+    is_archived: Boolean(row?.is_archived ?? row?.isArchived),
+    isArchived: Boolean(row?.is_archived ?? row?.isArchived),
+    is_primary: Boolean(row?.is_primary ?? row?.isPrimary),
+    isPrimary: Boolean(row?.is_primary ?? row?.isPrimary),
     note: row?.note || row?.description || "",
     created_at: row?.created_at || new Date().toISOString(),
   };
@@ -117,6 +155,7 @@ export function getSelectableAssetAccounts(accounts = [], currency, options = {}
   return normalizeAssetAccounts(accounts).filter(
     (account) =>
       normalizeCurrencyCode(account.currency) === normalizedCurrency &&
+      !account.is_archived &&
       (includeInvestments || isSpendableAssetAccount(account)),
   );
 }
@@ -179,7 +218,15 @@ export function buildAssetAccountInsights(
     return {
       ...account,
       typeLabel: ASSET_ACCOUNT_TYPE_LOOKUP[account.account_type]?.label || "Akun",
+      purposeLabel:
+        ASSET_ACCOUNT_PURPOSE_LOOKUP[account.account_purpose]?.label || "Umum",
       balanceAmount,
+      actualBalance: balanceAmount,
+      reservedBalance: Number(account.reservedBalance || 0),
+      availableBalance: Number(
+        account.availableBalance ??
+          Math.max(balanceAmount - Number(account.reservedBalance || 0), 0),
+      ),
       valuationIdr,
       rate,
       rateSource: rateInfo.source,
