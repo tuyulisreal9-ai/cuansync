@@ -4,7 +4,7 @@ import htm from "htm";
 import { createClient } from "@supabase/supabase-js";
 import { APP_NAME, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
 import { BudgetWorkspacePage } from "./components/budget/index.js";
-import { AuthScreen } from "./components/auth/index.js";
+import { AuthRecoveryScreen, AuthScreen } from "./components/auth/index.js";
 import { WealthGoalsPage } from "./components/assets/index.js";
 import { ControlCenterPage } from "./components/control/index.js";
 import { HomeDashboardPage } from "./components/home/index.js";
@@ -140,6 +140,22 @@ import {
   normalizeThemeMode,
   resolveThemeMode,
 } from "./lib/theme.js";
+import { createSupabaseSessionRecovery } from "./lib/authSession.js";
+import {
+  NATIVE_AUTH_REDIRECT_URL,
+  addNativeAppStateListener,
+  addNativeBackButtonListener,
+  addNativeUrlListener,
+  closeNativeAuthBrowser,
+  getAuthCallbackFromUrl,
+  getNativeAppState,
+  getNativeLaunchUrl,
+  isNativeMobileApp,
+  minimizeNativeApp,
+  nativeAuthStorage,
+  openNativeAuthBrowser,
+  updateNativeStatusBar,
+} from "./lib/mobile.js";
 
 const html = htm.bind(React.createElement);
 
@@ -230,16 +246,38 @@ const GLASS_PILL =
 const GLASS_INPUT =
   `w-full min-h-12 rounded-2xl px-4 py-3.5 text-sm transition ${inputSurface}`;
 
-const supabase =
-  SUPABASE_URL && SUPABASE_ANON_KEY
-    ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: {
-          persistSession: true,
-          autoRefreshToken: true,
-          detectSessionInUrl: true,
-        },
-      })
-    : null;
+let supabase = null;
+const supabaseSessionRecovery = createSupabaseSessionRecovery({
+  getClient: () => supabase,
+  onClockDiagnostic: (diagnostic) => {
+    try {
+      window.localStorage.setItem(
+        "cuansync-auth-clock-diagnostic",
+        JSON.stringify(diagnostic),
+      );
+    } catch {
+      // Diagnosis is best-effort and never includes a token or user identity.
+    }
+    if (!isNativeMobileApp()) {
+      console.warn("CUANSYNC JWT clock diagnostic", diagnostic);
+    }
+  },
+});
+
+if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+  supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: !isNativeMobileApp(),
+      flowType: "pkce",
+      storage: nativeAuthStorage,
+    },
+    global: {
+      fetch: supabaseSessionRecovery.fetch,
+    },
+  });
+}
 
 function readBalanceVisiblePreference() {
   const hideBalances = readAppStorage("hideBalances", null);
@@ -316,6 +354,15 @@ function readCurrencySettings(ownerId = null) {
 
 function saveCurrencySettings(settings, ownerId = null) {
   const normalized = normalizeCurrencySettings(settings, { configured: true });
+  const scoped = ownerId ? { ...normalized, ownerId } : normalized;
+  writeAppStorage("currencySettings", scoped);
+  return scoped;
+}
+
+function cacheCurrencySettings(settings, ownerId = null) {
+  const normalized = normalizeCurrencySettings(settings, {
+    configured: Boolean(settings?.configured),
+  });
   const scoped = ownerId ? { ...normalized, ownerId } : normalized;
   writeAppStorage("currencySettings", scoped);
   return scoped;
@@ -513,41 +560,6 @@ function buildUserCurrencyRecords(userId, settings, existingCodes = []) {
     is_daily: currencyCode === normalized.dailyCurrency,
     updated_at: updatedAt,
   }));
-}
-
-async function resizeProfileImage(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Gagal membaca file gambar."));
-    reader.onload = () => {
-      const image = new Image();
-      image.onerror = () => reject(new Error("File gambar tidak valid."));
-      image.onload = () => {
-        const size = 320;
-        const canvas = document.createElement("canvas");
-        canvas.width = size;
-        canvas.height = size;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) {
-          reject(new Error("Browser tidak mendukung canvas untuk foto profil."));
-          return;
-        }
-
-        const scale = Math.max(size / image.width, size / image.height);
-        const width = image.width * scale;
-        const height = image.height * scale;
-        const offsetX = (size - width) / 2;
-        const offsetY = (size - height) / 2;
-
-        ctx.fillStyle = "#0f172a";
-        ctx.fillRect(0, 0, size, size);
-        ctx.drawImage(image, offsetX, offsetY, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.84));
-      };
-      image.src = String(reader.result || "");
-    };
-    reader.readAsDataURL(file);
-  });
 }
 
 function buildExpenseChart(transactions, monthKey) {
@@ -828,7 +840,17 @@ function computeMetrics(
   const allocatedToGoalsIdr = Number(
     goalAllocationState.allocatedByCurrency.IDR || 0,
   );
-  const availableBalanceIdr = balanceIdrBase;
+  const availableBalanceIdr = assetAccountSummary.accountCount > 0
+    ? assetAccountSummary.accountInsights.reduce((sum, account) => {
+        const availableAmount = Number(
+          account.availableBalance ?? account.balanceAmount ?? 0,
+        );
+        const currentValue = account.currency === baseCurrency
+          ? availableAmount
+          : availableAmount * Number(account.rate || 0);
+        return sum + (Number.isFinite(currentValue) ? currentValue : 0);
+      }, 0)
+    : balanceIdrBase;
 
   const activeExchange =
     [...ordered].reverse().find((item) => item.type === "exchange") || null;
@@ -2441,6 +2463,8 @@ function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
   const [mode, setMode] = useState("loading");
+  const [authRecoveryError, setAuthRecoveryError] = useState("");
+  const [authRecoveryAttempt, setAuthRecoveryAttempt] = useState(0);
   const [transactions, setTransactions] = useState([]);
   const [budgets, setBudgets] = useState([]);
   const [goals, setGoals] = useState([]);
@@ -2531,7 +2555,143 @@ function App() {
     const resolvedTheme = resolveThemeMode(theme, systemPrefersDark);
     document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
     writeAppStorage("theme", normalizeThemeMode(theme));
+    updateNativeStatusBar(resolvedTheme === "dark").catch(() => {});
   }, [theme, systemPrefersDark]);
+
+  useEffect(() => {
+    if (!supabaseReady || !isNativeMobileApp()) return undefined;
+    let active = true;
+    let listenerHandle = null;
+    const processedCallbacks = new Set();
+
+    const handleNativeAuthCallback = async (url) => {
+      if (!url || processedCallbacks.has(url)) return;
+      try {
+        const callback = getAuthCallbackFromUrl(url);
+        if (!callback) return;
+        processedCallbacks.add(url);
+        const { error } = callback.type === "pkce"
+          ? await supabase.auth.exchangeCodeForSession(callback.code)
+          : await supabase.auth.setSession(callback.session);
+        if (error) throw error;
+        await closeNativeAuthBrowser();
+        if (!active) return;
+        setAuthRecoveryError("");
+        setMessage("Login Google berhasil. Selamat datang di CUANSYNC.");
+        setMessageTone("success");
+      } catch (error) {
+        await closeNativeAuthBrowser();
+        if (!active) return;
+        setMessage(error.message || "Login Google di aplikasi gagal diselesaikan.");
+        setMessageTone("error");
+      }
+    };
+
+    addNativeUrlListener(handleNativeAuthCallback).then((handle) => {
+      if (!active) {
+        handle?.remove();
+        return;
+      }
+      listenerHandle = handle;
+      getNativeLaunchUrl()
+        .then(handleNativeAuthCallback)
+        .catch((error) => {
+          if (!active) return;
+          setMessage(error.message || "Callback login saat aplikasi dibuka tidak dapat diperiksa.");
+          setMessageTone("error");
+        });
+    });
+
+    return () => {
+      active = false;
+      listenerHandle?.remove();
+    };
+  }, [supabaseReady]);
+
+  useEffect(() => {
+    if (!supabaseReady || !isNativeMobileApp()) return undefined;
+    let active = true;
+    let listenerHandle = null;
+
+    let lifecycleUpdate = Promise.resolve();
+    const applyAppState = ({ isActive }) => {
+      lifecycleUpdate = lifecycleUpdate
+        .catch(() => {})
+        .then(() =>
+          isActive
+            ? supabase.auth.startAutoRefresh()
+            : supabase.auth.stopAutoRefresh(),
+        );
+      return lifecycleUpdate;
+    };
+
+    addNativeAppStateListener(applyAppState).then((handle) => {
+      if (!active) {
+        handle?.remove();
+        return;
+      }
+      listenerHandle = handle;
+      getNativeAppState().then(applyAppState).catch(() => {});
+    });
+
+    return () => {
+      active = false;
+      listenerHandle?.remove();
+      supabase.auth.stopAutoRefresh().catch(() => {});
+    };
+  }, [supabaseReady]);
+
+  useEffect(() => {
+    if (!isNativeMobileApp()) return undefined;
+    let active = true;
+    let listenerHandle = null;
+
+    addNativeBackButtonListener(async () => {
+      const dialogs = [...document.querySelectorAll('[role="dialog"]')];
+      const topDialog = dialogs.at(-1);
+      const dialogCloseButton = topDialog
+        ? [...topDialog.querySelectorAll("button")].find((button) =>
+            String(button.getAttribute("aria-label") || button.textContent || "")
+              .trim()
+              .toLowerCase()
+              .startsWith("tutup"),
+          )
+        : null;
+      if (dialogCloseButton) {
+        dialogCloseButton.click();
+        return;
+      }
+      if (quickActionOpen) {
+        setQuickActionOpen(false);
+        return;
+      }
+      if (menuOpen) {
+        setMenuOpen(false);
+        return;
+      }
+      if (activeTab === "add") {
+        setTransactionTargetDraft({ id: "", currency: "" });
+        setActiveTab(transactionReturnTab || "overview");
+        return;
+      }
+      if (activeTab !== "overview") {
+        setActiveTab("overview");
+        return;
+      }
+      await minimizeNativeApp();
+    }).then((handle) => {
+      if (!active) {
+        handle?.remove();
+        return;
+      }
+      listenerHandle = handle;
+    });
+
+    return () => {
+      active = false;
+      listenerHandle?.remove();
+    };
+  }, [activeTab, menuOpen, quickActionOpen, transactionReturnTab]);
 
   useEffect(() => {
     const baseCurrency = normalizedAppCurrencySettings.baseCurrency;
@@ -2595,19 +2755,22 @@ function App() {
     }
 
     let active = true;
+    let sessionRestored = false;
+    let queuedAuthSession = null;
+    let hasQueuedAuthEvent = false;
 
     const applySessionUser = (sessionUser) => {
       if (sessionUser) {
         const ownerId = getCurrencySettingsOwnerId(sessionUser);
         const cachedSettings = readCurrencySettings(ownerId);
-        setCurrencySettings(cachedSettings);
-        setRuntimeCurrencySettings(cachedSettings);
-        if (cachedSettings) {
-          const cachedProfile = readLocalProfile(sessionUser, cachedSettings);
-          setProfile(cachedProfile);
-          setTheme(cachedProfile.theme_mode);
-          setBalanceVisible(!cachedProfile.hide_balances);
-        }
+        const startupSettings =
+          cachedSettings || normalizeCurrencySettings(null);
+        setCurrencySettings(startupSettings);
+        setRuntimeCurrencySettings(startupSettings);
+        const cachedProfile = readLocalProfile(sessionUser, startupSettings);
+        setProfile(cachedProfile);
+        setTheme(cachedProfile.theme_mode);
+        setBalanceVisible(!cachedProfile.hide_balances);
       } else {
         setCurrencySettings(null);
         setRuntimeCurrencySettings(null);
@@ -2616,17 +2779,81 @@ function App() {
       setMode(sessionUser ? "supabase" : "signed-out");
     };
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!active) return;
-      const sessionUser = data.session?.user || null;
-      applySessionUser(sessionUser);
-    });
+    supabaseSessionRecovery
+      .restoreSession()
+      .then(({ data, error }) => {
+        if (!active) return;
+        sessionRestored = true;
+        if (hasQueuedAuthEvent) {
+          setAuthRecoveryError("");
+          applySessionUser(queuedAuthSession?.user || null);
+          return;
+        }
+        if (error) {
+          setAuthRecoveryError(
+            error.message || "Sesi tersimpan belum dapat diperiksa.",
+          );
+          setMode("session-error");
+          return;
+        }
+        setAuthRecoveryError("");
+        const sessionUser = data.session?.user || null;
+        applySessionUser(sessionUser);
+        if (sessionUser) {
+          supabaseSessionRecovery
+            .validateSessionUser()
+            .then(({ data: userData, error: validationError }) => {
+              if (!active) return;
+              if (validationError || !userData?.user) {
+                setMessage(
+                  "Sesi lokal berhasil dipulihkan. Verifikasi akun akan dicoba lagi saat koneksi stabil.",
+                );
+                setMessageTone("info");
+                return;
+              }
+              if (userData.user.id !== sessionUser.id) {
+                setAuthRecoveryError(
+                  "Identitas sesi tersimpan tidak cocok. Silakan masuk kembali dengan akun yang benar.",
+                );
+                setMode("session-error");
+              }
+            })
+            .catch(() => {
+              if (!active) return;
+              setMessage(
+                "Sesi lokal berhasil dipulihkan. Verifikasi akun akan dicoba lagi saat koneksi stabil.",
+              );
+              setMessageTone("info");
+            });
+        }
+      })
+      .catch((error) => {
+        if (!active) return;
+        sessionRestored = true;
+        if (hasQueuedAuthEvent) {
+          setAuthRecoveryError("");
+          applySessionUser(queuedAuthSession?.user || null);
+          return;
+        }
+        setAuthRecoveryError(
+          error.message || "Sesi tersimpan belum dapat diperiksa.",
+        );
+        setMode("session-error");
+      });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
+      if (!sessionRestored) {
+        if (_event !== "INITIAL_SESSION") {
+          queuedAuthSession = session;
+          hasQueuedAuthEvent = true;
+        }
+        return;
+      }
       const sessionUser = session?.user || null;
+      setAuthRecoveryError("");
       applySessionUser(sessionUser);
     });
 
@@ -2634,7 +2861,7 @@ function App() {
       active = false;
       subscription.unsubscribe();
     };
-  }, [supabaseReady]);
+  }, [supabaseReady, authRecoveryAttempt]);
 
   useEffect(() => {
     if (!user) {
@@ -2971,9 +3198,7 @@ function App() {
 
       setCurrencySettings(nextSettings);
       setRuntimeCurrencySettings(nextSettings);
-      if (nextSettings.configured) {
-        saveCurrencySettings(nextSettings, ownerId);
-      }
+      cacheCurrencySettings(nextSettings, ownerId);
       setProfile(nextProfile);
       setTheme(nextProfile.theme_mode);
       writeBalanceVisiblePreference(!nextProfile.hide_balances);
@@ -3037,16 +3262,30 @@ function App() {
     if (!supabaseReady) return;
     setMessage("");
 
-    const { error } = await supabase.auth.signInWithOAuth({
+    const nativeLogin = isNativeMobileApp();
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: window.location.origin,
+        redirectTo: nativeLogin
+          ? NATIVE_AUTH_REDIRECT_URL
+          : window.location.origin,
+        skipBrowserRedirect: nativeLogin,
       },
     });
 
     if (error) {
       setMessage(error.message);
       setMessageTone("error");
+      return;
+    }
+    if (nativeLogin && data?.url) {
+      try {
+        await openNativeAuthBrowser(data.url);
+      } catch (nativeError) {
+        setMessage(nativeError.message || "Browser login Google tidak dapat dibuka.");
+        setMessageTone("error");
+      }
     }
   }
 
@@ -4318,7 +4557,12 @@ function App() {
     }
   }
 
-  async function handleSetPrimaryAccount(account, flowType = "expense") {
+  async function handleSetPrimaryAccount(
+    account,
+    flowType = "expense",
+    options = {},
+  ) {
+    const clearPrimary = options.clear === true;
     try {
       setLoading(true);
       const preference = {
@@ -4337,10 +4581,27 @@ function App() {
                 item.flow_type === preference.flow_type
               ),
           ),
-          preference,
+          ...(clearPrimary ? [] : [preference]),
         ];
         writeAppStorage("demoAccountPreferences", nextPreferences);
         setAccountPreferences(nextPreferences);
+      } else if (clearPrimary) {
+        const { error } = await supabase
+          .from("account_preferences")
+          .delete()
+          .eq("user_id", user.id)
+          .eq("currency", preference.currency)
+          .eq("flow_type", preference.flow_type);
+        if (error) throw error;
+        setAccountPreferences((current) =>
+          current.filter(
+            (item) =>
+              !(
+                item.currency === preference.currency &&
+                item.flow_type === preference.flow_type
+              ),
+          ),
+        );
       } else {
         const { data, error } = await supabase.rpc("set_account_preference", {
           p_currency: preference.currency,
@@ -4365,14 +4626,21 @@ function App() {
             ...item,
             is_primary:
               item.currency === preference.currency
-                ? item.id === preference.account_id
+                ? !clearPrimary && item.id === preference.account_id
                 : item.is_primary,
           })),
         ),
       );
-      setMessage(`${account.name} menjadi akun utama pengeluaran ${preference.currency}.`);
+      setMessage(
+        clearPrimary
+          ? `${account.name} tidak lagi menjadi akun utama ${preference.currency}.`
+          : `${account.name} menjadi akun utama pengeluaran ${preference.currency}.`,
+      );
       setMessageTone("success");
-      setToast({ message: "Akun utama diperbarui.", tone: "success" });
+      setToast({
+        message: clearPrimary ? "Akun utama dilepas." : "Akun utama diperbarui.",
+        tone: "success",
+      });
       return true;
     } catch (error) {
       setMessage(error.message || "Gagal memperbarui akun utama.");
@@ -5091,6 +5359,20 @@ function App() {
     return html`<${AppLoadingScreen} appName=${APP_NAME} />`;
   }
 
+  if (mode === "session-error") {
+    return html`
+      <${AuthRecoveryScreen}
+        appName=${APP_NAME}
+        error=${authRecoveryError}
+        onRetry=${() => {
+          setMode("loading");
+          setAuthRecoveryError("");
+          setAuthRecoveryAttempt((current) => current + 1);
+        }}
+      />
+    `;
+  }
+
   if (!user) {
     return html`
       <${AuthScreen}
@@ -5309,41 +5591,6 @@ function App() {
       setMessageTone(error?.code === "42P01" ? "info" : "error");
       return error?.code === "42P01";
     }
-  }
-
-  async function handleProfilePhotoUpload(event) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-
-    try {
-      const nextPhoto = await resizeProfileImage(file);
-      setProfilePhotos((current) => {
-        const next = {
-          ...current,
-          [userStorageId]: nextPhoto,
-        };
-        writeAppStorage("profilePhotos", next);
-        return next;
-      });
-      setMessage("Foto profil diperbarui.");
-      setMessageTone("success");
-    } catch (error) {
-      setMessage(error.message || "Gagal memperbarui foto profil.");
-      setMessageTone("error");
-    }
-  }
-
-  function handleRemoveProfilePhoto() {
-    if (!profilePhotos[userStorageId]) return;
-    setProfilePhotos((current) => {
-      const next = { ...current };
-      delete next[userStorageId];
-      writeAppStorage("profilePhotos", next);
-      return next;
-    });
-    setMessage("Foto profil dihapus.");
-    setMessageTone("info");
   }
 
   function applyBalanceVisibility(nextVisible) {
@@ -5685,7 +5932,7 @@ function App() {
     activeTab === "budget";
 
   return html`
-    <main className="app-shell relative isolate min-h-screen overflow-hidden px-3 pt-3 md:px-5 md:py-5 lg:px-6 lg:pt-6">
+    <main className="app-shell relative isolate min-h-screen overflow-x-hidden px-3 pt-3 md:px-5 md:py-5 lg:px-6 lg:pt-6">
       <${PremiumMeshBackground} />
       <${ToastMessage} toast=${toast} onDismiss=${() => setToast(null)} />
       <div className="cs-workspace relative z-10 mx-auto max-w-[1440px] lg:grid lg:grid-cols-[76px_minmax(0,1fr)] lg:items-start lg:gap-4">

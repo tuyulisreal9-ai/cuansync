@@ -152,8 +152,7 @@ export function MobileNavigation({
   return html`
     <nav
       aria-label="Navigasi utama"
-      className="mobile-bottom-nav cs-mobile-nav fixed inset-x-0 z-40 grid grid-cols-5 items-stretch gap-1 rounded-t-xl px-1 pb-1 pt-0.5 transition duration-300 lg:hidden"
-      style=${{ bottom: "env(safe-area-inset-bottom)" }}
+      className="mobile-bottom-nav cs-mobile-nav fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 items-stretch gap-1 rounded-t-xl px-1 pb-[calc(.25rem+env(safe-area-inset-bottom))] pt-0.5 transition duration-300 lg:hidden"
     >
       ${leftItems.map(
         (item) => html`
@@ -255,7 +254,7 @@ export function QuickActionMenu({
   if (!open) return null;
 
   return html`
-    <div className="fixed inset-0 z-[70] flex items-end justify-center p-3 md:items-center md:p-6">
+    <div className="cs-quick-action-overlay fixed inset-0 z-[70] flex items-end justify-center md:items-center">
       <button
         type="button"
         aria-label="Tutup menu aksi cepat"
@@ -266,7 +265,7 @@ export function QuickActionMenu({
         role="dialog"
         aria-modal="true"
         aria-labelledby="quick-action-title"
-        className="cs-quick-action-menu relative w-full max-w-sm rounded-lg p-4"
+        className="cs-quick-action-menu relative flex w-full max-w-sm flex-col overflow-hidden rounded-lg p-4"
       >
         <div className="flex items-start justify-between gap-3 border-b border-slate-200/70 pb-3 dark:border-slate-800">
           <div>
@@ -287,7 +286,7 @@ export function QuickActionMenu({
           </button>
         </div>
 
-        <div className="mt-3 grid gap-2">
+        <div className="cs-quick-action-list mt-3 grid min-h-0 gap-2 overflow-y-auto overscroll-contain">
           <${QuickActionItem}
             icon=${ReceiptText}
             title="Catat transaksi"

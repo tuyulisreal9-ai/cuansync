@@ -1,1 +1,1 @@
-export { AuthScreen } from "./AuthFlow.js";
+export { AuthRecoveryScreen, AuthScreen } from "./AuthFlow.js";

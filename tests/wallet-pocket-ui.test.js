@@ -15,6 +15,60 @@ test("halaman Dompet menyatukan Dompet dan Tabungan tanpa menggandakan total", a
   assert.doesNotMatch(page, /Kantong/i);
   assert.match(page, /metrics\.assetAccountTotalValueIdr/);
   assert.doesNotMatch(page, /assetAccountTotalValueIdr\s*\+\s*.*totalGoalSaved/);
+  assert.match(page, /Total uang tercatat/);
+  assert.match(page, /Bisa dipakai/);
+  assert.match(page, /Dana dicadangkan/);
+});
+
+test("tampilan Semua menempatkan Tabungan sebagai bagian dana dari Dompet sumber", async () => {
+  const page = await source("src/components/assets/WalletAccountsPage.js");
+
+  assert.match(page, /function getAccountGoalAllocations/);
+  assert.match(page, /Dicadangkan untuk/);
+  assert.match(page, /allocations=\$\{getAccountGoalAllocations\(account, goals\)\}/);
+  assert.doesNotMatch(page, /filter === "all" \|\| filter === "saving"/);
+  assert.match(page, /Dana ini bagian dari saldo dompet, bukan saldo tambahan/);
+
+  const walletGrid = page.slice(
+    page.indexOf("${showsAccounts"),
+    page.indexOf("${showsGoals"),
+  );
+  assert.match(walletGrid, /accounts\.map/);
+  assert.doesNotMatch(walletGrid, /goals\.map/);
+});
+
+test("Tabungan berdiri sebagai seksi turunan, bukan kartu sejajar Dompet", async () => {
+  const page = await source("src/components/assets/WalletAccountsPage.js");
+
+  assert.match(page, /function GoalFundSection/);
+  assert.match(page, /const showsAccounts = filter !== "saving"/);
+  assert.match(page, /const showsGoals = filter !== "pay"/);
+  assert.match(page, /Dicadangkan dari dompet di atas, bukan saldo tambahan/);
+  assert.match(page, /\["all", "Semua", accounts\.length \+ goals\.length\]/);
+});
+
+test("kartu Dompet menonjolkan dana bisa dipakai beserta saldo asalnya", async () => {
+  const page = await source("src/components/assets/WalletAccountsPage.js");
+
+  assert.match(page, /dari \$\{formatCurrency\(balanceAmount, account\.currency\)\}/);
+  assert.match(page, /const reservedRatio = balanceAmount > 0\.0001/);
+  assert.match(page, /cs-pocket-split-reserved/);
+  assert.match(page, /fullyReserved \? "text-slate-500 dark:text-slate-400" : "text-emerald-500"/);
+  assert.doesNotMatch(page, /dicadangkan`\s*:\s*""/);
+});
+
+test("dompet utama dapat dilepas kembali, bukan hanya dipindah", async () => {
+  const page = await source("src/components/assets/WalletAccountsPage.js");
+  const main = await source("src/main.js");
+
+  assert.match(page, /clear: Boolean\(account\.isPrimary\)/);
+  assert.match(page, /Lepas dari utama/);
+  assert.doesNotMatch(page, /Utama pengeluaran/);
+
+  assert.match(main, /const clearPrimary = options\.clear === true/);
+  assert.match(main, /\.\.\.\(clearPrimary \? \[\] : \[preference\]\)/);
+  assert.match(main, /!clearPrimary && item\.id === preference\.account_id/);
+  assert.match(main, /from\("account_preferences"\)\s*\n?\s*\.delete\(\)/);
 });
 
 test("rincian Tabungan membuka popup, menampilkan asal dana, dan dapat dipakai", async () => {

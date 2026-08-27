@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#10B981</color>
+    <color name="colorPrimaryDark">#020617</color>
+    <color name="colorAccent">#22D3EE</color>
+    <color name="cuansync_navy">#020617</color>
+    <color name="cuansync_surface">#0F172A</color>
+    <color name="cuansync_emerald">#10B981</color>
+</resources>

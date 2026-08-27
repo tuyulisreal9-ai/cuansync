@@ -36,7 +36,21 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-import("./main.js").catch((error) => {
-  console.error("Aplikasi gagal dimuat", error);
-  renderBootstrapError(error);
-});
+import("./main.js")
+  .then(() => {
+    if (
+      import.meta.env.PROD &&
+      "serviceWorker" in navigator &&
+      !document.documentElement.classList.contains("is-native-app")
+    ) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js").catch((error) => {
+          console.warn("Service worker CUANSYNC tidak dapat didaftarkan", error);
+        });
+      });
+    }
+  })
+  .catch((error) => {
+    console.error("Aplikasi gagal dimuat", error);
+    renderBootstrapError(error);
+  });
