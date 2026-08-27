@@ -172,3 +172,16 @@ test("aset native memakai sumber logo CUANSYNC yang dapat dibuat ulang", () => {
   assert.match(packageJson.scripts["mobile:assets:android"], /#020617/);
   assert.match(adaptiveIcon, /@mipmap\/ic_launcher_foreground/);
 });
+
+test("body tidak boleh menjadi scroll container yang menghadang wheel dan sentuh", () => {
+  const styles = source("src/styles.css");
+
+  // overflow-x: hidden pada body membuat overflow-y ikut menjadi auto, sehingga
+  // body berubah jadi scroll container. Tinggi body mengikuti konten, jadi
+  // scrollHeight selalu sama dengan clientHeight dan body tidak pernah bisa
+  // menggulir dirinya sendiri, padahal yang menggulir adalah html. Roda mouse
+  // dan gestur sentuh mendarat di body lalu mati, sementara menyeret scrollbar
+  // tetap jalan karena itu menggulir html langsung.
+  assert.doesNotMatch(styles, /^html,\s*\n\s*body\s*\{[^}]*overflow-x:\s*hidden/m);
+  assert.match(styles, /^body\s*\{[^}]*overflow-x:\s*clip/m);
+});

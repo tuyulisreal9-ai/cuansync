@@ -52,10 +52,23 @@ html {
   overscroll-behavior: none;
 }
 
-html,
-body {
+html {
   max-width: 100%;
   overflow-x: hidden;
+}
+
+/* body memakai clip, bukan hidden. Menurut spesifikasi CSS, bila satu sumbu
+   bukan visible maka sumbu lain yang visible ikut dihitung menjadi auto. Jadi
+   overflow-x: hidden membuat overflow-y body menjadi auto, dan body berubah
+   menjadi scroll container. Tinggi body mengikuti konten, sehingga
+   scrollHeight selalu sama dengan clientHeight dan body tidak pernah bisa
+   menggulir dirinya sendiri, padahal yang benar benar menggulir adalah html.
+   Akibatnya roda mouse dan gestur sentuh mendarat di body lalu mati, sementara
+   menyeret scrollbar tetap bekerja karena itu menggulir html secara langsung.
+   overflow-x: clip memotong luapan horizontal tanpa membuat scroll container. */
+body {
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 body {
