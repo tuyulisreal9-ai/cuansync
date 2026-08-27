@@ -84,9 +84,19 @@ test("shell native memiliki satu scroll container vertikal yang eksplisit", () =
   assert.match(main, /app-shell[^\n]*overflow-x-hidden/);
   assert.doesNotMatch(main, /app-shell[^\n]*overflow-hidden/);
   assert.match(styles, /html\.is-native-app \.app-shell\s*\{/);
-  assert.match(styles, /height:\s*100dvh/);
   assert.match(styles, /overflow-y:\s*auto/);
   assert.match(styles, /touch-action:\s*pan-y/);
+
+  // Shell native harus setinggi kotak WebView sebenarnya. Memakai 100dvh
+  // membuatnya lebih tinggi daripada induk yang memotong luapan di Android,
+  // sehingga sisa konten paling bawah tidak pernah bisa di-scroll.
+  const nativeShell = styles.slice(
+    styles.indexOf("html.is-native-app .app-shell"),
+    styles.indexOf("}", styles.indexOf("html.is-native-app .app-shell")),
+  );
+  assert.match(nativeShell, /height:\s*100%/);
+  assert.doesNotMatch(nativeShell, /height:\s*100dvh/);
+  assert.doesNotMatch(styles, /html\.is-native-app[^{]*\{[^}]*min-height:\s*100dvh/);
 });
 
 test("safe area Android berada di shell, bukan di dalam kartu header", () => {

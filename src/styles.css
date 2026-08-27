@@ -66,25 +66,28 @@ body {
   overscroll-behavior-y: none;
 }
 
-html.is-native-app,
-html.is-native-app body,
-html.is-native-app #root {
-  min-height: 100dvh;
-}
-
 html.is-native-app body {
   overflow-x: hidden;
 }
 
+/* Rantai tinggi native memakai 100% (kotak WebView sebenarnya), bukan dvh.
+   Di Android, 100dvh bisa lebih besar daripada tinggi WebView yang terlihat
+   ketika status bar / navigation bar ikut diperhitungkan. Karena html, body,
+   dan #root memotong luapan (overflow: hidden), shell yang lebih tinggi dari
+   induknya membuat bagian bawah konten tidak pernah bisa dicapai: jarak
+   scroll internal shell dihitung dari tinggi dvh, bukan dari area yang benar
+   benar terlihat. Memakai 100% juga membuat shell ikut mengecil saat plugin
+   Keyboard (resize: "body") memperkecil body. */
 html.is-native-app,
 html.is-native-app body,
 html.is-native-app #root {
   height: 100%;
+  min-height: 0;
   overflow: hidden;
 }
 
 html.is-native-app .app-shell {
-  height: 100dvh;
+  height: 100%;
   min-height: 0;
   padding-top: calc(0.75rem + env(safe-area-inset-top));
   overflow-x: hidden;
