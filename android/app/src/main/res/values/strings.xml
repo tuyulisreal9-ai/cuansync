@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">CUANSYNC</string>
+    <string name="title_activity_main">CUANSYNC</string>
+    <string name="package_name">com.cuansync.app</string>
+    <string name="custom_url_scheme">com.cuansync.app</string>
+</resources>

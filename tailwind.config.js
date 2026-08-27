@@ -6,8 +6,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        sans: ["Plus Jakarta Sans", "ui-sans-serif", "system-ui"],
-        display: ["Space Grotesk", "ui-sans-serif", "system-ui"],
+        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       colors: {
         brand: {

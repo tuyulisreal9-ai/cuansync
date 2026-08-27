@@ -583,7 +583,7 @@ export function WalletHeader({
 
   return html`
     <${React.Fragment}>
-    <header className=${`wallet-header cs-topbar relative isolate overflow-hidden rounded-lg px-4 ${compact ? "pb-2.5 lg:pb-3" : "pb-4 lg:pb-3"} ${compact ? "pt-[calc(.625rem+env(safe-area-inset-top))]" : "pt-[calc(1rem+env(safe-area-inset-top))]"} text-slate-950 md:px-5 lg:px-5 lg:pt-3 dark:text-white`}>
+    <header className=${`wallet-header cs-topbar relative isolate overflow-hidden rounded-lg px-4 ${compact ? "pb-2.5 pt-2.5 lg:pb-3" : "pb-4 pt-4 lg:pb-3"} text-slate-950 md:px-5 lg:px-5 lg:pt-3 dark:text-white`}>
       <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-300/70 to-transparent dark:via-cyan-200/35"></div>
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.10),transparent_40%,rgba(34,211,238,0.08))] dark:bg-[linear-gradient(135deg,rgba(16,185,129,0.15),transparent_42%,rgba(34,211,238,0.10))]"></div>
 
@@ -591,7 +591,7 @@ export function WalletHeader({
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2.5" aria-label=${wordmark}>
             <img
-              src="./branding/logo-icon.png"
+              src="/icons/icon-96.webp"
               alt=""
               className=${`shrink-0 object-contain ${compact ? "h-8 w-8 rounded-lg" : "h-9 w-9 rounded-2xl"} lg:h-8 lg:w-8`}
             />
@@ -600,21 +600,7 @@ export function WalletHeader({
                 <span className="truncate font-display text-sm font-bold text-slate-950 dark:text-white sm:text-base">
                   ${wordmark}
                 </span>
-                ${compact
-                  ? html`
-                      <span className="shrink-0 rounded-md bg-emerald-500/12 px-1.5 py-0.5 text-[8px] font-extrabold text-emerald-500 md:hidden">
-                        Aset & Valas
-                      </span>
-                    `
-                  : null}
               </span>
-              ${compact
-                ? html`
-                    <span className="mt-0.5 block truncate text-[9px] font-medium text-slate-500 dark:text-slate-400 md:hidden">
-                      Wallet multi-mata uang
-                    </span>
-                  `
-                : null}
             </span>
           </div>
 

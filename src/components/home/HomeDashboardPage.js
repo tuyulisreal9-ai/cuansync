@@ -114,13 +114,13 @@ function AssetHero({
   const walletCount = getWalletCount(metrics, valuations);
 
   return html`
-    <section className="cs-home-hero relative overflow-hidden rounded-lg p-4 text-white md:p-6">
+    <section className="cs-home-hero relative overflow-hidden rounded-lg p-3.5 text-white md:p-5">
       <div className="relative flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-emerald-300">
+          <p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-emerald-300">
             Total aset bersih (${baseCurrency})
           </p>
-          <p className="mt-2.5 break-words font-display text-[1.75rem] font-bold leading-none tabular-nums md:mt-3 md:text-4xl">
+          <p className="mt-2 break-words font-display text-2xl font-bold leading-none tabular-nums md:mt-3 md:text-4xl">
             ${visible ? formatCurrency(totalValue, baseCurrency) : HIDDEN_BALANCE_TEXT}
           </p>
         </div>
@@ -135,7 +135,7 @@ function AssetHero({
         totalValue=${totalValue}
       />
 
-      <div className=${`cs-home-hero-actions mt-3 grid gap-2 md:hidden ${canTransfer || canExchange ? "is-multi" : "is-single"}`}>
+      <div className=${`cs-home-hero-actions mt-2.5 grid gap-2 md:hidden ${canTransfer || canExchange ? "is-multi" : "is-single"}`}>
         ${canTransfer
           ? html`
               <${HeroAction}
@@ -199,18 +199,18 @@ function ControlSummary({
       type="button"
       onClick=${onOpen}
       aria-label="Buka Pusat Kontrol"
-      className="cs-home-section cs-home-control w-full rounded-lg p-4 text-left transition hover:border-emerald-400/35 md:p-5"
+      className="cs-home-section cs-home-control w-full rounded-lg p-3 text-left transition hover:border-emerald-400/35 md:p-4"
     >
       <span className="flex items-center justify-between gap-4">
         <span className="flex min-w-0 items-center gap-3">
-          <span className="cs-home-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-emerald-400">
-            <${ShieldCheck} aria-hidden="true" className="h-5 w-5" />
+          <span className="cs-home-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-emerald-400">
+            <${ShieldCheck} aria-hidden="true" className="h-4 w-4" />
           </span>
           <span className="min-w-0">
-            <span className="block text-sm font-extrabold text-slate-950 dark:text-white md:text-base">
+            <span className="block text-[13px] font-extrabold text-slate-950 dark:text-white md:text-base">
               Pusat Kontrol
             </span>
-            <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+            <span className="mt-0.5 block truncate text-[10px] text-slate-500 dark:text-slate-400 md:text-xs">
               ${statusLabel}
             </span>
           </span>
@@ -218,28 +218,28 @@ function ControlSummary({
         <${ChevronRight} aria-hidden="true" className="h-5 w-5 shrink-0 text-slate-400" />
       </span>
 
-      <span className="cs-home-control-metrics mt-3 grid grid-cols-2 gap-2.5 md:mt-4 md:gap-3">
-        <span className="cs-home-metric cs-home-control-metric block rounded-lg p-3 md:p-3.5">
+      <span className="cs-home-control-metrics mt-2.5 grid grid-cols-2 gap-2 md:mt-3 md:gap-3">
+        <span className="cs-home-metric cs-home-control-metric block rounded-lg p-2.5 md:p-3">
           <span className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
             <${Gauge} aria-hidden="true" className="h-3.5 w-3.5 text-emerald-400" />
             Sisa aman
           </span>
-          <strong className="mt-2 block truncate text-sm font-black text-slate-950 dark:text-white md:text-base">
+          <strong className="mt-1.5 block truncate text-[13px] font-black text-slate-950 dark:text-white md:text-base">
             ${safeLabel}
           </strong>
-          <span className="mt-1 block truncate text-[10px] text-slate-500 dark:text-slate-400">
+          <span className="mt-0.5 hidden truncate text-[9px] text-slate-500 sm:block dark:text-slate-400">
             ${summary.safeToSpend.status}
           </span>
         </span>
 
-        <span className="cs-home-metric cs-home-control-metric block rounded-lg p-3 md:p-3.5">
+        <span className="cs-home-metric cs-home-control-metric block rounded-lg p-2.5 md:p-3">
           <span className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
             Dana cadangan
           </span>
-          <strong className="mt-2 block truncate text-sm font-black text-amber-600 dark:text-amber-300 md:text-base">
+          <strong className="mt-1.5 block truncate text-[13px] font-black text-amber-600 dark:text-amber-300 md:text-base">
             ${runwayLabel}
           </strong>
-          <span className="mt-1 block truncate text-[10px] text-slate-500 dark:text-slate-400">
+          <span className="mt-0.5 hidden truncate text-[9px] text-slate-500 sm:block dark:text-slate-400">
             ${summary.runway.status}
           </span>
         </span>
@@ -266,7 +266,7 @@ function PlanningSummary({
     <button
       type="button"
       onClick=${onOpen}
-      className="cs-home-planning flex w-full items-center justify-between gap-3 rounded-lg p-3.5 text-left transition hover:border-emerald-400/35 md:p-4"
+      className="cs-home-planning flex w-full items-center justify-between gap-3 rounded-lg p-3 text-left transition hover:border-emerald-400/35 md:p-4"
     >
       <span className="flex min-w-0 items-center gap-3">
         <span className="cs-home-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-emerald-400">
@@ -301,6 +301,7 @@ function WalletRow({
   account,
   baseCurrency,
   visible,
+  onClick,
 }) {
   const nativeBalance = visible
     ? formatCurrency(account.balanceAmount, account.currency)
@@ -313,7 +314,12 @@ function WalletRow({
       : "";
 
   return html`
-    <article className="cs-home-wallet min-w-[10.5rem] flex-1 rounded-lg p-3 sm:min-w-[13.5rem] sm:p-3.5">
+    <button
+      type="button"
+      onClick=${onClick}
+      aria-label=${`Buka dompet ${account.name}`}
+      className="cs-home-wallet min-w-0 rounded-lg p-3 text-left transition hover:border-emerald-400/35"
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-extrabold text-slate-950 dark:text-white">
@@ -327,10 +333,10 @@ function WalletRow({
           ${account.currency}
         </span>
       </div>
-      <p className="mt-3 text-[9px] font-bold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400 sm:mt-4 sm:text-[10px]">
+      <p className="mt-2.5 text-[8px] font-bold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400 sm:text-[9px]">
         Saldo
       </p>
-      <p className="mt-1 truncate text-base font-black tabular-nums text-slate-950 dark:text-white">
+      <p className="mt-1 truncate text-sm font-black tabular-nums text-slate-950 dark:text-white sm:text-base">
         ${nativeBalance}
       </p>
       ${baseValuation
@@ -340,7 +346,7 @@ function WalletRow({
             </p>
           `
         : null}
-    </article>
+    </button>
   `;
 }
 
@@ -362,24 +368,37 @@ function WalletSummary({
           onClick=${onOpen}
           className="inline-flex min-h-11 items-center gap-1 rounded-md px-2.5 text-xs font-bold text-emerald-500 transition hover:bg-emerald-500/10"
         >
-          Kelola
+          Lihat semua
           <${ChevronRight} aria-hidden="true" className="h-4 w-4" />
         </button>
       </div>
 
       ${accounts.length
         ? html`
-            <div className="balance-strip cs-home-wallet-strip flex w-full min-w-0 max-w-full gap-3 overflow-x-auto pb-1">
-              ${accounts.slice(0, 6).map(
+            <div className="cs-home-wallet-strip grid w-full min-w-0 max-w-full grid-cols-2 gap-2">
+              ${accounts.slice(0, 3).map(
                 (account) => html`
                   <${WalletRow}
                     key=${account.id}
                     account=${account}
                     baseCurrency=${baseCurrency}
                     visible=${visible}
+                    onClick=${onOpen}
                   />
                 `,
               )}
+              <button
+                type="button"
+                onClick=${onAddWallet || onOpen}
+                className="cs-home-empty flex min-h-[7.25rem] min-w-0 flex-col items-center justify-center rounded-lg p-3 text-center transition hover:border-emerald-400/45"
+              >
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/12 text-emerald-500">
+                  <${Plus} aria-hidden="true" className="h-4 w-4" />
+                </span>
+                <span className="mt-2 text-[11px] font-black text-slate-900 dark:text-white">
+                  Tambah dompet
+                </span>
+              </button>
             </div>
           `
         : html`
@@ -540,7 +559,7 @@ export function HomeDashboardPage({
   const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
 
   return html`
-    <div className="cs-home-dashboard grid w-full min-w-0 max-w-full gap-4">
+    <div className="cs-home-dashboard grid w-full min-w-0 max-w-full gap-3">
       <${AssetHero}
         metrics=${metrics}
         currencies=${activeCurrencies}

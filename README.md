@@ -8,6 +8,9 @@ Aplikasi web pengatur keuangan pribadi untuk alur multi-mata uang:
 - Exchange mengurangi saldo currency asal dan menambah saldo currency tujuan
 - Expense foreign currency tetap masuk pengeluaran dengan valuasi base currency
 - Google OAuth melalui Supabase
+- Aplikasi Android native melalui Capacitor 8, dengan safe area, deep link OAuth,
+  splash screen, status bar, keyboard resize, dan tombol kembali Android
+- Progressive Web App (PWA) yang dapat dipasang dari browser yang mendukung
 - Dashboard responsif dengan dark mode
 - Tab `Anggaran & Target` untuk batas kategori dan rencana dana per mata uang
 - Budget tracker universal `uang keluar` dengan indikator overspending
@@ -52,6 +55,31 @@ node server.mjs
 4. Buka [http://localhost:4173](http://localhost:4173).
 
 Jika `src/config.js` masih kosong, aplikasi tetap bisa dijalankan melalui **Demo Lokal** dan semua data disimpan di browser.
+
+## Menjalankan aplikasi Android
+
+Project Android berada di folder `android` dan memakai application ID
+`com.cuansync.app`.
+
+```powershell
+pnpm install
+pnpm mobile:sync
+pnpm mobile:open
+```
+
+Untuk membuat APK debug yang dapat dipasang:
+
+```powershell
+pnpm mobile:apk
+```
+
+Hasil build tersedia di `artifacts/CUANSYNC-debug.apk` (folder artefak tidak
+disimpan ke Git).
+
+Untuk login Google dari aplikasi, tambahkan
+`com.cuansync.app://auth/callback` ke daftar redirect URL Supabase. Panduan build
+APK, signing AAB, pengujian, dan rilis lengkap ada di
+[`docs/MOBILE_RELEASE.md`](docs/MOBILE_RELEASE.md).
 
 ## Setup Supabase
 

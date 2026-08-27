@@ -48,6 +48,10 @@ body,
   min-height: 100%;
 }
 
+html {
+  overscroll-behavior: none;
+}
+
 html,
 body {
   max-width: 100%;
@@ -56,8 +60,38 @@ body {
 
 body {
   background: var(--cs-app-bg);
-  font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+html.is-native-app,
+html.is-native-app body,
+html.is-native-app #root {
+  min-height: 100dvh;
+}
+
+html.is-native-app body {
+  overflow-x: hidden;
+}
+
+html.is-native-app,
+html.is-native-app body,
+html.is-native-app #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+html.is-native-app .app-shell {
+  height: 100dvh;
+  min-height: 0;
+  padding-top: calc(0.75rem + env(safe-area-inset-top));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 button,
@@ -242,10 +276,10 @@ textarea {
   --wallet-accent-soft: var(--cs-accent-soft);
   position: relative;
   min-width: 0;
-  min-height: 11rem;
+  min-height: 9rem;
   overflow: hidden;
   border: 1px solid var(--cs-border);
-  border-radius: 0.75rem;
+  border-radius: 0.875rem;
   background: var(--cs-surface);
   transition:
     transform 160ms ease,
@@ -253,8 +287,29 @@ textarea {
     box-shadow 160ms ease;
 }
 
+.cs-pocket-tile::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--wallet-accent) 60%, transparent) 45%,
+    transparent
+  );
+  opacity: 0.75;
+  pointer-events: none;
+}
+
 .cs-pocket-tile:hover {
   transform: translateY(-2px);
+}
+
+.cs-pocket-chip {
+  color: var(--wallet-accent);
+  background: color-mix(in srgb, var(--wallet-accent) 12%, transparent);
+  letter-spacing: 0.08em;
 }
 
 .cs-pocket-pay {
@@ -280,6 +335,9 @@ textarea {
 }
 
 .cs-pocket-saving {
+  --wallet-accent: rgb(6 182 212);
+  border-style: dashed;
+  border-color: rgb(6 182 212 / 0.35);
   background:
     linear-gradient(145deg, rgba(6, 182, 212, 0.08), transparent 64%),
     var(--cs-surface);
@@ -320,6 +378,24 @@ textarea {
 
 .cs-pocket-valuation {
   color: var(--wallet-accent);
+}
+
+.cs-pocket-allocation {
+  border: 1px solid rgb(6 182 212 / 0.2);
+  background: rgb(6 182 212 / 0.08);
+}
+
+.cs-pocket-split {
+  background: rgb(16 185 129 / 0.28);
+}
+
+.cs-pocket-split-reserved {
+  background: rgb(6 182 212 / 0.85);
+}
+
+.cs-wallet-balance-split {
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(2 6 23 / 0.22);
 }
 
 .cs-pocket-create {
@@ -464,6 +540,20 @@ textarea {
 
 .cs-quick-action-menu {
   box-shadow: 0 24px 70px rgba(2, 6, 23, 0.28);
+  max-height: calc(
+    100dvh - 1.5rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)
+  );
+}
+
+.cs-quick-action-overlay {
+  padding: 0.75rem;
+  padding-top: calc(0.75rem + env(safe-area-inset-top));
+  padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+}
+
+.cs-quick-action-list {
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
 }
 
 .cs-entry-panel {
@@ -571,6 +661,10 @@ textarea {
 .mobile-bottom-nav {
   max-width: 34rem;
   margin-inline: auto;
+}
+
+.cs-mobile-nav {
+  background: var(--cs-surface-raised);
 }
 
 .cs-entry-segment {
@@ -1216,7 +1310,21 @@ body:has(.cs-entry-dialog) .mobile-bottom-nav {
   transform: translateY(calc(120% + env(safe-area-inset-bottom)));
 }
 
+body:has(.cs-quick-action-menu) .mobile-bottom-nav {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(calc(120% + env(safe-area-inset-bottom)));
+}
+
 @media (min-width: 768px) {
+  .cs-quick-action-overlay {
+    padding: 1.5rem;
+  }
+
+  .cs-quick-action-menu {
+    max-height: calc(100dvh - 3rem);
+  }
+
   .history-detail-sheet {
     padding-bottom: 1.25rem;
   }
@@ -1600,7 +1708,7 @@ body:has(.cs-entry-dialog) .mobile-bottom-nav {
 
 .boot-title {
   margin: 16px 0 0;
-  font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
   font-size: clamp(2rem, 4vw, 3rem);
   line-height: 1;
   letter-spacing: -0.04em;
