@@ -12,7 +12,7 @@ export function PremiumMeshBackground() {
 
 export function AppLoadingScreen({ appName = "CUANSYNC" }) {
   return html`
-    <main className="relative isolate flex min-h-screen items-center justify-center overflow-hidden px-6 py-10">
+    <main className="relative isolate flex min-h-screen items-center justify-center overflow-x-clip px-6 py-10">
       <${PremiumMeshBackground} />
       <section className="relative z-10 flex w-full max-w-xs flex-col items-center text-center">
         <img

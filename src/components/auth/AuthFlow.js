@@ -12,7 +12,7 @@ export function AuthScreen({
   appName = "CUANSYNC",
 }) {
   return html`
-    <main className="relative isolate min-h-screen overflow-hidden px-4 py-8 md:px-6 lg:px-8">
+    <main className="relative isolate min-h-screen overflow-x-clip px-4 py-8 md:px-6 lg:px-8">
       <${PremiumMeshBackground} />
       <div className="relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] max-w-md items-center justify-center">
         <section className=${`${PANEL_CLASS} w-full p-7 md:p-8`}>
@@ -61,7 +61,7 @@ export function AuthRecoveryScreen({
   appName = "CUANSYNC",
 }) {
   return html`
-    <main className="relative isolate min-h-screen overflow-hidden px-4 py-8 md:px-6 lg:px-8">
+    <main className="relative isolate min-h-screen overflow-x-clip px-4 py-8 md:px-6 lg:px-8">
       <${PremiumMeshBackground} />
       <div className="relative z-10 mx-auto flex min-h-[calc(100vh-4rem)] max-w-md items-center justify-center">
         <section className=${`${PANEL_CLASS} w-full p-7 md:p-8`}>
