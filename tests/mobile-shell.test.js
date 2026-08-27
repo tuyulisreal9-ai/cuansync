@@ -81,7 +81,14 @@ test("shell native memiliki satu scroll container vertikal yang eksplisit", () =
   const main = source("src/main.js");
   const styles = source("src/styles.css");
 
-  assert.match(main, /app-shell[^\n]*overflow-x-hidden/);
+  // overflow-x: hidden memaksa overflow-y yang 'visible' menjadi 'auto', sehingga
+  // app-shell berubah menjadi scroll container yang membungkus seluruh aplikasi.
+  // Karena tingginya mengikuti konten, scrollHeight selalu sama dengan clientHeight
+  // dan shell tidak pernah bisa di-scroll sendiri, sementara gestur sentuh sudah
+  // terlanjur ditangkap olehnya. overflow-x: clip memotong tanpa membuat scroll
+  // container, jadi dokumen tetap menjadi scroller di mode web.
+  assert.match(main, /app-shell[^\n]*overflow-x-clip/);
+  assert.doesNotMatch(main, /app-shell[^\n]*overflow-x-hidden/);
   assert.doesNotMatch(main, /app-shell[^\n]*overflow-hidden/);
   assert.match(styles, /html\.is-native-app \.app-shell\s*\{/);
   assert.match(styles, /overflow-y:\s*auto/);
