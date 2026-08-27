@@ -81,12 +81,29 @@ test("shell native memiliki satu scroll container vertikal yang eksplisit", () =
   const main = source("src/main.js");
   const styles = source("src/styles.css");
 
-  assert.match(main, /app-shell[^\n]*overflow-x-hidden/);
+  // overflow-x: hidden memaksa overflow-y yang 'visible' menjadi 'auto', sehingga
+  // app-shell berubah menjadi scroll container yang membungkus seluruh aplikasi.
+  // Karena tingginya mengikuti konten, scrollHeight selalu sama dengan clientHeight
+  // dan shell tidak pernah bisa di-scroll sendiri, sementara gestur sentuh sudah
+  // terlanjur ditangkap olehnya. overflow-x: clip memotong tanpa membuat scroll
+  // container, jadi dokumen tetap menjadi scroller di mode web.
+  assert.match(main, /app-shell[^\n]*overflow-x-clip/);
+  assert.doesNotMatch(main, /app-shell[^\n]*overflow-x-hidden/);
   assert.doesNotMatch(main, /app-shell[^\n]*overflow-hidden/);
   assert.match(styles, /html\.is-native-app \.app-shell\s*\{/);
-  assert.match(styles, /height:\s*100dvh/);
   assert.match(styles, /overflow-y:\s*auto/);
   assert.match(styles, /touch-action:\s*pan-y/);
+
+  // Shell native harus setinggi kotak WebView sebenarnya. Memakai 100dvh
+  // membuatnya lebih tinggi daripada induk yang memotong luapan di Android,
+  // sehingga sisa konten paling bawah tidak pernah bisa di-scroll.
+  const nativeShell = styles.slice(
+    styles.indexOf("html.is-native-app .app-shell"),
+    styles.indexOf("}", styles.indexOf("html.is-native-app .app-shell")),
+  );
+  assert.match(nativeShell, /height:\s*100%/);
+  assert.doesNotMatch(nativeShell, /height:\s*100dvh/);
+  assert.doesNotMatch(styles, /html\.is-native-app[^{]*\{[^}]*min-height:\s*100dvh/);
 });
 
 test("safe area Android berada di shell, bukan di dalam kartu header", () => {
@@ -154,4 +171,17 @@ test("aset native memakai sumber logo CUANSYNC yang dapat dibuat ulang", () => {
   assert.match(packageJson.scripts["mobile:assets:android"], /assets-native/);
   assert.match(packageJson.scripts["mobile:assets:android"], /#020617/);
   assert.match(adaptiveIcon, /@mipmap\/ic_launcher_foreground/);
+});
+
+test("body tidak boleh menjadi scroll container yang menghadang wheel dan sentuh", () => {
+  const styles = source("src/styles.css");
+
+  // overflow-x: hidden pada body membuat overflow-y ikut menjadi auto, sehingga
+  // body berubah jadi scroll container. Tinggi body mengikuti konten, jadi
+  // scrollHeight selalu sama dengan clientHeight dan body tidak pernah bisa
+  // menggulir dirinya sendiri, padahal yang menggulir adalah html. Roda mouse
+  // dan gestur sentuh mendarat di body lalu mati, sementara menyeret scrollbar
+  // tetap jalan karena itu menggulir html langsung.
+  assert.doesNotMatch(styles, /^html,\s*\n\s*body\s*\{[^}]*overflow-x:\s*hidden/m);
+  assert.match(styles, /^body\s*\{[^}]*overflow-x:\s*clip/m);
 });

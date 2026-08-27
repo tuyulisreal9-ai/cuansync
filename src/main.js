@@ -416,6 +416,18 @@ function writeAppStorage(keyName, value) {
   writeStorage(STORAGE_KEYS[keyName], value);
 }
 
+// Di web dokumen yang menggulir, sedangkan di shell native yang menggulir adalah
+// .app-shell. window.scrollTo tidak menyentuh shell, jadi halaman baru tetap
+// terbuka di posisi gulir halaman sebelumnya. Gulirkan keduanya.
+function scrollAppToTop() {
+  if (typeof window === "undefined") return;
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  const shell = document.querySelector(".app-shell");
+  if (shell && shell.scrollTop > 0) {
+    shell.scrollTo({ top: 0, behavior: "smooth" });
+  }
+}
+
 function normalizeProfile(row, user, fallback = {}) {
   const fallbackSettings = normalizeCurrencySettings({
     baseCurrency: fallback.base_currency || fallback.baseCurrency,
@@ -5650,7 +5662,7 @@ function App() {
   function openBudgetWorkspace(categoryKey = null) {
     setBudgetFocusCategoryKey(categoryKey || null);
     navigateAppTab("budget");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    scrollAppToTop();
   }
 
   function dismissTransactionFabHint() {
@@ -5701,7 +5713,7 @@ function App() {
     setActiveTab("movement");
     setMenuOpen(false);
     setQuickActionOpen(false);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    scrollAppToTop();
   }
 
   function closeTransactionForm() {
@@ -5932,7 +5944,7 @@ function App() {
     activeTab === "budget";
 
   return html`
-    <main className="app-shell relative isolate min-h-screen overflow-x-hidden px-3 pt-3 md:px-5 md:py-5 lg:px-6 lg:pt-6">
+    <main className="app-shell relative isolate min-h-screen overflow-x-clip px-3 pt-3 md:px-5 md:py-5 lg:px-6 lg:pt-6">
       <${PremiumMeshBackground} />
       <${ToastMessage} toast=${toast} onDismiss=${() => setToast(null)} />
       <div className="cs-workspace relative z-10 mx-auto max-w-[1440px] lg:grid lg:grid-cols-[76px_minmax(0,1fr)] lg:items-start lg:gap-4">
