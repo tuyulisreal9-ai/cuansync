@@ -2,537 +2,273 @@ import React from "react";
 import htm from "htm";
 import {
   ArrowDownLeft,
-  ArrowRightLeft,
   ArrowUpRight,
-  ChevronRight,
-  Gauge,
-  Plus,
-  ReceiptText,
+  Eye,
+  EyeOff,
   Repeat2,
-  ShieldCheck,
-  Target,
-  WalletCards,
+  ReceiptText,
+  Send,
 } from "lucide-react";
-import { formatControlMoney } from "../../domain/control.js";
 import { getTransactionFlow } from "../../domain/transactions.js";
 import {
   DEFAULT_BASE_CURRENCY,
   HIDDEN_BALANCE_TEXT,
   formatCurrency,
-  formatPercent,
   normalizeCurrencyCode,
 } from "../../lib/currency.js";
 import { formatShortTime } from "../../lib/dates.js";
 import {
   getTransactionCompactAmount,
   getTransactionDisplayTitle,
-  getTransactionTone,
 } from "../transactions/presentation.js";
 
 const html = htm.bind(React.createElement);
 
-function getWalletCount(metrics, currencyValuations) {
-  if (metrics.assetAccountCount > 0) return metrics.assetAccountCount;
-  return Object.values(currencyValuations).filter((value) => Number(value || 0) > 0)
-    .length;
+/* Nominal dipisah dari simbol mata uang: desain menempatkan "Rp" kecil dan
+   rata bawah di samping angka besar, bukan menyatu dengan angkanya. */
+function splitCurrency(amount, currency) {
+  const text = formatCurrency(amount, currency);
+  const match = text.match(/^([^\d-]*)\s*(.*)$/);
+  return match
+    ? { symbol: match[1].trim(), value: match[2] }
+    : { symbol: "", value: text };
 }
 
-function AssetComposition({
-  currencies,
-  valuations,
-  totalValue,
-}) {
-  const items = currencies
-    .map((currency) => ({
-      currency,
-      value: Number(valuations[currency] || 0),
-    }))
-    .filter((item) => item.value > 0)
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 5);
+function daysLeftInMonth(now = new Date()) {
+  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  return Math.max(last - now.getDate(), 0);
+}
 
-  if (!items.length) {
-    return html`
-      <p className="mt-3 text-xs font-semibold text-slate-500 dark:text-slate-400">
-        Belum ada saldo untuk diringkas.
-      </p>
-    `;
-  }
-
+/* Tile ringkas di dalam panel gelap: ikon 14px, label 11px, lalu nominal
+   DM Mono 14px. Warna ikon dan nominal memakai token panel, bukan token
+   halaman, supaya kontrasnya benar di atas latar panel. */
+function PanelSlot({ icon: Icon, label, amount, tone }) {
   return html`
-    <div className="mt-3 flex flex-wrap gap-1.5 sm:mt-4 sm:gap-2" aria-label="Komposisi aset per mata uang">
-      ${items.map((item) => {
-        const share = totalValue > 0 ? item.value / totalValue : 0;
-        return html`
-          <span
-            key=${item.currency}
-            className="inline-flex min-h-0 items-center gap-1 rounded-md border border-white/10 bg-white/[0.07] px-2 py-1 text-[9px] font-bold text-slate-200 sm:gap-1.5 sm:px-2.5 sm:py-1.5 sm:text-[10px]"
-          >
-            <span className="text-white">${item.currency}</span>
-            <span className="text-emerald-300">${formatPercent(share)}</span>
-          </span>
-        `;
-      })}
+    <div className="dc-panel-slot flex flex-1 flex-col gap-2 p-4">
+      <div className="flex items-center gap-1.5">
+        <${Icon}
+          aria-hidden="true"
+          className="h-[14px] w-[14px]"
+          style=${{ color: tone }}
+          strokeWidth=${1.75}
+        />
+        <span className="text-[11px] text-[color:var(--cs-panel-mut)]">${label}</span>
+      </div>
+      <span className="dc-num text-sm" style=${{ color: tone }}>${amount}</span>
     </div>
   `;
 }
 
-function HeroAction({
-  icon: Icon,
-  label,
-  primary = false,
-  onClick,
-}) {
-  return html`
-    <button
-      type="button"
-      onClick=${onClick}
-      className=${`cs-home-hero-action inline-flex min-w-0 items-center justify-center gap-1.5 rounded-md px-2.5 text-[10px] font-extrabold transition ${
-        primary
-          ? "border border-emerald-300/30 bg-emerald-500 text-white shadow-[0_10px_24px_rgba(16,185,129,0.22)] hover:bg-emerald-400"
-          : "border border-white/10 bg-white/[0.08] text-slate-100 hover:bg-white/[0.13]"
-      }`}
-    >
-      <${Icon} aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-      <span className="truncate">${label}</span>
-    </button>
-  `;
-}
-
-function AssetHero({
-  metrics,
-  currencies,
-  valuations,
-  totalValue,
-  baseCurrency,
+function BalancePanel({
+  total,
+  income,
+  expense,
+  currency,
   visible,
-  canTransfer,
-  canExchange,
-  onAddTransaction,
-  onExchange,
+  onToggleVisible,
 }) {
-  const walletCount = getWalletCount(metrics, valuations);
+  const { symbol, value } = splitCurrency(total, currency);
 
   return html`
-    <section className="cs-home-hero relative overflow-hidden rounded-lg p-3.5 text-white md:p-5">
-      <div className="relative flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-emerald-300">
-            Total aset bersih (${baseCurrency})
-          </p>
-          <p className="mt-2 break-words font-display text-2xl font-bold leading-none tabular-nums md:mt-3 md:text-4xl">
-            ${visible ? formatCurrency(totalValue, baseCurrency) : HIDDEN_BALANCE_TEXT}
-          </p>
+    <section className="dc-panel flex flex-col gap-6 p-6">
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[13px] text-[color:var(--cs-panel-mut)]">
+            Total semua dompet
+          </span>
+          ${/* Sakelar privasi diletakkan di kartu uang supaya mode sembunyi
+                bisa dinyalakan tanpa masuk Pengaturan. Margin negatif menahan
+                tinggi baris agar tombol 44px tidak menggelembungkan header. */ null}
+          ${onToggleVisible
+            ? html`
+                <button
+                  type="button"
+                  onClick=${onToggleVisible}
+                  aria-pressed=${!visible}
+                  aria-label=${visible ? "Sembunyikan saldo" : "Tampilkan saldo"}
+                  title=${visible ? "Sembunyikan saldo" : "Tampilkan saldo"}
+                  className="dc-press dc-press-96 -my-2.5 -mr-2.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
+                >
+                  <${visible ? Eye : EyeOff}
+                    aria-hidden="true"
+                    className="h-[18px] w-[18px]"
+                    style=${{ color: "var(--cs-panel-mut)" }}
+                    strokeWidth=${1.75}
+                  />
+                </button>
+              `
+            : null}
         </div>
-        <span className="shrink-0 rounded-md border border-emerald-300/15 bg-emerald-400/10 px-2.5 py-1.5 text-[10px] font-bold text-emerald-200">
-          ${walletCount} dompet aktif
-        </span>
+        <div className="flex items-end gap-2">
+          ${visible
+            ? html`<span
+                className="pb-1.5 text-[19px] font-medium text-[color:var(--cs-panel-mut)]"
+                >${symbol}</span
+              >`
+            : null}
+          <span className="dc-num text-[36px] leading-none tracking-[-1.6px]">
+            ${visible ? value : HIDDEN_BALANCE_TEXT}
+          </span>
+        </div>
       </div>
-
-      <${AssetComposition}
-        currencies=${currencies}
-        valuations=${valuations}
-        totalValue=${totalValue}
-      />
-
-      <div className=${`cs-home-hero-actions mt-2.5 grid gap-2 md:hidden ${canTransfer || canExchange ? "is-multi" : "is-single"}`}>
-        ${canTransfer
-          ? html`
-              <${HeroAction}
-                icon=${ArrowRightLeft}
-                label="Transfer"
-                onClick=${() => onExchange("transfer")}
-              />
-            `
-          : null}
-        ${canExchange
-          ? html`
-              <${HeroAction}
-                icon=${Repeat2}
-                label="Tukar valas"
-                onClick=${() => onExchange("exchange")}
-              />
-            `
-          : null}
-        <${HeroAction}
-          icon=${Plus}
-          label=${canTransfer || canExchange ? "Catat" : "Catat transaksi"}
-          primary=${true}
-          onClick=${onAddTransaction}
+      <div className="flex gap-2">
+        <${PanelSlot}
+          icon=${ArrowDownLeft}
+          label="Masuk"
+          tone="var(--cs-panel-pos)"
+          amount=${visible ? formatCurrency(income, currency) : HIDDEN_BALANCE_TEXT}
+        />
+        <${PanelSlot}
+          icon=${ArrowUpRight}
+          label="Keluar"
+          tone="var(--cs-panel-neg)"
+          amount=${visible ? formatCurrency(expense, currency) : HIDDEN_BALANCE_TEXT}
         />
       </div>
     </section>
   `;
 }
 
-function ControlSummary({
-  summary,
-  visible,
-  onOpen,
-}) {
-  const runwayLabel =
-    summary.runway.months == null
-      ? "Belum terbaca"
-      : summary.runway.months < 1
-        ? `${Math.max(Math.round(Math.max(summary.runway.months, 0) * 30), 0)} hari`
-        : `${summary.runway.months.toLocaleString("id-ID", {
-            minimumFractionDigits: 1,
-            maximumFractionDigits: 1,
-          })} bulan`;
-  const safeLabel = summary.safeToSpend.available
-    ? formatControlMoney(
-        summary.safeToSpend.amount,
-        summary.baseCurrency,
-        visible,
-      )
-    : "Belum dapat dihitung";
-  const issueCount = summary.budget.attentionCount;
-  const statusLabel =
-    issueCount > 0
-      ? `${issueCount} kategori perlu dilihat`
-      : summary.budget.available
-        ? "Anggaran sesuai ritme"
-        : "Anggaran belum diatur";
-
-  return html`
-    <button
-      type="button"
-      onClick=${onOpen}
-      aria-label="Buka Pusat Kontrol"
-      className="cs-home-section cs-home-control w-full rounded-lg p-3 text-left transition hover:border-emerald-400/35 md:p-4"
-    >
-      <span className="flex items-center justify-between gap-4">
-        <span className="flex min-w-0 items-center gap-3">
-          <span className="cs-home-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-emerald-400">
-            <${ShieldCheck} aria-hidden="true" className="h-4 w-4" />
-          </span>
-          <span className="min-w-0">
-            <span className="block text-[13px] font-extrabold text-slate-950 dark:text-white md:text-base">
-              Pusat Kontrol
-            </span>
-            <span className="mt-0.5 block truncate text-[10px] text-slate-500 dark:text-slate-400 md:text-xs">
-              ${statusLabel}
-            </span>
-          </span>
-        </span>
-        <${ChevronRight} aria-hidden="true" className="h-5 w-5 shrink-0 text-slate-400" />
-      </span>
-
-      <span className="cs-home-control-metrics mt-2.5 grid grid-cols-2 gap-2 md:mt-3 md:gap-3">
-        <span className="cs-home-metric cs-home-control-metric block rounded-lg p-2.5 md:p-3">
-          <span className="flex items-center gap-2 text-[9px] font-extrabold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-            <${Gauge} aria-hidden="true" className="h-3.5 w-3.5 text-emerald-400" />
-            Sisa aman
-          </span>
-          <strong className="mt-1.5 block truncate text-[13px] font-black text-slate-950 dark:text-white md:text-base">
-            ${safeLabel}
-          </strong>
-          <span className="mt-0.5 hidden truncate text-[9px] text-slate-500 sm:block dark:text-slate-400">
-            ${summary.safeToSpend.status}
-          </span>
-        </span>
-
-        <span className="cs-home-metric cs-home-control-metric block rounded-lg p-2.5 md:p-3">
-          <span className="text-[9px] font-extrabold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400">
-            Dana cadangan
-          </span>
-          <strong className="mt-1.5 block truncate text-[13px] font-black text-amber-600 dark:text-amber-300 md:text-base">
-            ${runwayLabel}
-          </strong>
-          <span className="mt-0.5 hidden truncate text-[9px] text-slate-500 sm:block dark:text-slate-400">
-            ${summary.runway.status}
-          </span>
-        </span>
-      </span>
-    </button>
-  `;
-}
-
-function PlanningSummary({
-  metrics,
-  onOpen,
-}) {
-  const categoryCount = metrics.budgetInsights.length;
-  const budgetRemaining = Number(metrics.budgetLimitTotal || 0) -
-    Number(metrics.budgetSpentTotal || 0);
-  const nextGoal = metrics.nextGoal;
-  const helper = categoryCount
-    ? `${categoryCount} kategori - ${metrics.budgetStatusLabel}`
-    : nextGoal
-      ? `Target terdekat: ${nextGoal.name}`
-      : "Atur batas bulanan dan target dana.";
-
-  return html`
-    <button
-      type="button"
-      onClick=${onOpen}
-      className="cs-home-planning flex w-full items-center justify-between gap-3 rounded-lg p-3 text-left transition hover:border-emerald-400/35 md:p-4"
-    >
-      <span className="flex min-w-0 items-center gap-3">
-        <span className="cs-home-icon flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-emerald-400">
-          <${Target} aria-hidden="true" className="h-5 w-5" />
-        </span>
-        <span className="min-w-0">
-          <span className="block text-sm font-extrabold text-slate-950 dark:text-white">
-            Anggaran dan target
-          </span>
-          <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">
-            ${helper}
-          </span>
-        </span>
-      </span>
-      <span className="flex shrink-0 items-center gap-2">
-        ${categoryCount
-          ? html`
-              <span className=${`hidden text-xs font-bold sm:inline ${
-                budgetRemaining < 0 ? "text-rose-500" : "text-emerald-500"
-              }`}>
-                ${budgetRemaining < 0 ? "Lewat batas" : "Masih aman"}
-              </span>
-            `
-          : null}
-        <${ChevronRight} aria-hidden="true" className="h-5 w-5 text-slate-400" />
-      </span>
-    </button>
-  `;
-}
-
-function WalletRow({
-  account,
-  baseCurrency,
-  visible,
-  onClick,
-}) {
-  const nativeBalance = visible
-    ? formatCurrency(account.balanceAmount, account.currency)
-    : HIDDEN_BALANCE_TEXT;
-  const baseValuation =
-    account.currency !== baseCurrency && account.valuationIdr != null
-      ? visible
-        ? formatCurrency(account.valuationIdr, baseCurrency)
-        : HIDDEN_BALANCE_TEXT
-      : "";
-
+function QuickAction({ icon: Icon, label, onClick, disabled }) {
   return html`
     <button
       type="button"
       onClick=${onClick}
-      aria-label=${`Buka dompet ${account.name}`}
-      className="cs-home-wallet min-w-0 rounded-lg p-3 text-left transition hover:border-emerald-400/35"
+      disabled=${disabled}
+      className="dc-tile dc-tile-action dc-press dc-press-96 flex min-h-[88px] flex-col items-center justify-center gap-2 px-2 py-4 disabled:opacity-40"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="truncate text-sm font-extrabold text-slate-950 dark:text-white">
-            ${account.name}
-          </h3>
-          <p className="mt-1 truncate text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-            ${account.typeLabel}
-          </p>
-        </div>
-        <span className="rounded-md bg-emerald-500/10 px-2 py-1 text-[10px] font-extrabold text-emerald-500">
-          ${account.currency}
-        </span>
-      </div>
-      <p className="mt-2.5 text-[8px] font-bold uppercase tracking-[0.1em] text-slate-500 dark:text-slate-400 sm:text-[9px]">
-        Saldo
-      </p>
-      <p className="mt-1 truncate text-sm font-black tabular-nums text-slate-950 dark:text-white sm:text-base">
-        ${nativeBalance}
-      </p>
-      ${baseValuation
-        ? html`
-            <p className="mt-1 truncate text-[11px] font-bold text-emerald-500">
-              ${baseValuation}
-            </p>
-          `
-        : null}
+      <${Icon}
+        aria-hidden="true"
+        className="h-6 w-6"
+        style=${{ color: "var(--cs-body)" }}
+        strokeWidth=${1.75}
+      />
+      <span className="text-xs font-medium">${label}</span>
     </button>
   `;
 }
 
-function WalletSummary({
-  accounts,
-  baseCurrency,
-  visible,
-  onOpen,
-  onAddWallet,
-}) {
+function BudgetCard({ spent, limit, currency, visible, onOpen }) {
+  const hasBudget = Number(limit) > 0;
+  const ratio = hasBudget ? Math.min(Math.max(spent / limit, 0), 1) : 0;
+  const remaining = Math.max(limit - spent, 0);
+  const days = daysLeftInMonth();
+  const perDay = days > 0 ? remaining / days : remaining;
+
   return html`
-    <section className="cs-home-wallet-section min-w-0 max-w-full">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h2 className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-          Dompet
-        </h2>
-        <button
-          type="button"
-          onClick=${onOpen}
-          className="inline-flex min-h-11 items-center gap-1 rounded-md px-2.5 text-xs font-bold text-emerald-500 transition hover:bg-emerald-500/10"
-        >
-          Lihat semua
-          <${ChevronRight} aria-hidden="true" className="h-4 w-4" />
-        </button>
+    <button
+      type="button"
+      onClick=${onOpen}
+      className="dc-card dc-press dc-press-96 flex w-full flex-col gap-4 p-6 text-left"
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[15px] font-bold">Jatah bulan ini</span>
+        <span className="shrink-0 text-xs text-[color:var(--cs-mut)]">
+          sisa ${days} hari
+        </span>
       </div>
 
-      ${accounts.length
+      ${hasBudget
         ? html`
-            <div className="cs-home-wallet-strip grid w-full min-w-0 max-w-full grid-cols-2 gap-2">
-              ${accounts.slice(0, 3).map(
-                (account) => html`
-                  <${WalletRow}
-                    key=${account.id}
-                    account=${account}
-                    baseCurrency=${baseCurrency}
-                    visible=${visible}
-                    onClick=${onOpen}
-                  />
-                `,
-              )}
-              <button
-                type="button"
-                onClick=${onAddWallet || onOpen}
-                className="cs-home-empty flex min-h-[7.25rem] min-w-0 flex-col items-center justify-center rounded-lg p-3 text-center transition hover:border-emerald-400/45"
-              >
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/12 text-emerald-500">
-                  <${Plus} aria-hidden="true" className="h-4 w-4" />
+            <div className="flex flex-col gap-2">
+              <div className="flex items-baseline justify-between gap-3 text-[13px]">
+                <span className="text-[color:var(--cs-body)]">
+                  Terpakai ${visible ? formatCurrency(spent, currency) : HIDDEN_BALANCE_TEXT}
                 </span>
-                <span className="mt-2 text-[11px] font-black text-slate-900 dark:text-white">
-                  Tambah dompet
+                <span className="shrink-0 font-bold">
+                  dari ${visible ? formatCurrency(limit, currency) : HIDDEN_BALANCE_TEXT}
                 </span>
-              </button>
+              </div>
+              <div className="dc-track h-2">
+                <span style=${{ width: `${ratio * 100}%` }}></span>
+              </div>
+              <span className="text-xs leading-[1.45] text-[color:var(--cs-mut)]">
+                ${visible
+                  ? `Sisa ${formatCurrency(remaining, currency)}, kira-kira ${formatCurrency(perDay, currency)} per hari.`
+                  : "Rincian jatah disembunyikan."}
+              </span>
             </div>
           `
         : html`
-            <button
-              type="button"
-              onClick=${onAddWallet || onOpen}
-              className="cs-home-empty flex min-h-32 w-full flex-col items-center justify-center rounded-lg p-5 text-center transition hover:border-emerald-400/35"
-            >
-              <${WalletCards} aria-hidden="true" className="h-5 w-5 text-emerald-500" />
-              <span className="mt-2 text-sm font-black text-slate-900 dark:text-white">
-                Mulai dengan dompet pertamamu
-              </span>
-              <span className="mt-1 max-w-sm text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">
-                Mata uang akan mengikuti dompet yang kamu buat. Setelah itu pemasukan dan pengeluaran selalu tercatat ke saldo yang jelas.
-              </span>
-              <span className="mt-3 rounded-lg bg-brand-600 px-3 py-2 text-xs font-black text-white">
-                Tambah dompet
-              </span>
-            </button>
+            <span className="text-xs leading-[1.45] text-[color:var(--cs-mut)]">
+              Belum ada jatah bulan ini. Atur batas belanja supaya sisa harian bisa dihitung.
+            </span>
           `}
-    </section>
+    </button>
   `;
 }
 
-function getTransactionAccountLabel(transaction, accountMap) {
+function ActivityRow({ transaction, fallbackRate }) {
   const flow = getTransactionFlow(transaction);
-  if (flow === "exchange") {
-    const from = accountMap.get(transaction.source_account_id);
-    const to = accountMap.get(transaction.destination_account_id);
-    return from && to ? `${from.name} ke ${to.name}` : "Tukar mata uang";
-  }
-  const accountId =
-    flow === "income"
-      ? transaction.destination_account_id
-      : transaction.source_account_id;
-  return accountMap.get(accountId)?.name || "Dompet tidak tercatat";
-}
-
-function TransactionIcon({ flow }) {
-  const Icon =
-    flow === "income"
-      ? ArrowDownLeft
-      : flow === "exchange"
-        ? Repeat2
-        : ArrowUpRight;
-  return html`<${Icon} aria-hidden="true" className="h-4 w-4" />`;
-}
-
-function RecentTransactionRow({
-  transaction,
-  accountMap,
-  fallbackRate,
-}) {
-  const flow = getTransactionFlow(transaction);
+  // getTransactionCompactAmount mengembalikan { primary, secondary } dan
+  // primary sudah membawa tandanya sendiri, jadi jangan diberi awalan lagi.
   const amount = getTransactionCompactAmount(transaction, fallbackRate);
-  const tone = getTransactionTone(transaction);
+  const incoming = transaction.type === "income";
+  const Icon = flow === "exchange" ? Repeat2 : incoming ? ArrowDownLeft : ArrowUpRight;
+  const tone = flow === "exchange"
+    ? "var(--cs-mut)"
+    : incoming
+      ? "var(--cs-pos)"
+      : "var(--cs-ink)";
 
   return html`
-    <div className="grid min-h-[58px] grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 border-b border-slate-200/70 px-1 py-2.5 last:border-b-0 dark:border-slate-800">
-      <span className=${`flex h-9 w-9 items-center justify-center rounded-lg ${tone.historyIcon}`}>
-        <${TransactionIcon} flow=${flow} />
+    <div className="dc-row flex min-h-[72px] items-center gap-4 p-4">
+      <span
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
+        style=${{ background: "var(--cs-chip)" }}
+      >
+        <${Icon}
+          aria-hidden="true"
+          className="h-[18px] w-[18px]"
+          style=${{ color: "var(--cs-body)" }}
+          strokeWidth=${1.75}
+        />
       </span>
-      <span className="min-w-0">
-        <span className="block truncate text-sm font-extrabold text-slate-950 dark:text-white">
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="truncate text-sm font-medium">
           ${getTransactionDisplayTitle(transaction)}
         </span>
-        <span className="mt-0.5 block truncate text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-          ${getTransactionAccountLabel(transaction, accountMap)} ·
-          ${formatShortTime(transaction.occurred_at)}
+        <span className="truncate text-xs text-[color:var(--cs-mut)]">
+          ${amount.secondary || formatShortTime(transaction.occurred_at)}
         </span>
       </span>
-      <span className="min-w-0 text-right">
-        <span className=${`block max-w-[8rem] truncate text-sm font-black ${tone.amount}`}>
-          ${amount.primary}
-        </span>
-        ${amount.secondary
-          ? html`
-              <span className="mt-0.5 block max-w-[8rem] truncate text-[9px] font-bold uppercase text-slate-500 dark:text-slate-400">
-                ${amount.secondary}
-              </span>
-            `
-          : null}
+      <span className="dc-num shrink-0 text-[13.5px]" style=${{ color: tone }}>
+        ${amount.primary}
       </span>
     </div>
   `;
 }
 
-function RecentTransactions({
-  transactions,
-  accounts,
-  fallbackRate,
-  onOpen,
-}) {
-  const accountMap = new Map(accounts.map((account) => [account.id, account]));
-  const rows = transactions.slice(0, 5);
+function RecentActivity({ transactions = [], fallbackRate, onOpen }) {
+  const rows = transactions.slice(0, 4);
 
   return html`
-    <section className="cs-home-section rounded-lg p-4 md:p-5">
-      <div className="flex items-center justify-between gap-3">
-        <span className="flex items-center gap-2">
-          <${ReceiptText} aria-hidden="true" className="h-4 w-4 text-emerald-500" />
-          <h2 className="text-sm font-extrabold text-slate-950 dark:text-white">
-            Transaksi terbaru
-          </h2>
-        </span>
+    <section className="flex flex-col gap-4">
+      <div className="flex items-center justify-between gap-3 px-0.5">
+        <span className="text-[15px] font-bold">Aktivitas terakhir</span>
         <button
           type="button"
           onClick=${onOpen}
-          className="inline-flex min-h-11 items-center gap-1 rounded-md px-2.5 text-xs font-bold text-emerald-500 transition hover:bg-emerald-500/10"
+          className="dc-press dc-press-94 flex min-h-[44px] shrink-0 items-center pl-4 text-[13px] font-medium text-[color:var(--cs-link)]"
         >
           Lihat semua
-          <${ChevronRight} aria-hidden="true" className="h-4 w-4" />
         </button>
       </div>
-
-      <div className="mt-3">
+      <div className="dc-card overflow-hidden">
         ${rows.length
           ? rows.map(
               (transaction) => html`
-                <${RecentTransactionRow}
+                <${ActivityRow}
                   key=${transaction.id}
                   transaction=${transaction}
-                  accountMap=${accountMap}
                   fallbackRate=${fallbackRate}
                 />
               `,
             )
           : html`
-              <div className="flex min-h-28 flex-col items-center justify-center text-center">
-                <${ReceiptText} aria-hidden="true" className="h-5 w-5 text-slate-400" />
-                <p className="mt-2 text-sm font-bold text-slate-600 dark:text-slate-300">
-                  Belum ada transaksi.
-                </p>
-              </div>
+              <p className="px-4 py-8 text-center text-xs text-[color:var(--cs-mut)]">
+                Belum ada transaksi.
+              </p>
             `}
       </div>
     </section>
@@ -541,11 +277,7 @@ function RecentTransactions({
 
 export function HomeDashboardPage({
   metrics,
-  controlSummary,
-  activeCurrencies = [],
-  dailyCurrency = DEFAULT_BASE_CURRENCY,
   baseCurrency = DEFAULT_BASE_CURRENCY,
-  valuationsByCurrency = {},
   totalValueBase = 0,
   visible = true,
   fallbackRate = 0,
@@ -554,45 +286,54 @@ export function HomeDashboardPage({
   canExchange = false,
   onAddTransaction,
   onExchange,
-  onAddWallet,
+  onToggleVisible,
 }) {
-  const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
+  const currency = normalizeCurrencyCode(baseCurrency);
+  const total = Number(metrics.assetAccountTotalValueIdr ?? totalValueBase ?? 0);
 
   return html`
-    <div className="cs-home-dashboard grid w-full min-w-0 max-w-full gap-3">
-      <${AssetHero}
-        metrics=${metrics}
-        currencies=${activeCurrencies}
-        valuations=${valuationsByCurrency}
-        totalValue=${totalValueBase}
-        baseCurrency=${normalizedBaseCurrency}
+    <div className="cs-home-dashboard flex w-full min-w-0 max-w-full flex-col gap-4">
+      <${BalancePanel}
+        total=${total}
+        income=${Number(metrics.monthlyIncomeIdr || 0)}
+        expense=${Number(metrics.monthlyExpenseIdr || 0)}
+        currency=${currency}
         visible=${visible}
-        canTransfer=${canTransfer}
-        canExchange=${canExchange}
-        onAddTransaction=${onAddTransaction}
-        onExchange=${onExchange}
+        onToggleVisible=${onToggleVisible}
       />
-      <${ControlSummary}
-        summary=${controlSummary}
+
+      <div className="grid grid-cols-3 gap-2">
+        <${QuickAction}
+          icon=${ReceiptText}
+          label="Catat"
+          onClick=${() => onAddTransaction?.()}
+        />
+        <${QuickAction}
+          icon=${Send}
+          label="Kirim"
+          disabled=${!canTransfer}
+          onClick=${() => onExchange?.("transfer")}
+        />
+        <${QuickAction}
+          icon=${Repeat2}
+          label="Tukar"
+          disabled=${!canExchange}
+          onClick=${() => onExchange?.("exchange")}
+        />
+      </div>
+
+      <${BudgetCard}
+        spent=${Number(metrics.budgetSpentTotal || 0)}
+        limit=${Number(metrics.budgetLimitTotal || 0)}
+        currency=${currency}
         visible=${visible}
-        onOpen=${() => onNavigate("control")}
+        onOpen=${() => onNavigate?.("budget")}
       />
-      <${PlanningSummary}
-        metrics=${metrics}
-        onOpen=${() => onNavigate("budget")}
-      />
-      <${WalletSummary}
-        accounts=${metrics.assetAccountInsights}
-        baseCurrency=${normalizedBaseCurrency}
-        visible=${visible}
-        onOpen=${() => onNavigate("investment")}
-        onAddWallet=${onAddWallet}
-      />
-      <${RecentTransactions}
+
+      <${RecentActivity}
         transactions=${metrics.recent}
-        accounts=${metrics.assetAccountInsights}
         fallbackRate=${fallbackRate}
-        onOpen=${() => onNavigate("history")}
+        onOpen=${() => onNavigate?.("history")}
       />
     </div>
   `;

@@ -13,16 +13,20 @@ import {
 
 const html = htm.bind(React.createElement);
 
+/* Label mengikuti desain: "Jatah" dan "Riwayat" menggantikan
+   "Anggaran & Target" dan "Catatan". Kunci tab sengaja tidak diubah supaya
+   seluruh rute, deep link, dan state yang sudah ada tetap bekerja. */
 const PRIMARY_NAV_ITEMS = [
   { key: "overview", label: "Beranda", icon: House },
   { key: "investment", label: "Dompet", icon: WalletCards },
-  { key: "budget", label: "Anggaran & Target", icon: Target },
-  { key: "history", label: "Catatan", icon: ReceiptText },
+  { key: "budget", label: "Jatah", icon: Target },
+  { key: "history", label: "Riwayat", icon: ReceiptText },
 ];
 
 function getPrimaryActiveKey(activeTab) {
   if (activeTab === "report") return "investment";
-  if (activeTab === "control") return "overview";
+  // Insight dibuka dari Jatah, jadi tab Jatah yang tetap ditandai aktif.
+  if (activeTab === "control") return "budget";
   return activeTab;
 }
 

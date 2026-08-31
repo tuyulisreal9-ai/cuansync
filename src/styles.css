@@ -2,44 +2,240 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Fondasi visual CUANSYNC Mobile redesign.
+   Sumber nilai: project Claude Design "CuanSync mobile app redesign",
+   objek THEME.light dan THEME.dark. Aksen mengikuti desain apa adanya:
+   tinta nyaris hitam pada mode terang dan hampir putih pada mode gelap,
+   dengan link biru. Hue 163 (teal) yang sempat dipakai di sini bukan nilai
+   desain, jadi jangan dikembalikan tanpa mengecek THEME di artifact. */
 :root {
   color-scheme: light;
-  --cs-app-bg: #f4f7f9;
-  --cs-surface: rgba(255, 255, 255, 0.94);
-  --cs-surface-soft: rgba(248, 250, 252, 0.92);
-  --cs-surface-raised: #ffffff;
-  --cs-border: rgba(15, 23, 42, 0.1);
-  --cs-border-strong: rgba(15, 23, 42, 0.16);
-  --cs-text: #0f172a;
-  --cs-text-muted: #64748b;
-  --cs-accent: #10b981;
-  --cs-accent-strong: #059669;
-  --cs-accent-soft: rgba(16, 185, 129, 0.12);
-  --cs-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
-  --cs-radius: 8px;
-  --bg-radial: var(--cs-app-bg);
-  --panel: var(--cs-surface);
-  --panel-border: var(--cs-border);
-  --text-soft: #475569;
+
+  --cs-bg: #faf7f1;
+  --cs-card: #ffffff;
+  --cs-panel: #211f1b;
+  --cs-panel-ink: #faf7f1;
+  --cs-panel-mut: #c9c3b8;
+  --cs-panel-pos: oklch(0.84 0.15 155);
+  --cs-panel-neg: oklch(0.74 0.15 25);
+  --cs-ink: #211f1b;
+  --cs-body: #5f594e;
+  --cs-mut: #6f6a60;
+  --cs-faint: #8d867a;
+  --cs-line: #e7e0d3;
+  --cs-chip: #f2ece1;
+  --cs-track: #eee8dc;
+  --cs-seg: #f1ebdf;
+  --cs-soft: #f5f0e6;
+  --cs-dim: #ddd5c5;
+  --cs-navbg: rgba(250, 247, 241, 0.94);
+  --cs-off: #cdc5b6;
+  --cs-acc: #211f1b;
+  --cs-link: oklch(0.47 0.09 235);
+  --cs-pos: oklch(0.5 0.14 150);
+  --cs-warn: oklch(0.58 0.14 75);
+  --cs-on-acc: #faf7f1;
+  /* Pil terpilih pada segmented control: tinta gelap dengan teks kertas. */
+  --cs-sel-bg: #211f1b;
+  --cs-sel-fg: #faf7f1;
+  --cs-danger: oklch(0.58 0.18 25);
+  --cs-fab-shadow: 0 4px 16px rgba(33, 31, 27, 0.28);
+  --cs-panel-line: transparent;
+  --cs-panel-shadow: none;
+  --cs-card-shadow: none;
+
+  /* Radius desain: panel 24, kartu 24, tile 18, chip 14. Kartu memakai 24px
+     karena itu nilai dominan di artifact (24px muncul 17 kali, 22px 4 kali). */
+  --cs-r-panel: 24px;
+  --cs-r-card: 24px;
+  --cs-r-tile: 18px;
+  --cs-r-chip: 14px;
+
+  /* Nama lama tetap hidup dan menunjuk ke palet baru, supaya komponen yang
+     belum dirombak ikut berpindah tema tanpa harus disentuh satu per satu. */
+  --cs-app-bg: var(--cs-bg);
+  --cs-surface: var(--cs-card);
+  --cs-surface-soft: var(--cs-soft);
+  --cs-surface-raised: var(--cs-card);
+  --cs-border: var(--cs-line);
+  --cs-border-strong: var(--cs-dim);
+  --cs-text: var(--cs-ink);
+  --cs-text-muted: var(--cs-mut);
+  --cs-accent: var(--cs-acc);
+  --cs-accent-strong: var(--cs-link);
+  --cs-accent-soft: color-mix(in srgb, var(--cs-acc) 12%, transparent);
+  --cs-shadow: 0 12px 32px rgba(33, 31, 27, 0.08);
+  --cs-radius: var(--cs-r-tile);
+  --bg-radial: var(--cs-bg);
+  --panel: var(--cs-card);
+  --panel-border: var(--cs-line);
+  --text-soft: var(--cs-body);
 }
 
 :root.dark {
   color-scheme: dark;
-  --cs-app-bg: #050914;
-  --cs-surface: rgba(15, 23, 42, 0.94);
-  --cs-surface-soft: rgba(17, 27, 46, 0.9);
-  --cs-surface-raised: #111b2e;
-  --cs-border: rgba(148, 163, 184, 0.16);
-  --cs-border-strong: rgba(148, 163, 184, 0.24);
-  --cs-text: #f8fafc;
-  --cs-text-muted: #94a3b8;
-  --cs-accent: #10b981;
-  --cs-accent-strong: #34d399;
-  --cs-accent-soft: rgba(16, 185, 129, 0.14);
-  --cs-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
-  --panel: var(--cs-surface);
-  --panel-border: var(--cs-border);
-  --text-soft: #cbd5e1;
+
+  --cs-bg: #080d0c;
+  --cs-card: #101a17;
+  --cs-panel: linear-gradient(150deg, #0f3329 0%, #0c1f1a 55%, #0a1613 100%);
+  --cs-panel-ink: #eef4f1;
+  --cs-panel-mut: #a9b6b1;
+  --cs-panel-pos: oklch(0.84 0.15 155);
+  --cs-panel-neg: oklch(0.76 0.14 25);
+  --cs-ink: #eef4f1;
+  --cs-body: #b3c2bd;
+  --cs-mut: #7d8f89;
+  --cs-faint: #5d6d68;
+  --cs-line: #1c2b26;
+  --cs-chip: #16241f;
+  --cs-track: #1c2b26;
+  --cs-seg: #101d19;
+  --cs-soft: #0d1613;
+  --cs-dim: #2a3a34;
+  --cs-navbg: rgba(8, 13, 12, 0.94);
+  --cs-off: #455550;
+  --cs-acc: #eef4f1;
+  --cs-link: oklch(0.82 0.08 235);
+  --cs-pos: oklch(0.82 0.15 155);
+  --cs-warn: oklch(0.84 0.15 88);
+  --cs-on-acc: #0a1613;
+  --cs-sel-bg: #3c424b;
+  --cs-sel-fg: #f2f0ec;
+  --cs-danger: oklch(0.72 0.16 25);
+  --cs-fab-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --cs-panel-line: rgba(120, 220, 180, 0.12);
+  --cs-panel-shadow: 0 16px 34px rgba(0, 0, 0, 0.5);
+  --cs-card-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+
+  --cs-shadow: 0 14px 36px rgba(0, 0, 0, 0.42);
+}
+
+/* Komponen dasar redesign. Dipakai halaman yang sudah dirombak; halaman lama
+   tetap jalan lewat pemetaan nama --cs-* di atas. */
+.dc-panel {
+  border-radius: var(--cs-r-panel);
+  background: var(--cs-panel);
+  color: var(--cs-panel-ink);
+  border: 1px solid var(--cs-panel-line);
+  box-shadow: var(--cs-panel-shadow);
+}
+
+.dc-panel-tile {
+  border-radius: var(--cs-r-chip);
+  background: rgba(250, 247, 241, 0.08);
+}
+
+.dc-card {
+  border-radius: var(--cs-r-card);
+  background: var(--cs-card);
+  border: 1px solid var(--cs-line);
+  box-shadow: var(--cs-card-shadow);
+}
+
+.dc-tile {
+  border-radius: var(--cs-r-tile);
+  background: var(--cs-card);
+  border: 1px solid var(--cs-line);
+  box-shadow: var(--cs-card-shadow);
+}
+
+/* Tile aksi cepat beranda memakai radius 16 sesuai desain, sedangkan .dc-tile
+   umum tetap 18 untuk kartu bergaris putus seperti "Tambah dompet". Dua kelas
+   dipakai bersama supaya menang atas utility Tailwind tanpa !important. */
+.dc-tile.dc-tile-action {
+  border-radius: 16px;
+}
+
+/* Baris di dalam .dc-card. Garis pemisah hanya antar baris, bukan di atas
+   baris pertama, supaya menyatu dengan tepi kartu yang membulat. */
+.dc-row + .dc-row {
+  border-top: 1px solid var(--cs-line);
+}
+
+.dc-chip {
+  border-radius: 13px;
+  background: var(--cs-chip);
+}
+
+.dc-track {
+  border-radius: 99px;
+  background: var(--cs-track);
+  overflow: hidden;
+}
+
+.dc-track > span {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--cs-acc);
+}
+
+.dc-dashed {
+  border-radius: var(--cs-r-tile);
+  background: var(--cs-soft);
+  border: 1px dashed var(--cs-dim);
+}
+
+/* Angka nominal memakai DM Mono supaya lebarnya stabil saat berubah. */
+.dc-num {
+  font-family: "DM Mono", ui-monospace, SFMono-Regular, monospace;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Transisi tekan desain: transform dan background-color 120ms dengan easing
+   keluar cubic-bezier(0.4, 0, 1, 1). Skala tekan 0.96 untuk kartu dan tile,
+   0.94 untuk tautan teks seperti "Lihat semua". */
+.dc-press {
+  transition:
+    transform 120ms cubic-bezier(0.4, 0, 1, 1),
+    background-color 120ms cubic-bezier(0.4, 0, 1, 1);
+}
+
+.dc-press-96:active {
+  transform: scale(0.96);
+}
+
+.dc-press-94:active {
+  transform: scale(0.94);
+}
+
+/* Input dan label pada sheet "Ubah catatan". Nilainya diambil dari artifact:
+   latar kartu, garis tepi --cs-line, tinggi 48, dan label redup 12px. */
+.cs-edit-input {
+  min-height: 48px;
+  border-color: var(--cs-line);
+  background: var(--cs-card);
+  color: var(--cs-ink);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.cs-edit-input:focus {
+  border-color: var(--cs-acc);
+}
+
+.cs-edit-label {
+  margin-bottom: 0.5rem;
+  color: var(--cs-mut);
+}
+
+/* Tile di dalam panel gelap. Desain memakai putih 8% dengan radius 16. */
+.dc-panel-slot {
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Deret chip yang bisa digeser menyembunyikan scrollbar-nya, seperti aturan
+   global di artifact desain. */
+.dc-scroll-x {
+  scrollbar-width: none;
+}
+
+.dc-scroll-x::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 html,
@@ -69,11 +265,14 @@ html {
 body {
   max-width: 100%;
   overflow-x: clip;
+  /* Desain memakai angka bertabulasi di seluruh badan aplikasi, bukan hanya
+     pada nominal, supaya kolom angka tidak bergoyang saat nilainya berubah. */
+  font-variant-numeric: tabular-nums;
 }
 
 body {
   background: var(--cs-app-bg);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-family: "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
@@ -147,15 +346,39 @@ textarea {
   backdrop-filter: blur(18px);
 }
 
+/* Nav bawah mengikuti desain: latar buram tanpa kartu melayang, hanya garis
+   tipis di tepi atas. Item aktif ditandai warna aksen, bukan kapsul berlatar. */
+.cs-mobile-nav {
+  border: 0;
+  border-top: 1px solid var(--cs-line);
+  border-radius: 0;
+  background: var(--cs-navbg);
+  box-shadow: none;
+  backdrop-filter: blur(16px);
+}
+
 .cs-desktop-nav-item,
 .cs-mobile-nav-item {
-  color: var(--cs-text-muted);
+  color: var(--cs-mut);
 }
 
 .cs-desktop-nav-item:hover,
 .cs-mobile-nav-item:hover {
   background: var(--cs-accent-soft);
   color: var(--cs-text);
+}
+
+.cs-mobile-nav-item:hover {
+  background: transparent;
+  color: var(--cs-body);
+}
+
+/* Desain menandai tab aktif dengan warna tinta, bukan aksen hijau: di mode
+   terang nav harus terbaca bersih dan netral. Nilai mengikuti txt() pada
+   project desain — aktif memakai T.ink, non-aktif T.mut. */
+.cs-mobile-nav-item.is-active {
+  background: transparent;
+  color: var(--cs-ink);
 }
 
 .cs-desktop-nav-item:focus-visible,
@@ -166,10 +389,16 @@ textarea {
   outline-offset: 2px;
 }
 
-.cs-desktop-nav-item.is-active,
-.cs-mobile-nav-item.is-active {
+.cs-desktop-nav-item.is-active {
   background: var(--cs-accent-soft);
   color: var(--cs-accent-strong);
+}
+
+/* Nav bawah sengaja tidak memakai kapsul berlatar maupun warna aksen: desain
+   menandai tab aktif hanya dengan warna tinta di atas latar polos. */
+.cs-mobile-nav-item.is-active {
+  background: transparent;
+  color: var(--cs-ink);
 }
 
 .cs-desktop-nav-item.is-active {
@@ -185,21 +414,29 @@ textarea {
 }
 
 .cs-desktop-add-button,
+/* FAB desain: kotak membulat 20px yang menonjol ke atas garis nav, tanpa
+   cincin latar. Warna teks memakai --cs-on-acc agar kontras di dua mode. */
 .cs-mobile-add-button {
-  border: 1px solid rgba(110, 231, 183, 0.48);
-  background: var(--cs-accent);
-  color: #ffffff;
-  box-shadow:
-    0 12px 28px rgba(16, 185, 129, 0.3),
-    0 0 0 4px var(--cs-app-bg);
+  border: 0;
+  border-radius: 20px;
+  background: var(--cs-acc);
+  color: var(--cs-on-acc);
+  box-shadow: var(--cs-fab-shadow);
 }
 
+/* Desain tidak pernah mengubah warna FAB saat ditekan atau saat menu terbuka;
+   yang berubah hanya skalanya. Sebelumnya state aktif berpindah ke
+   --cs-accent-strong (biru link), sehingga FAB berubah warna tanpa dasar. */
 .cs-desktop-add-button:hover,
-.cs-mobile-add-button:hover,
+.cs-mobile-add-button:hover {
+  filter: brightness(1.08);
+}
+
+.cs-desktop-add-button:active,
+.cs-mobile-add-button:active,
 .cs-desktop-add-button.is-active,
 .cs-mobile-add-button.is-active {
-  background: var(--cs-accent-strong);
-  transform: translateY(-1px);
+  transform: scale(0.96);
 }
 
 .cs-fab-hint::after {
@@ -680,7 +917,7 @@ textarea {
 }
 
 .cs-mobile-nav {
-  background: var(--cs-surface-raised);
+  background: var(--cs-navbg);
 }
 
 .cs-entry-segment {
@@ -881,10 +1118,11 @@ textarea {
     min-height: 3.25rem;
   }
 
+  /* Desain menetapkan FAB = 54px, bukan 52px. */
   .cs-mobile-add-button {
-    width: 3.25rem;
-    height: 3.25rem;
-    min-height: 3.25rem;
+    width: 54px;
+    height: 54px;
+    min-height: 54px;
   }
 }
 
@@ -981,18 +1219,21 @@ select optgroup {
   backdrop-filter: blur(20px);
 }
 
+/* Kartu generik mengikuti bahasa redesign: permukaan rata, radius kartu, dan
+   hanya hairline. Dipakai luas (Pengaturan, form, panel lain) sehingga satu
+   perubahan di sini merapikan seluruh halaman yang belum dirombak manual. */
 .cuan-card {
-  border: 1px solid var(--cs-border);
-  border-radius: var(--cs-radius);
-  background: var(--cs-surface);
-  box-shadow: var(--cs-shadow);
+  border: 1px solid var(--cs-line);
+  border-radius: var(--cs-r-card);
+  background: var(--cs-card);
+  box-shadow: var(--cs-card-shadow);
 }
 
 .cuan-card-soft {
-  border: 1px solid var(--cs-border);
-  border-radius: var(--cs-radius);
-  background: var(--cs-surface-soft);
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  border: 1px solid var(--cs-line);
+  border-radius: var(--cs-r-card);
+  background: var(--cs-soft);
+  box-shadow: none;
 }
 
 .cuan-item {
@@ -1052,17 +1293,19 @@ select optgroup {
   box-shadow: 0 22px 70px rgba(15, 23, 42, 0.16);
 }
 
+/* Menu profil memakai token halaman supaya menyatu dengan kartu lain, bukan
+   putih kebiruan warisan palet slate. */
 .cuan-menu {
-  border: 1px solid rgba(203, 213, 225, 0.72);
-  background: rgba(255, 255, 255, 0.93);
-  color: #0f172a;
-  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.18);
+  border: 1px solid var(--cs-line);
+  background: var(--cs-bg);
+  color: var(--cs-ink);
+  box-shadow: var(--cs-shadow);
 }
 
 .cuan-menu-card {
-  border: 1px solid rgba(203, 213, 225, 0.72);
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--cs-line);
+  background: var(--cs-card);
+  box-shadow: none;
 }
 
 .cuan-segment {
@@ -1261,18 +1504,21 @@ select optgroup {
     radial-gradient(circle at 0% 0%, rgba(244, 63, 94, 0.12), transparent 40%);
 }
 
-.history-action-primary,
 .history-action-delete {
   color: #ffffff;
 }
 
+/* Tombol utama mengikuti brand desain: tinta gelap pada mode terang dan tinta
+   terang pada mode gelap. Hijau #10b981 adalah sisa palet lama sebelum
+   redesign, bukan nilai dari artifact. */
 .history-action-primary {
-  background: #10b981;
-  box-shadow: 0 18px 44px rgba(16, 185, 129, 0.22);
+  background: var(--cs-acc);
+  color: var(--cs-on-acc);
+  box-shadow: var(--cs-fab-shadow);
 }
 
 .history-action-primary:hover {
-  background: #059669;
+  filter: brightness(1.12);
 }
 
 .history-action-danger {
@@ -1302,6 +1548,10 @@ select optgroup {
   box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
 }
 
+/* Sheet detail transaksi kini memakai kelas .transaction-sheet setelah paletnya
+   dipindah ke token, jadi selektor penyembunyi navigasi ikut disesuaikan.
+   Tanpa ini navigasi bawah dan FAB menutupi tombol Simpan/Hapus. */
+body:has(.transaction-sheet) .mobile-bottom-nav,
 body:has(.history-detail-sheet) .mobile-bottom-nav {
   opacity: 0;
   pointer-events: none;
@@ -1357,20 +1607,24 @@ body:has(.cs-quick-action-menu) .mobile-bottom-nav {
   box-shadow: 0 12px 34px rgba(15, 23, 42, 0.07);
 }
 
+/* Riwayat mengikuti bahasa kartu redesign: permukaan rata, garis hairline,
+   tanpa bayangan melayang. Nilai diambil dari token supaya ikut mode gelap. */
 .history-filter-panel {
-  border-color: rgba(203, 213, 225, 0.74);
-  background: rgba(255, 255, 255, 0.84);
-  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
+  border-color: var(--cs-line);
+  border-radius: var(--cs-r-card);
+  background: var(--cs-card);
+  box-shadow: var(--cs-card-shadow);
 }
 
 .history-transaction-item {
-  border-color: rgba(203, 213, 225, 0.72);
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: 0 5px 18px rgba(15, 23, 42, 0.055);
+  border-color: var(--cs-line);
+  border-radius: var(--cs-r-tile);
+  background: var(--cs-card);
+  box-shadow: var(--cs-card-shadow);
 }
 
 .history-transaction-item:hover {
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--cs-soft);
 }
 
 .dark .history-filter-panel {
@@ -1466,14 +1720,8 @@ body:has(.cs-quick-action-menu) .mobile-bottom-nav {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
-.dark .history-action-primary {
-  background: #10b981;
-  box-shadow: 0 18px 44px rgba(16, 185, 129, 0.24);
-}
-
-.dark .history-action-primary:hover {
-  background: #34d399;
-}
+/* Mode gelap tidak perlu menimpa: --cs-acc dan --cs-on-acc sudah bertukar
+   sendiri lewat :root.dark. */
 
 .dark .history-action-danger {
   border-color: rgba(251, 113, 133, 0.22);
@@ -1724,7 +1972,7 @@ body:has(.cs-quick-action-menu) .mobile-bottom-nav {
 
 .boot-title {
   margin: 16px 0 0;
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-family: "DM Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
   font-size: clamp(2rem, 4vw, 3rem);
   line-height: 1;
   letter-spacing: -0.04em;

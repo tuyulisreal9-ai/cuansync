@@ -1,8 +1,4 @@
-import React, {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import React, { useEffect, useState } from "react";
 import htm from "htm";
 import {
   ArrowDownLeft,
@@ -10,21 +6,15 @@ import {
   Banknote,
   Building2,
   Info,
-  Lock,
   MoreHorizontal,
   Palette,
   Plus,
-  Repeat2,
   ShieldCheck,
   Star,
+  Target,
   Trash2,
   WalletCards,
 } from "lucide-react";
-import {
-  getTransactionAccountActivity,
-  getTransactionFlow,
-  transactionBelongsToAccount,
-} from "../../domain/transactions.js";
 import {
   getDefaultGoalFundingAccountId,
   getGoalActivityEffect,
@@ -40,7 +30,6 @@ import {
 } from "../../lib/currency.js";
 import { formatShortDateTime } from "../../lib/dates.js";
 import { SheetShell } from "../shared/SheetShell.js";
-import { getTransactionDisplayTitle } from "../transactions/presentation.js";
 
 const html = htm.bind(React.createElement);
 
@@ -104,19 +93,6 @@ function getGoalSourceLabel(goal) {
   return "Belum dialokasikan";
 }
 
-function getAccountGoalAllocations(account, goals = []) {
-  return goals
-    .map((goal) => {
-      const source = goal.accountBreakdown?.find(
-        (item) => item.accountId === account.id,
-      );
-      return source && Number(source.amount || 0) > 0.0001
-        ? { goal, amount: Number(source.amount) }
-        : null;
-    })
-    .filter(Boolean);
-}
-
 function getGoalActivityLabel(activity) {
   const labels = {
     assign: "Saldo ditambahkan",
@@ -136,7 +112,6 @@ function AccountCard({
   onSelect,
   onManage,
   accent,
-  allocations = [],
 }) {
   const Icon = getAccountIcon(account.account_type);
   const valuation = getWalletValuation(account, baseCurrency);
@@ -146,102 +121,58 @@ function AccountCard({
     account.availableBalance ?? account.balanceAmount ?? 0,
   );
   const hasReservedBalance = reservedBalance > 0.0001;
-  const reservedRatio = balanceAmount > 0.0001
-    ? Math.min(Math.max(reservedBalance / balanceAmount, 0), 1)
-    : 0;
   const fullyReserved = hasReservedBalance && availableBalance <= 0.0001;
 
+  // Baris kanan: angka utama adalah dana yang bisa dipakai ketika ada
+  // pencadangan, dengan saldo rekening sebagai keterangan kecil. Prinsipnya
+  // tidak berubah, hanya letaknya yang mengikuti tata letak daftar.
+  const subLabel = hasReservedBalance
+    ? `dari ${formatCurrency(balanceAmount, account.currency)}`
+    : valuation || `${account.typeLabel} · ${account.currency}`;
+
   return html`
-    <article
-      className=${`cs-pocket-tile cs-pocket-pay ${selected ? "is-selected" : ""}`}
-      style=${{
-        "--wallet-accent": accent.accent,
-        "--wallet-accent-soft": accent.soft,
-      }}
-    >
+    <div className=${`dc-row flex items-center gap-[13px] px-4 py-[15px] ${selected ? "bg-[color:var(--cs-soft)]" : ""}`}>
       <button
         type="button"
         onClick=${onSelect}
         aria-pressed=${selected}
         aria-label=${`Lihat mutasi ${account.name}`}
-        className="flex h-full min-h-0 w-full flex-col justify-between p-2.5 text-left"
+        className="flex min-w-0 flex-1 items-center gap-[13px] text-left"
       >
-        <span className="flex min-w-0 items-center gap-2 pr-7">
-          <span className="cs-pocket-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
-            <${Icon} aria-hidden="true" className="h-4 w-4" />
+        <span
+          className="dc-chip flex h-[38px] w-[38px] shrink-0 items-center justify-center"
+          style=${accent ? { background: accent.soft } : undefined}
+        >
+          <${Icon}
+            aria-hidden="true"
+            className="h-[19px] w-[19px]"
+            style=${{ color: accent ? accent.accent : "var(--cs-body)" }}
+            strokeWidth=${1.8}
+          />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-sm font-medium">${account.name}</span>
+            ${account.isPrimary
+              ? html`<${Star}
+                  aria-hidden="true"
+                  className="h-3 w-3 shrink-0"
+                  style=${{ color: "var(--cs-warn)", fill: "var(--cs-warn)" }}
+                />`
+              : null}
           </span>
-          <span className="block min-w-0 flex-1">
-            <span className="flex min-w-0 items-center gap-1">
-              <span className="text-[8px] font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-                Dompet
-              </span>
-              ${account.isPrimary
-                ? html`<${Star} aria-hidden="true" className="h-2.5 w-2.5 shrink-0 fill-amber-500 text-amber-500" />`
-                : null}
-            </span>
-            <strong className="mt-0.5 block truncate font-display text-[13px] font-black leading-tight text-slate-950 dark:text-white">
-              ${account.name}
-            </strong>
+          <span className="truncate text-xs text-[color:var(--cs-mut)]">
+            ${hasReservedBalance ? "Bisa dipakai" : account.typeLabel}
           </span>
         </span>
-
-        <span className="mt-3 block min-w-0">
-          <span className="block text-[8px] font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-            ${hasReservedBalance ? "Bisa dipakai" : "Saldo rekening"}
-          </span>
-          <strong className=${`block truncate font-display text-base font-black tabular-nums ${
-            fullyReserved ? "text-slate-500 dark:text-slate-400" : "text-emerald-500"
-          }`}>
+        <span className="flex shrink-0 flex-col items-end gap-0.5">
+          <span className=${`dc-num text-[13.5px] ${fullyReserved ? "text-[color:var(--cs-mut)]" : ""}`}>
             ${formatCurrency(
               hasReservedBalance ? availableBalance : balanceAmount,
               account.currency,
             )}
-          </strong>
-          ${hasReservedBalance
-            ? html`
-                <span className="block min-w-0">
-                <span className="mt-0.5 block truncate text-[9px] font-medium text-slate-500 dark:text-slate-400">
-                  dari ${formatCurrency(balanceAmount, account.currency)}
-                </span>
-                <span className="cs-pocket-split mt-1.5 block h-1 overflow-hidden rounded-full">
-                  <span
-                    className="cs-pocket-split-reserved block h-full rounded-full"
-                    style=${{ width: `${reservedRatio * 100}%` }}
-                  ></span>
-                </span>
-                <span className="mt-1.5 block text-[8px] font-black uppercase tracking-[0.14em] text-cyan-700 dark:text-cyan-200">
-                  Dicadangkan untuk
-                </span>
-                ${allocations.slice(0, 2).map(
-                  ({ goal, amount }) => html`
-                    <span key=${goal.id} className="mt-0.5 flex min-w-0 items-center justify-between gap-2 text-[9px]">
-                      <span className="flex min-w-0 items-center gap-1">
-                        <${Lock} aria-hidden="true" className="h-2.5 w-2.5 shrink-0 text-cyan-600 dark:text-cyan-300" />
-                        <span className="truncate font-bold text-slate-600 dark:text-slate-300">${goal.name}</span>
-                      </span>
-                      <strong className="shrink-0 tabular-nums text-cyan-700 dark:text-cyan-200">${formatCurrency(amount, account.currency)}</strong>
-                    </span>
-                  `,
-                )}
-                ${allocations.length > 2
-                  ? html`<span className="mt-0.5 block text-[8px] font-bold text-cyan-700 dark:text-cyan-200">+${allocations.length - 2} tabungan lain</span>`
-                  : null}
-                </span>
-              `
-            : valuation
-            ? html`<span className="cs-pocket-valuation mt-1 block truncate text-[9px] font-bold">${valuation}</span>`
-            : null}
-          <span className="mt-2.5 flex items-center justify-between gap-2 border-t border-slate-200/70 pt-2 text-[9px] dark:border-slate-800">
-            <span className="flex min-w-0 items-center gap-1">
-              <span className="cs-pocket-chip shrink-0 rounded px-1 py-0.5 text-[8px] font-black tabular-nums">
-                ${account.currency}
-              </span>
-              <span className="truncate text-slate-500 dark:text-slate-400">${account.typeLabel}</span>
-            </span>
-            <span className=${selected ? "shrink-0 font-black text-emerald-500" : "shrink-0 font-bold text-sky-500"}>
-              ${selected ? "• Dipilih" : "Mutasi →"}
-            </span>
           </span>
+          <span className="text-[11px] text-[color:var(--cs-mut)]">${subLabel}</span>
         </span>
       </button>
       <button
@@ -249,67 +180,45 @@ function AccountCard({
         onClick=${onManage}
         aria-label=${`Kelola ${account.name}`}
         title=${`Kelola ${account.name}`}
-        className="cs-pocket-manage absolute right-1.5 top-1.5 z-10 flex h-10 w-10 items-center justify-center rounded-lg text-slate-400"
+        className="cs-pocket-manage -mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+        style=${{ color: "var(--cs-faint)" }}
       >
         <${MoreHorizontal} aria-hidden="true" className="h-4 w-4" />
       </button>
-    </article>
+    </div>
   `;
 }
 
 function GoalCard({ goal, selected, onSelect, onManage }) {
   const progress = Math.max(0, Math.min(Number(goal.progress || 0), 1));
   return html`
-    <article className=${`cs-pocket-tile cs-pocket-saving ${selected ? "is-selected" : ""}`}>
+    <article className=${`dc-card relative p-[18px] ${selected ? "ring-1 ring-[color:var(--cs-acc)]" : ""}`}>
       <button
         type="button"
         onClick=${onSelect}
         aria-pressed=${selected}
         aria-label=${`Lihat aktivitas ${goal.name}`}
-        className="flex h-full min-h-0 w-full flex-col justify-between p-2.5 text-left"
+        className="flex w-full flex-col gap-3.5 text-left"
       >
-        <span className="flex min-w-0 items-center gap-2 pr-7">
-          <span className="cs-pocket-icon flex h-8 w-8 shrink-0 items-center justify-center rounded-lg">
-            <${ShieldCheck} aria-hidden="true" className="h-4 w-4" />
-          </span>
-          <span className="block min-w-0 flex-1">
-            <span className="block text-[8px] font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-              Tabungan
-            </span>
-            <strong className="mt-0.5 block truncate font-display text-[13px] font-black leading-tight text-slate-950 dark:text-white">
-              ${goal.name}
-            </strong>
+        <span className="flex items-baseline justify-between gap-3 pr-7">
+          <span className="truncate text-[15px] font-bold">${goal.name}</span>
+          <span className="shrink-0 text-xs text-[color:var(--cs-mut)]">
+            target ${formatCurrency(goal.targetAmount || 0, goal.currency)}
           </span>
         </span>
 
-        <span className="mt-3 block min-w-0">
-          <span className="flex items-baseline justify-between gap-2">
-            <span className="text-[8px] font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">
-              Dicadangkan
+        <span className="flex flex-col gap-2">
+          <span className="flex items-baseline justify-between gap-3 text-[13px]">
+            <span className="text-[color:var(--cs-body)]">
+              Terkumpul ${formatCurrency(goal.availableAmount || 0, goal.currency)}
             </span>
-            <span className="shrink-0 text-[8px] font-black tabular-nums text-cyan-600 dark:text-cyan-300">
-              ${formatPercent(progress)}
-            </span>
+            <span className="shrink-0 font-bold">${formatPercent(progress)}</span>
           </span>
-          <strong className="block truncate font-display text-sm font-black tabular-nums text-slate-700 dark:text-slate-200">
-            ${formatCurrency(goal.availableAmount || 0, goal.currency)}
-          </strong>
-          <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
-            <span className="block h-full rounded-full bg-cyan-400" style=${{ width: `${progress * 100}%` }}></span>
+          <span className="dc-track h-2.5">
+            <span style=${{ width: `${progress * 100}%` }}></span>
           </span>
-          <span
-            className="mt-1.5 block truncate text-[9px] font-bold text-cyan-700 dark:text-cyan-200"
-            title="Dana ini bagian dari saldo dompet, bukan saldo tambahan."
-          >
-            ${getGoalSourceLabel(goal)}
-          </span>
-          <span className="mt-2 flex items-center justify-between gap-2 border-t border-slate-200/70 pt-2 text-[9px] dark:border-slate-800">
-            <span className="truncate text-slate-500 dark:text-slate-400">
-              Target ${formatCurrency(goal.targetAmount || 0, goal.currency)}
-            </span>
-            <span className=${selected ? "shrink-0 font-black text-cyan-500" : "shrink-0 font-bold text-sky-500"}>
-              ${selected ? "• Dipilih" : "Aktivitas →"}
-            </span>
+          <span className="block text-xs leading-[1.45] text-[color:var(--cs-mut)]">
+            ${getGoalSourceLabel(goal)}. Dana ini bagian dari saldo dompet, bukan saldo tambahan.
           </span>
         </span>
       </button>
@@ -318,7 +227,8 @@ function GoalCard({ goal, selected, onSelect, onManage }) {
         onClick=${onManage}
         aria-label=${`Kelola ${goal.name}`}
         title=${`Kelola ${goal.name}`}
-        className="cs-pocket-manage absolute right-1.5 top-1.5 z-10 flex h-10 w-10 items-center justify-center rounded-lg text-slate-400"
+        className="cs-pocket-manage absolute right-2.5 top-2.5 z-10 flex h-9 w-9 items-center justify-center rounded-xl"
+        style=${{ color: "var(--cs-faint)" }}
       >
         <${MoreHorizontal} aria-hidden="true" className="h-4 w-4" />
       </button>
@@ -326,21 +236,16 @@ function GoalCard({ goal, selected, onSelect, onManage }) {
   `;
 }
 
-function GoalFundSection({ goals, nested, selectedGoalId, onSelect, onManage, children }) {
+function GoalFundSection({ goals, selectedGoalId, onSelect, onManage }) {
   return html`
-    <section className="min-w-0">
-      <div className="flex min-w-0 items-baseline justify-between gap-2">
-        <h2 className="text-xs font-black text-slate-950 dark:text-white">Tabungan</h2>
-        <span className="shrink-0 text-[9px] text-slate-500 dark:text-slate-400">
+    <section className="flex min-w-0 flex-col gap-2.5">
+      <div className="flex min-w-0 items-baseline justify-between gap-3 px-0.5">
+        <h2 className="text-[15px] font-bold">Tabungan</h2>
+        <span className="shrink-0 text-xs text-[color:var(--cs-mut)]">
           ${goals.length} tujuan
         </span>
       </div>
-      <p className="mt-0.5 text-[9px] text-slate-500 dark:text-slate-400">
-        ${nested
-          ? "Dicadangkan dari dompet di atas, bukan saldo tambahan."
-          : "Dicadangkan dari saldo dompet, bukan saldo tambahan."}
-      </p>
-      <div className="cs-pocket-grid mt-2 grid min-w-0 grid-cols-2 gap-2 xl:grid-cols-3">
+      <div className="flex min-w-0 flex-col gap-2.5">
         ${goals.map(
           (goal) => html`
             <${GoalCard}
@@ -352,112 +257,37 @@ function GoalFundSection({ goals, nested, selectedGoalId, onSelect, onManage, ch
             />
           `,
         )}
-        ${children}
       </div>
     </section>
   `;
 }
 
-function CreatePocketTile({ onClick }) {
-  return html`
+/* Dua tombol terpisah menggantikan satu tile "Tambah Baru" yang dulu membuka
+   sheet pemilih. Tujuannya memangkas satu langkah penuh: dulu tile -> sheet
+   pemilih -> form, sekarang langsung ke formnya. */
+function CreatePocketActions({ onAddWallet, onAddGoal }) {
+  const tile = (label, Icon, onClick) => html`
     <button
+      key=${label}
       type="button"
       onClick=${onClick}
-      className="cs-pocket-create flex min-h-[9rem] flex-col items-center justify-center rounded-[0.875rem] p-3 text-center"
+      className="dc-tile dc-tile-action dc-press dc-press-96 flex min-h-14 items-center justify-center gap-2 px-3"
     >
-      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/15 text-emerald-500">
-        <${Plus} aria-hidden="true" className="h-4 w-4" />
-      </span>
-      <strong className="mt-2 text-[11px] font-black text-slate-950 dark:text-white">
-        + Tambah Baru
-      </strong>
-      <span className="mt-0.5 text-[9px] text-slate-500 dark:text-slate-400">
-        Dompet atau Tabungan
-      </span>
+      <${Icon}
+        aria-hidden="true"
+        className="h-[18px] w-[18px] shrink-0"
+        style=${{ color: "var(--cs-body)" }}
+        strokeWidth=${1.75}
+      />
+      <span className="text-[13px] font-medium">${label}</span>
     </button>
   `;
-}
-
-function ActivityRow({ transaction, accountId }) {
-  const flow = getTransactionFlow(transaction);
-  const relativeAmount = getTransactionAccountActivity(transaction, accountId);
-  const incoming = relativeAmount.direction === "in";
-  const Icon = flow === "exchange"
-    ? Repeat2
-    : incoming
-      ? ArrowDownLeft
-      : ArrowUpRight;
 
   return html`
-    <li className="cs-wallet-activity-row grid min-w-0 grid-cols-[36px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg p-2.5">
-      <span className=${`flex h-9 w-9 items-center justify-center rounded-lg ${
-        flow === "exchange"
-          ? "bg-sky-500/10 text-sky-400"
-          : incoming
-            ? "bg-emerald-500/10 text-emerald-400"
-            : "bg-rose-500/10 text-rose-400"
-      }`}>
-        <${Icon} aria-hidden="true" className="h-4 w-4" />
-      </span>
-      <span className="min-w-0">
-        <strong className="block truncate text-xs font-extrabold text-slate-950 dark:text-white">
-          ${getTransactionDisplayTitle(transaction)}
-        </strong>
-        <span className="mt-1 block truncate text-[9px] font-medium text-slate-500 dark:text-slate-400">
-          ${formatShortDateTime(transaction.occurred_at)}
-        </span>
-      </span>
-      <strong className=${`max-w-[8.5rem] truncate text-right text-xs font-black tabular-nums ${
-        incoming ? "text-emerald-500" : "text-rose-500"
-      }`}>
-        ${incoming ? "+" : "-"}${formatCurrency(
-          relativeAmount.amount,
-          relativeAmount.currency,
-        )}
-      </strong>
-    </li>
-  `;
-}
-
-function AccountActivity({ account, transactions }) {
-  return html`
-    <section className="cs-wallet-activity min-w-0 rounded-lg p-3.5">
-      <div className="flex min-w-0 items-start justify-between gap-3 border-b border-slate-200/70 pb-3 dark:border-slate-800">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <h2 className="truncate text-xs font-extrabold text-slate-950 dark:text-white">
-              Mutasi: ${account.name}
-            </h2>
-            <span className="shrink-0 rounded-md bg-emerald-500/10 px-2 py-1 text-[8px] font-extrabold text-emerald-500">
-              ${account.currency}
-            </span>
-          </div>
-        </div>
-        <span className="shrink-0 text-[9px] text-sky-500">Transaksi terbaru</span>
-      </div>
-
-      ${transactions.length
-        ? html`
-            <ul className="mt-3 grid min-w-0 gap-2">
-              ${transactions.map(
-                (transaction) => html`
-                  <${ActivityRow}
-                    key=${transaction.id}
-                    transaction=${transaction}
-                    accountId=${account.id}
-                  />
-                `,
-              )}
-            </ul>
-          `
-        : html`
-            <div className="flex min-h-24 flex-col items-center justify-center px-4 text-center">
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Belum ada transaksi di dompet ini.
-              </p>
-            </div>
-          `}
-    </section>
+    <div className="grid grid-cols-2 gap-2">
+      ${tile("Tambah dompet", WalletCards, onAddWallet)}
+      ${tile("Tambah tabungan", Target, onAddGoal)}
+    </div>
   `;
 }
 
@@ -674,11 +504,27 @@ function AccountDetail({
   `;
 }
 
-function GoalDetail({ goal, accounts, loading, onContribute, onDelete, onUse }) {
+function GoalDetail({
+  goal,
+  goals = [],
+  accounts,
+  loading,
+  onContribute,
+  onDelete,
+  onUse,
+  onEdit,
+  onArchive,
+  onMove,
+}) {
   const [actionType, setActionType] = useState("assign");
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState("");
+  const [destinationGoalId, setDestinationGoalId] = useState("");
   const [formOpen, setFormOpen] = useState(false);
+  // Pindah alokasi hanya masuk akal ke tabungan lain dengan mata uang sama.
+  const otherGoals = goals.filter(
+    (item) => item.id !== goal.id && item.currency === goal.currency,
+  );
   const progress = Math.max(0, Math.min(Number(goal.progress || 0), 1));
   const mappedAvailableAmount = (goal.accountBreakdown || []).reduce(
     (sum, source) => sum + Math.max(Number(source.amount || 0), 0),
@@ -700,16 +546,26 @@ function GoalDetail({ goal, accounts, loading, onContribute, onDelete, onUse }) 
       }),
     );
     setAmount("");
+    setDestinationGoalId(otherGoals[0]?.id || "");
   }, [goal.id, actionType, formOpen]);
 
   async function submit(event) {
     event.preventDefault();
-    const ok = await onContribute(
-      goal,
-      normalizeNumericInput(amount),
-      actionType === "release" ? "withdraw" : "deposit",
-      accountId,
-    );
+    const value = normalizeNumericInput(amount);
+    const ok =
+      actionType === "move"
+        ? await onMove?.(
+            goal,
+            otherGoals.find((item) => item.id === destinationGoalId),
+            value,
+            accountId,
+          )
+        : await onContribute(
+            goal,
+            value,
+            actionType === "release" ? "withdraw" : "deposit",
+            accountId,
+          );
     if (ok) {
       setAmount("");
       setFormOpen(false);
@@ -815,6 +671,28 @@ function GoalDetail({ goal, accounts, loading, onContribute, onDelete, onUse }) 
                   Batalkan alokasi
                 </button>
               </div>
+              ${actionType === "move"
+                ? html`
+                    <label className="block">
+                      <span className="mb-1.5 block text-[10px] font-bold uppercase text-[color:var(--cs-mut)]">
+                        Pindahkan ke
+                      </span>
+                      <select
+                        required
+                        value=${destinationGoalId}
+                        onChange=${(event) => setDestinationGoalId(event.target.value)}
+                        className="cs-entry-input min-h-11 w-full rounded-xl px-3 text-sm"
+                      >
+                        <option value="">Pilih tabungan tujuan</option>
+                        ${otherGoals.map(
+                          (item) => html`
+                            <option key=${item.id} value=${item.id}>${item.name}</option>
+                          `,
+                        )}
+                      </select>
+                    </label>
+                  `
+                : null}
               <label className="block">
                 <span className="mb-1.5 block text-[10px] font-black uppercase text-slate-500 dark:text-slate-400">Sumber dana</span>
                 <select
@@ -848,10 +726,20 @@ function GoalDetail({ goal, accounts, loading, onContribute, onDelete, onUse }) 
               </label>
               <button
                 type="submit"
-                disabled=${loading || !accountId || !normalizeNumericInput(amount)}
-                className="min-h-11 rounded-lg bg-emerald-500 px-3 text-xs font-black text-white disabled:opacity-50"
+                disabled=${loading ||
+                !accountId ||
+                !normalizeNumericInput(amount) ||
+                (actionType === "move" && !destinationGoalId)}
+                className="min-h-11 rounded-xl px-3 text-xs font-bold disabled:opacity-50"
+                style=${{ background: "var(--cs-acc)", color: "var(--cs-on-acc)" }}
               >
-                ${loading ? "Menyimpan..." : actionType === "release" ? "Batalkan alokasi" : "Tambah saldo tabungan"}
+                ${loading
+                  ? "Menyimpan..."
+                  : actionType === "move"
+                    ? "Pindahkan alokasi"
+                    : actionType === "release"
+                      ? "Batalkan alokasi"
+                      : "Tambah saldo tabungan"}
               </button>
             </form>
           `
@@ -863,7 +751,8 @@ function GoalDetail({ goal, accounts, loading, onContribute, onDelete, onUse }) 
                   setActionType("assign");
                   setFormOpen(true);
                 }}
-                className="min-h-11 rounded-lg bg-emerald-500 px-3 text-xs font-black text-white"
+                className="min-h-11 rounded-xl px-3 text-xs font-bold"
+                style=${{ background: "var(--cs-acc)", color: "var(--cs-on-acc)" }}
               >
                 Tambah saldo
               </button>
@@ -871,7 +760,8 @@ function GoalDetail({ goal, accounts, loading, onContribute, onDelete, onUse }) 
                 type="button"
                 onClick=${() => onUse?.(goal)}
                 disabled=${mappedAvailableAmount <= 0.0001}
-                className="min-h-11 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 text-xs font-black text-cyan-700 disabled:cursor-not-allowed disabled:opacity-40 dark:text-cyan-200"
+                className="min-h-11 rounded-xl border px-3 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                style=${{ borderColor: "var(--cs-line)", color: "var(--cs-body)" }}
               >
                 Gunakan tabungan
               </button>
@@ -882,15 +772,57 @@ function GoalDetail({ goal, accounts, loading, onContribute, onDelete, onUse }) 
                   setFormOpen(true);
                 }}
                 disabled=${mappedAvailableAmount <= 0.0001}
-                className="min-h-11 rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:text-slate-200"
+                className="min-h-11 rounded-xl border px-3 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                style=${{ borderColor: "var(--cs-line)", color: "var(--cs-body)" }}
               >
                 Batalkan alokasi
               </button>
+              ${onMove && otherGoals.length
+                ? html`
+                    <button
+                      type="button"
+                      onClick=${() => {
+                        setActionType("move");
+                        setFormOpen(true);
+                      }}
+                      disabled=${mappedAvailableAmount <= 0.0001}
+                      className="min-h-11 rounded-xl border px-3 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                      style=${{ borderColor: "var(--cs-line)", color: "var(--cs-body)" }}
+                    >
+                      Pindah ke tabungan lain
+                    </button>
+                  `
+                : null}
+              ${onEdit
+                ? html`
+                    <button
+                      type="button"
+                      onClick=${() => onEdit(goal)}
+                      className="min-h-11 rounded-xl border px-3 text-xs font-bold"
+                      style=${{ borderColor: "var(--cs-line)", color: "var(--cs-body)" }}
+                    >
+                      Ubah target
+                    </button>
+                  `
+                : null}
+              ${onArchive
+                ? html`
+                    <button
+                      type="button"
+                      onClick=${() => onArchive(goal)}
+                      className="min-h-11 rounded-xl border px-3 text-xs font-bold"
+                      style=${{ borderColor: "var(--cs-line)", color: "var(--cs-mut)" }}
+                    >
+                      Arsipkan
+                    </button>
+                  `
+                : null}
               <button
                 type="button"
                 onClick=${() => onDelete(goal)}
                 aria-label=${`Hapus ${goal.name}`}
-                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-rose-500/10 px-3 text-xs font-black text-rose-500"
+                className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-xs font-bold"
+                style=${{ background: "rgba(244,63,94,0.10)", color: "#e11d48" }}
               >
                 <${Trash2} aria-hidden="true" className="h-4 w-4" />
                 Hapus
@@ -910,15 +842,18 @@ function GoalDetail({ goal, accounts, loading, onContribute, onDelete, onUse }) 
 
 export function WalletAccountsPage({
   metrics,
-  transactions = [],
   baseCurrency = DEFAULT_BASE_CURRENCY,
   loading = false,
-  onCreatePocket,
+  onCreateWallet,
+  onCreateGoal,
   onDeleteAccount,
   onSetPrimaryAccount,
   onDeleteGoal,
   onContributeGoal,
   onUseGoal,
+  onEditGoal,
+  onArchiveGoal,
+  onMoveGoalAllocation,
   onSelectAccountCurrency,
 }) {
   const accounts = metrics.assetAccountInsights || [];
@@ -926,7 +861,6 @@ export function WalletAccountsPage({
     (goal) => goal.status !== "archived",
   );
   const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
-  const [filter, setFilter] = useState("all");
   const [selectedAccountId, setSelectedAccountId] = useState(accounts[0]?.id || null);
   const [selectedGoalId, setSelectedGoalId] = useState(null);
   const [detail, setDetail] = useState(null);
@@ -953,14 +887,6 @@ export function WalletAccountsPage({
 
   const selectedAccount = accounts.find((account) => account.id === selectedAccountId) || accounts[0] || null;
   const selectedGoal = goals.find((goal) => goal.id === selectedGoalId) || null;
-  const selectedTransactions = useMemo(() => {
-    if (!selectedAccount?.id) return [];
-    return transactions
-      .filter((transaction) => transactionBelongsToAccount(transaction, selectedAccount.id))
-      .sort((left, right) => new Date(right.occurred_at).getTime() - new Date(left.occurred_at).getTime())
-      .slice(0, 7);
-  }, [transactions, selectedAccount?.id]);
-
   const detailAccount = detail?.type === "account"
     ? accounts.find((account) => account.id === detail.id)
     : null;
@@ -973,8 +899,9 @@ export function WalletAccountsPage({
   const totalActualBase = Number(metrics.assetAccountTotalValueIdr || 0);
   const spendableBase = Number(metrics.availableBalanceIdr ?? totalActualBase);
   const reservedBase = Math.max(totalActualBase - spendableBase, 0);
-  const showsAccounts = filter !== "saving";
-  const showsGoals = filter !== "pay";
+  // Desain menampilkan Dompet dan Tabungan sebagai dua seksi yang selalu
+  // terlihat, jadi filter tab tidak lagi diperlukan. Tabungan tetap berdiri
+  // sebagai seksi turunan di bawah Dompet, bukan kartu sejajar.
 
   function handleSetAccountColor(accountId, colorId) {
     setAccountColors((current) => {
@@ -988,10 +915,14 @@ export function WalletAccountsPage({
     });
   }
 
+  // Panel mutasi di bawah daftar sudah dihapus, jadi menekan baris kini
+  // langsung membuka sheet rinciannya. Pemilihan mata uang dompet tetap
+  // dijalankan karena header dan ringkasan lain bergantung padanya.
   function selectAccount(account) {
     setSelectedAccountId(account.id);
     setSelectedGoalId(null);
     onSelectAccountCurrency?.(account.currency);
+    setDetail({ type: "account", id: account.id });
   }
 
   function manageAccount(account) {
@@ -1000,6 +931,7 @@ export function WalletAccountsPage({
 
   function selectGoal(goal) {
     setSelectedGoalId(goal.id);
+    setDetail({ type: "goal", id: goal.id });
   }
 
   function manageGoal(goal) {
@@ -1008,71 +940,44 @@ export function WalletAccountsPage({
 
   return html`
     <div className="cs-wallet-page grid w-full min-w-0 max-w-full gap-3">
-      <section className="cs-wallet-summary relative min-w-0 overflow-hidden rounded-xl p-3.5">
-        <div className="flex min-w-0 items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[8px] font-extrabold uppercase tracking-[0.14em] text-emerald-300">
-              Total uang tercatat (${normalizedBaseCurrency})
-            </p>
-            <h1 className="mt-0.5 truncate font-display text-[22px] font-black leading-tight tabular-nums text-white">
-              ${formatCurrency(metrics.assetAccountTotalValueIdr || 0, normalizedBaseCurrency)}
-            </h1>
-            <p className="mt-0.5 text-[9px] font-medium text-slate-300">
-              ${accounts.length} dompet • ${goals.length} tujuan tabungan
-            </p>
-          </div>
-
-          <div className="relative flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick=${onCreatePocket}
-              className="inline-flex min-h-10 items-center justify-center gap-1.5 rounded-lg bg-emerald-500 px-2.5 text-[10px] font-black text-white shadow-[0_10px_24px_rgba(16,185,129,0.25)] transition hover:bg-emerald-400"
-            >
-              <${Plus} aria-hidden="true" className="h-4 w-4" />
-              Tambah
-            </button>
+      <section className="dc-panel flex flex-col gap-[18px] p-[22px]">
+        <div className="flex flex-col gap-[7px]">
+          <span className="text-[13px] text-[#9c968b]">Semua uang yang kamu catat</span>
+          <div className="flex items-end gap-1.5">
+            <span className="pb-1.5 text-[19px] font-medium text-[#9c968b]">
+              ${normalizedBaseCurrency === "IDR" ? "Rp" : normalizedBaseCurrency}
+            </span>
+            <span className="dc-num text-[32px] leading-none tracking-[-1.4px]">
+              ${formatCurrency(totalActualBase, normalizedBaseCurrency).replace(/^[^\d-]*/, "")}
+            </span>
           </div>
         </div>
-        ${reservedBase > 0.0001 || allocatedBase > 0.0001
-          ? html`
-              <div className="cs-wallet-balance-split mt-2.5 grid grid-cols-2 gap-2 rounded-lg p-2">
-                <div className="min-w-0">
-                  <span className="block text-[8px] font-black uppercase tracking-[0.14em] text-emerald-200">Bisa dipakai</span>
-                  <strong className="mt-0.5 block truncate text-[13px] font-black tabular-nums text-white">${formatCurrency(spendableBase, normalizedBaseCurrency)}</strong>
-                </div>
-                <div className="min-w-0 border-l border-white/10 pl-2.5">
-                  <span className="block text-[8px] font-black uppercase tracking-[0.14em] text-cyan-200">Dana dicadangkan</span>
-                  <strong className="mt-0.5 block truncate text-[13px] font-black tabular-nums text-cyan-100">${formatCurrency(reservedBase || allocatedBase, normalizedBaseCurrency)}</strong>
-                </div>
-              </div>
-            `
-          : null}
+        <div className="flex gap-2.5">
+          <div className="dc-panel-tile flex flex-1 flex-col gap-[3px] px-3.5 py-3">
+            <span className="text-[11px] text-[#9c968b]">Bisa dipakai</span>
+            <span className="text-[15px] font-bold">
+              ${formatCurrency(spendableBase, normalizedBaseCurrency)}
+            </span>
+          </div>
+          <div className="dc-panel-tile flex flex-1 flex-col gap-[3px] px-3.5 py-3">
+            <span className="text-[11px] text-[#9c968b]">Disisihkan</span>
+            <span className="text-[15px] font-bold text-[color:var(--cs-pos)]">
+              ${formatCurrency(reservedBase || allocatedBase, normalizedBaseCurrency)}
+            </span>
+          </div>
+        </div>
       </section>
 
-      <div className="flex flex-wrap gap-2" role="group" aria-label="Filter Dompet dan Tabungan">
-        ${[
-          ["all", "Semua", accounts.length + goals.length],
-          ["pay", "Dompet", accounts.length],
-          ["saving", "Tabungan", goals.length],
-        ].map(
-          ([value, label, count]) => html`
-            <button
-              key=${value}
-              type="button"
-              aria-pressed=${filter === value}
-              onClick=${() => setFilter(value)}
-              className=${`cs-pocket-filter min-h-10 rounded-lg px-3 text-[10px] font-black ${filter === value ? "is-active" : ""}`}
-            >
-              ${label} <span className="ml-1 rounded-md bg-slate-500/10 px-1.5 py-0.5">${count}</span>
-            </button>
-          `,
-        )}
-      </div>
-
-      ${showsAccounts
-        ? html`
-            <section className="min-w-0">
-              <div className="cs-pocket-grid grid min-w-0 grid-cols-2 gap-2 xl:grid-cols-3">
+      <section className="flex min-w-0 flex-col gap-2.5">
+        <div className="flex items-baseline justify-between gap-3 px-0.5">
+          <span className="text-[15px] font-bold">Dompetmu</span>
+          <span className="shrink-0 text-xs text-[color:var(--cs-mut)]">
+            ${accounts.length} dompet
+          </span>
+        </div>
+        ${accounts.length
+          ? html`
+              <div className="dc-card overflow-hidden">
                 ${accounts.map(
                   (account, index) => html`
                     <${AccountCard}
@@ -1081,47 +986,31 @@ export function WalletAccountsPage({
                       baseCurrency=${normalizedBaseCurrency}
                       selected=${!selectedGoal && account.id === selectedAccount?.id}
                       accent=${getWalletColor(accountColors, account, index)}
-                      allocations=${getAccountGoalAllocations(account, goals)}
                       onSelect=${() => selectAccount(account)}
                       onManage=${() => manageAccount(account)}
                     />
                   `,
                 )}
-                <${CreatePocketTile} onClick=${onCreatePocket} />
               </div>
-            </section>
-          `
-        : null}
+            `
+          : null}
+        <${CreatePocketActions}
+          onAddWallet=${onCreateWallet}
+          onAddGoal=${onCreateGoal}
+        />
+      </section>
 
-      ${showsGoals && goals.length
+      ${goals.length
         ? html`
             <${GoalFundSection}
               goals=${goals}
-              nested=${showsAccounts}
               selectedGoalId=${selectedGoal?.id || null}
               onSelect=${selectGoal}
               onManage=${manageGoal}
-            >
-              ${showsAccounts
-                ? null
-                : html`<${CreatePocketTile} onClick=${onCreatePocket} />`}
-            <//>
+            />
           `
-        : showsGoals && !showsAccounts
-          ? html`
-              <section className="min-w-0">
-                <div className="cs-pocket-grid grid min-w-0 grid-cols-2 gap-2 xl:grid-cols-3">
-                  <${CreatePocketTile} onClick=${onCreatePocket} />
-                </div>
-              </section>
-            `
-          : null}
+        : null}
 
-      ${selectedGoal
-        ? html`<${GoalActivity} goal=${selectedGoal} />`
-        : selectedAccount
-          ? html`<${AccountActivity} account=${selectedAccount} transactions=${selectedTransactions} />`
-          : null}
 
       <${SheetShell}
         open=${Boolean(detailAccount || detailGoal)}
@@ -1152,15 +1041,27 @@ export function WalletAccountsPage({
           : null}
         ${detailGoal
           ? html`
-              <${GoalDetail}
-                key=${detailGoal.id}
-                goal=${detailGoal}
-                accounts=${accounts}
-                loading=${loading}
-                onContribute=${onContributeGoal}
-                onDelete=${onDeleteGoal}
-                onUse=${onUseGoal}
-              />
+              ${/* Dibungkus fragment: dua elemen akar dalam satu template membuat
+                    htm mengembalikan array, dan React lalu memperingatkan setiap
+                    anaknya butuh "key". */ null}
+              <${React.Fragment}>
+                <${GoalDetail}
+                  key=${detailGoal.id}
+                  goal=${detailGoal}
+                  goals=${goals}
+                  accounts=${accounts}
+                  loading=${loading}
+                  onContribute=${onContributeGoal}
+                  onDelete=${onDeleteGoal}
+                  onUse=${onUseGoal}
+                  onEdit=${onEditGoal}
+                  onArchive=${onArchiveGoal}
+                  onMove=${onMoveGoalAllocation}
+                />
+                <div className="mt-4">
+                  <${GoalActivity} goal=${detailGoal} />
+                </div>
+              <//>
             `
           : null}
       <//>

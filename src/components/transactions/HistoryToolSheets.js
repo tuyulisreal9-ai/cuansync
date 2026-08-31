@@ -17,12 +17,13 @@ export function HistoryFilterSheet({
   onClose,
   categoryOptions,
   currencyOptions,
+  onExport,
 }) {
   return html`
     <${SheetShell}
       open=${open}
-      title="Penyaring transaksi"
-      helper="Persempit riwayat berdasarkan periode, kategori, mata uang, atau nominal."
+      title="Saring riwayat"
+      helper="Persempit riwayat berdasarkan kata kunci, periode, kategori, mata uang, atau nominal."
       onClose=${onClose}
       labelledBy="history-filter-sheet-title"
     >
@@ -32,9 +33,24 @@ export function HistoryFilterSheet({
         onReset=${onReset}
         categoryOptions=${categoryOptions}
         currencyOptions=${currencyOptions}
-        showSearch=${false}
+        showSearch=${true}
         onDone=${onClose}
       />
+      ${onExport
+        ? html`
+            <button
+              type="button"
+              onClick=${() => {
+                onClose?.();
+                onExport();
+              }}
+              className="mt-3 min-h-11 w-full rounded-xl border px-3 text-xs font-bold"
+              style=${{ borderColor: "var(--cs-line)", color: "var(--cs-body)" }}
+            >
+              Unduh mutasi bulanan
+            </button>
+          `
+        : null}
     <//>
   `;
 }

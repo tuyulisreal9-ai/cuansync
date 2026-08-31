@@ -545,6 +545,73 @@ function HistoryBalanceSummary({
   `;
 }
 
+/* Judul per layar mengikuti TITLES di project desain. */
+const PAGE_TITLES = {
+  overview: "Uangmu hari ini",
+  investment: "Dompet & tabungan",
+  budget: "Jatah bulan ini",
+  history: "Riwayat",
+  control: "Kondisi keuanganmu",
+  settings: "Pengaturan",
+  movement: "Pindah & tukar uang",
+  report: "Laporan",
+};
+
+function getGreeting(activeTab, userName) {
+  if (activeTab === "control") return "‹ Kembali ke Jatah";
+  if (activeTab === "settings") return "‹ Kembali";
+  const hour = new Date().getHours();
+  const part =
+    hour < 11 ? "Pagi" : hour < 15 ? "Siang" : hour < 19 ? "Sore" : "Malam";
+  return userName ? `${part}, ${userName}` : part;
+}
+
+/* Header desain: satu baris berisi sapaan, judul halaman, dan avatar.
+   Wordmark dan tombol mata dihapus dari sini karena desain tidak memilikinya —
+   sembunyikan saldo tetap tersedia di Pengaturan > Tampilan. */
+function DesignHeader({
+  activeTab,
+  userName,
+  avatarSrc,
+  avatarInitials,
+  onAvatarClick,
+  onBack,
+}) {
+  const greeting = getGreeting(activeTab, userName);
+  const isBack = greeting.startsWith("‹");
+
+  return html`
+    <header className="flex items-center justify-between gap-3 px-1 pb-3.5 pt-1">
+      <div className="flex min-w-0 flex-col gap-px">
+        ${isBack
+          ? html`
+              <button
+                type="button"
+                onClick=${onBack}
+                className="self-start text-left text-[13px]"
+                style=${{ color: "var(--cs-mut)" }}
+              >
+                ${greeting}
+              </button>
+            `
+          : html`
+              <span className="text-[13px]" style=${{ color: "var(--cs-mut)" }}>
+                ${greeting}
+              </span>
+            `}
+        <span className="truncate text-[17px] font-bold tracking-[-0.2px]">
+          ${PAGE_TITLES[activeTab] || "CUANSYNC"}
+        </span>
+      </div>
+      <${AvatarButton}
+        src=${avatarSrc}
+        initials=${avatarInitials}
+        onClick=${onAvatarClick}
+      />
+    </header>
+  `;
+}
+
 export function WalletHeader({
   appName,
   balances = {},
@@ -562,6 +629,9 @@ export function WalletHeader({
   onAvatarClick,
   compact = false,
   historyCompact = false,
+  activeTab = "overview",
+  userName = "",
+  onBack,
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const currencies = normalizeCurrencyList(activeCurrencies, { baseCurrency });
@@ -581,23 +651,35 @@ export function WalletHeader({
     if (currencies.length <= 3 && sheetOpen) setSheetOpen(false);
   }, [currencies.length, sheetOpen]);
 
+  // Layar utama memakai header desain yang ramping. Ringkasan saldo lama hanya
+  // dipertahankan untuk mode non-compact (rute yang belum dirombak).
+  if (compact) {
+    return html`
+      <${DesignHeader}
+        activeTab=${activeTab}
+        userName=${userName}
+        avatarSrc=${avatarSrc}
+        avatarInitials=${avatarInitials}
+        onAvatarClick=${onAvatarClick}
+        onBack=${onBack}
+      />
+    `;
+  }
+
   return html`
     <${React.Fragment}>
-    <header className=${`wallet-header cs-topbar relative isolate overflow-hidden rounded-lg px-4 ${compact ? "pb-2.5 pt-2.5 lg:pb-3" : "pb-4 pt-4 lg:pb-3"} text-slate-950 md:px-5 lg:px-5 lg:pt-3 dark:text-white`}>
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-300/70 to-transparent dark:via-cyan-200/35"></div>
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.10),transparent_40%,rgba(34,211,238,0.08))] dark:bg-[linear-gradient(135deg,rgba(16,185,129,0.15),transparent_42%,rgba(34,211,238,0.10))]"></div>
-
+    <header className=${`wallet-header cs-topbar relative isolate overflow-hidden rounded-lg px-4 pb-4 pt-4 lg:pb-3 md:px-5 lg:px-5 lg:pt-3`}>
       <div className="relative">
         <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2.5" aria-label=${wordmark}>
             <img
               src="/icons/icon-96.webp"
               alt=""
-              className=${`shrink-0 object-contain ${compact ? "h-8 w-8 rounded-lg" : "h-9 w-9 rounded-2xl"} lg:h-8 lg:w-8`}
+              className="h-9 w-9 shrink-0 rounded-2xl object-contain lg:h-8 lg:w-8"
             />
             <span className="min-w-0">
               <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate font-display text-sm font-bold text-slate-950 dark:text-white sm:text-base">
+                <span className="truncate font-display text-sm font-bold sm:text-base">
                   ${wordmark}
                 </span>
               </span>

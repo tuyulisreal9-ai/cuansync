@@ -5,10 +5,11 @@ import { CurrencyCombobox } from "../shared/CurrencyCombobox.js";
 import { FormActionDock } from "../shared/FormActionDock.js";
 import { SheetShell } from "../shared/SheetShell.js";
 import { WalletAccountsPage } from "./WalletAccountsPage.js";
-import { TargetForm } from "../budget/TargetPlanningSection.js";
+import {
+  TargetForm,
+} from "../budget/TargetPlanningSection.js";
 import {
   ASSET_ACCOUNT_TYPES,
-  ASSET_ACCOUNT_PURPOSES,
   getAssetAccountValuationLabel,
   getDefaultAssetAccountName,
 } from "../../domain/assets.js";
@@ -30,8 +31,11 @@ import { formatDateTime, getDateInputValue } from "../../lib/dates.js";
 
 const html = htm.bind(React.createElement);
 const PANEL_CLASS = "relative overflow-hidden rounded-[30px] cuan-card";
+/* Input dan label mengikuti spec form di artifact: tinggi 48, radius 14,
+   garis tepi --cs-line, latar --cs-card, teks 14.5px; label 12px --cs-mut. */
 const INPUT_CLASS =
-  "w-full min-h-12 rounded-2xl px-4 py-3.5 text-sm transition cuan-input";
+  "w-full min-h-12 rounded-[14px] border px-3.5 text-[14.5px] cs-edit-input";
+const FIELD_LABEL_CLASS = "block px-0.5 text-xs cs-edit-label";
 function GoalTracker({ goals, accounts = [], onDelete, onContribute }) {
   const [openGoalId, setOpenGoalId] = useState(null);
   const [openAction, setOpenAction] = useState("deposit");
@@ -419,8 +423,41 @@ function AssetAccountForm({
           `}
 
       <form className=${embedded ? "grid gap-4" : "relative mt-5 grid gap-4"} onSubmit=${handleSubmit}>
+        ${/* Jenis memakai chip, bukan <select>, supaya kelima pilihan terlihat
+              sekaligus dan daftarnya tidak digambar oleh sistem operasi. */ null}
+        <div className="block">
+          <span className=${FIELD_LABEL_CLASS}>Jenis</span>
+          <div className="flex flex-wrap gap-2">
+            ${ASSET_ACCOUNT_TYPES.map((type) => {
+              const active = form.account_type === type.value;
+              return html`
+                <button
+                  key=${type.value}
+                  type="button"
+                  aria-pressed=${active}
+                  onClick=${() => updateField("account_type", type.value)}
+                  className="dc-press dc-press-96 flex min-h-[38px] items-center rounded-full border px-[15px] text-[12.5px] font-medium"
+                  style=${active
+                    ? {
+                        background: "var(--cs-sel-bg)",
+                        color: "var(--cs-sel-fg)",
+                        borderColor: "var(--cs-sel-bg)",
+                      }
+                    : {
+                        background: "var(--cs-card)",
+                        color: "var(--cs-body)",
+                        borderColor: "var(--cs-line)",
+                      }}
+                >
+                  ${type.label}
+                </button>
+              `;
+            })}
+          </div>
+        </div>
+
         <label className="block">
-          <span className="mb-2 block text-sm font-medium">
+          <span className=${FIELD_LABEL_CLASS}>
             ${isCashAccount ? "Nama akun (opsional)" : "Nama akun"}
           </span>
           <input
@@ -428,31 +465,33 @@ function AssetAccountForm({
             required=${!isCashAccount}
             value=${form.name}
             onChange=${(event) => updateField("name", event.target.value)}
-            placeholder=${isCashAccount ? defaultAccountName : "BCA, Wise, Bangkok Bank"}
+            placeholder=${defaultAccountName}
             className=${INPUT_CLASS}
           />
         </label>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        ${/* "Peran akun" dan "Catatan" dihapus dari form tambah. Peran akun
+              hanya dipakai menebak akun default, sedangkan pemilih dompet kini
+              tampil eksplisit saat mencatat transaksi, jadi tebakannya tidak
+              terpakai lagi. Nilainya tetap ditulis "general" di initialForm.
+              Catatan tetap bisa diisi lewat pengaturan dompet. */ null}
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(7.5rem,0.6fr)] gap-2">
           <label className="block">
-            <span className="mb-2 block text-sm font-medium">Jenis</span>
-            <select
-              value=${form.account_type}
-              onChange=${(event) => updateField("account_type", event.target.value)}
+            <span className=${FIELD_LABEL_CLASS}>Saldo saat ini</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              value=${form.balance_amount}
+              onChange=${(event) =>
+                updateField("balance_amount", formatNumericInput(event.target.value))}
+              placeholder="0"
               className=${INPUT_CLASS}
-            >
-              ${ASSET_ACCOUNT_TYPES.map(
-                (type) => html`
-                  <option key=${type.value} value=${type.value}>
-                    ${type.label}
-                  </option>
-                `,
-              )}
-            </select>
+            />
           </label>
 
           <div className="block">
-            <span className="mb-2 block text-sm font-medium">Mata uang</span>
+            <span className=${FIELD_LABEL_CLASS}>Mata uang</span>
             <${CurrencyCombobox}
               value=${form.currency}
               onChange=${(value) => updateField("currency", value)}
@@ -462,52 +501,6 @@ function AssetAccountForm({
             />
           </div>
         </div>
-
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">Peran akun</span>
-          <select
-            value=${form.account_purpose}
-            onChange=${(event) => updateField("account_purpose", event.target.value)}
-            className=${INPUT_CLASS}
-          >
-            ${ASSET_ACCOUNT_PURPOSES.map(
-              (purpose) => html`
-                <option key=${purpose.value} value=${purpose.value}>
-                  ${purpose.label}
-                </option>
-              `,
-            )}
-          </select>
-          <span className="mt-1.5 block text-xs text-slate-500 dark:text-slate-400">
-            Dipakai untuk memilih akun default yang paling relevan.
-          </span>
-        </label>
-
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">Saldo saat ini (${form.currency})</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            value=${form.balance_amount}
-            onChange=${(event) =>
-              updateField("balance_amount", formatNumericInput(event.target.value))}
-            placeholder="0"
-            className=${INPUT_CLASS}
-          />
-        </label>
-
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">Catatan</span>
-          <input
-            type="text"
-            enterKeyHint="done"
-            value=${form.note}
-            onChange=${(event) => updateField("note", event.target.value)}
-            placeholder="Opsional"
-            className=${INPUT_CLASS}
-          />
-        </label>
 
         <${FormActionDock}>
           <div className=${onCancel ? "grid grid-cols-[0.78fr_1.22fr] gap-2" : ""}>
@@ -751,143 +744,8 @@ function AssetAccountsPanel({ metrics, onAddAccount, onDeleteAccount, baseCurren
   `;
 }
 
-function GoalForm({
-  onSubmit,
-  loading,
-  onCancel = null,
-  onSuccess = null,
-  embedded = false,
-}) {
-  const [form, setForm] = useState({
-    name: "",
-    target_amount_idr: "",
-    saved_amount_idr: "",
-    deadline: getDateInputValue(),
-  });
-
-  function updateField(field, value) {
-    setForm((current) => ({ ...current, [field]: value }));
-  }
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    const ok = await onSubmit({
-      ...form,
-      target_amount_idr: normalizeNumericInput(form.target_amount_idr),
-      saved_amount_idr: normalizeNumericInput(form.saved_amount_idr),
-    });
-    if (ok) {
-      setForm({
-        name: "",
-        target_amount_idr: "",
-        saved_amount_idr: "",
-        deadline: getDateInputValue(),
-      });
-      if (onSuccess) onSuccess();
-    }
-  }
-
-  return html`
-    <div className=${embedded ? "grid gap-4" : `${PANEL_CLASS} p-5 md:p-6`}>
-      ${embedded
-        ? null
-        : html`
-            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-            <div className="relative">
-              <h3 className="font-display text-xl font-bold">Tambah Target Finansial</h3>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-                Cocok untuk dana darurat, mudik, modal bisnis, atau target pembelian besar.
-                Saldo awal target akan langsung dipindahkan dari saldo utama IDR.
-              </p>
-            </div>
-          `}
-
-      <form className=${embedded ? "space-y-4" : "relative mt-5 space-y-4"} onSubmit=${handleSubmit}>
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">Nama target</span>
-          <input
-            type="text"
-            required
-            value=${form.name}
-            onChange=${(event) => updateField("name", event.target.value)}
-            placeholder="Dana darurat 6 bulan"
-            className=${INPUT_CLASS}
-          />
-        </label>
-
-        <div className="grid gap-4 md:grid-cols-2">
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium">Target (IDR)</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              required
-              value=${form.target_amount_idr}
-              onChange=${(event) =>
-                updateField(
-                  "target_amount_idr",
-                  formatNumericInput(event.target.value),
-                )}
-              placeholder="0"
-              className=${INPUT_CLASS}
-            />
-          </label>
-
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium">Saldo awal (IDR)</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              value=${form.saved_amount_idr}
-              onChange=${(event) =>
-                updateField(
-                  "saved_amount_idr",
-                  formatNumericInput(event.target.value),
-                )}
-              placeholder="0"
-              className=${INPUT_CLASS}
-            />
-          </label>
-        </div>
-
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">Deadline</span>
-          <input
-            type="date"
-            value=${form.deadline}
-            onChange=${(event) => updateField("deadline", event.target.value)}
-            className=${INPUT_CLASS}
-          />
-        </label>
-
-        <${FormActionDock}>
-          <div className=${onCancel ? "grid grid-cols-[0.78fr_1.22fr] gap-2" : ""}>
-            ${onCancel
-              ? html`
-                  <button
-                    type="button"
-                    onClick=${onCancel}
-                    className="history-action-secondary min-h-12 rounded-xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
-                  >
-                    Batal
-                  </button>
-                `
-              : null}
-            <button
-              type="submit"
-              disabled=${loading}
-              className="history-action-primary min-h-12 w-full rounded-xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Simpan target
-            </button>
-          </div>
-        <//>
-      </form>
-    </div>
-  `;
-}
+/* GoalForm lama dihapus karena tidak pernah dirender. Sheet "Buat
+   Tabungan" memakai TargetForm bersama dari TargetPlanningSection. */
 
 export function WealthGoalsPage({
   metrics,
@@ -899,7 +757,10 @@ export function WealthGoalsPage({
   onDeleteAssetAccount,
   onSetPrimaryAccount,
   onCreateGoal,
+  onUpdateGoal,
   onDeleteGoal,
+  onArchiveGoal,
+  onMoveAllocation,
   onContribute,
   onUseGoal,
   onOpenGoals,
@@ -910,8 +771,10 @@ export function WealthGoalsPage({
 }) {
   const [activeSection, setActiveSection] = useState("accounts");
   const [showGoalForm, setShowGoalForm] = useState(false);
+  const [editingGoalId, setEditingGoalId] = useState(null);
+  const editingGoal =
+    (metrics.goalInsights || []).find((goal) => goal.id === editingGoalId) || null;
   const [showAssetForm, setShowAssetForm] = useState(false);
-  const [showPocketChooser, setShowPocketChooser] = useState(false);
 
   useEffect(() => {
     if (openAssetFormRequest > 0) {
@@ -931,13 +794,11 @@ export function WealthGoalsPage({
 
   function openAssetForm() {
     setActiveSection("accounts");
-    setShowPocketChooser(false);
     setShowAssetForm(true);
   }
 
   function openGoalForm() {
     setActiveSection("accounts");
-    setShowPocketChooser(false);
     setShowGoalForm(true);
   }
 
@@ -949,20 +810,17 @@ export function WealthGoalsPage({
     setActiveSection("goals");
   }
 
-  function openPocketChooser() {
-    setActiveSection("accounts");
-    setShowPocketChooser(true);
-  }
-
   return html`
     <div className="grid gap-4">
       ${activeSection === "accounts"
         ? html`
+            <div className="grid gap-4">
             <${WalletAccountsPage}
               metrics=${metrics}
               transactions=${transactions}
               loading=${loading}
-              onCreatePocket=${openPocketChooser}
+              onCreateWallet=${openAssetForm}
+              onCreateGoal=${openGoalForm}
               onDeleteAccount=${onDeleteAssetAccount}
               onSetPrimaryAccount=${onSetPrimaryAccount}
               onDeleteGoal=${onDeleteGoal}
@@ -970,7 +828,11 @@ export function WealthGoalsPage({
               onUseGoal=${onUseGoal}
               baseCurrency=${baseCurrency}
               onSelectAccountCurrency=${onSelectAccountCurrency}
+              onEditGoal=${(goal) => setEditingGoalId(goal.id)}
+              onArchiveGoal=${onArchiveGoal}
+              onMoveGoalAllocation=${onMoveAllocation}
             />
+            </div>
           `
         : null}
 
@@ -1017,39 +879,8 @@ export function WealthGoalsPage({
           `
         : null}
 
-      <${SheetShell}
-        open=${showPocketChooser}
-        title="Tambah Baru"
-        helper="Pilih Dompet untuk saldo aktual atau Tabungan untuk dana yang sedang dikumpulkan."
-        onClose=${() => setShowPocketChooser(false)}
-        labelledBy="pocket-chooser-sheet-title"
-      >
-        <div className="grid grid-cols-2 gap-3">
-          <button
-            type="button"
-            onClick=${openAssetForm}
-            className="cs-pocket-choice flex min-h-36 flex-col items-center justify-center rounded-lg p-4 text-center"
-          >
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-500">
-              <${WalletCards} aria-hidden="true" className="h-5 w-5" />
-            </span>
-            <strong className="mt-3 text-sm font-black text-slate-950 dark:text-white">Dompet</strong>
-            <span className="mt-1 text-[10px] leading-4 text-slate-500 dark:text-slate-400">Bank, e-wallet, atau uang tunai.</span>
-          </button>
-          <button
-            type="button"
-            onClick=${openGoalForm}
-            className="cs-pocket-choice flex min-h-36 flex-col items-center justify-center rounded-lg p-4 text-center"
-          >
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-500/15 text-cyan-500">
-              <${Target} aria-hidden="true" className="h-5 w-5" />
-            </span>
-            <strong className="mt-3 text-sm font-black text-slate-950 dark:text-white">Tabungan</strong>
-            <span className="mt-1 text-[10px] leading-4 text-slate-500 dark:text-slate-400">Dana tabungan dengan dompet sumber yang jelas.</span>
-          </button>
-        </div>
-      <//>
-
+      ${/* Sheet pemilih Dompet/Tabungan dihapus. Halaman Dompet kini memberi
+            dua tombol terpisah yang langsung membuka formnya masing-masing. */ null}
       <${SheetShell}
         open=${showAssetForm}
         title="Buat Dompet"
@@ -1087,6 +918,36 @@ export function WealthGoalsPage({
           accounts=${metrics.assetAccountInsights}
           createLabel="Buat Tabungan"
         />
+      <//>
+
+      <${SheetShell}
+        open=${Boolean(editingGoal)}
+        title=${editingGoal ? `Ubah ${editingGoal.name}` : "Ubah tabungan"}
+        helper="Perbarui nama, target, atau sumber dananya."
+        onClose=${() => setEditingGoalId(null)}
+        labelledBy="goal-edit-sheet-title"
+      >
+        ${editingGoal
+          ? html`
+              <${TargetForm}
+                key=${editingGoal.id}
+                goal=${editingGoal}
+                summaries=${metrics.goalAllocationSummaries}
+                currencies=${normalizeCurrencyList([
+                  ...activeCurrencies,
+                  ...metrics.assetAccountInsights.map((account) => account.currency),
+                ])}
+                loading=${loading}
+                onSubmit=${async (payload) => {
+                  const ok = await onUpdateGoal?.(editingGoal, payload);
+                  if (ok !== false) setEditingGoalId(null);
+                  return ok;
+                }}
+                onCancel=${() => setEditingGoalId(null)}
+                accounts=${metrics.assetAccountInsights}
+              />
+            `
+          : null}
       <//>
     </div>
   `;

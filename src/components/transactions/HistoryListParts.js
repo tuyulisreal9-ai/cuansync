@@ -273,7 +273,7 @@ export function TransactionItem({
     <button
       type="button"
       onClick=${() => onOpen(transaction)}
-      className="history-transaction-item transaction-item group grid min-h-[66px] w-full grid-cols-[38px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-xl border px-2.5 py-2 text-left transition duration-200 hover:border-brand-300/30"
+      className="dc-row transaction-item group grid min-h-[66px] w-full grid-cols-[38px_minmax(0,1fr)_auto] items-center gap-[13px] px-4 py-[15px] text-left"
       aria-label=${`Buka detail ${title}`}
     >
       <span className=${`history-icon-badge flex h-[38px] w-[38px] items-center justify-center rounded-[10px] ring-1 transition duration-200 group-hover:scale-105 ${tone.historyIcon}`}>
@@ -281,19 +281,19 @@ export function TransactionItem({
       </span>
 
       <span className="min-w-0">
-        <span className="history-item-title block truncate text-[13px] font-black leading-5 text-slate-950 dark:text-white">
+        <span className="block truncate text-sm font-medium">
           ${title}
         </span>
-        <span className="history-item-meta mt-0.5 block truncate text-[10px] font-semibold leading-4 text-slate-500 dark:text-slate-400">
+        <span className="mt-0.5 block truncate text-xs" style=${{ color: "var(--cs-mut)" }}>
           ${metadata.join(" \u00b7 ")}
         </span>
       </span>
 
       <span className="min-w-0 max-w-[8rem] text-right">
-        <span className=${`block truncate text-[13px] font-black leading-5 ${tone.amount}`}>
+        <span className=${`dc-num block truncate text-[13.5px] ${tone.amount}`}>
           ${compactAmount.primary}
         </span>
-        <span className="history-item-secondary mt-0.5 block truncate text-[9px] font-bold uppercase text-slate-500 dark:text-slate-400">
+        <span className="mt-0.5 block truncate text-[11px]" style=${{ color: "var(--cs-mut)" }}>
           ${compactAmount.secondary}
         </span>
       </span>
@@ -303,7 +303,10 @@ export function TransactionItem({
 
 export function TransactionFilterTabs({ value, onChange }) {
   return html`
-    <div className="cuan-segment grid grid-cols-4 gap-1 rounded-xl p-1">
+    <div
+      className="grid min-w-0 flex-1 grid-cols-4 gap-[3px] rounded-[14px] p-1"
+      style=${{ background: "var(--cs-seg)" }}
+    >
       ${TRANSACTION_FILTER_TABS.map((tab) => {
         const active = value === tab.value;
         return html`
@@ -312,7 +315,10 @@ export function TransactionFilterTabs({ value, onChange }) {
             type="button"
             onClick=${() => onChange(tab.value)}
             aria-pressed=${active}
-            className=${`min-h-10 rounded-lg px-1.5 text-[11px] font-black transition duration-200 ${active ? "bg-brand-600 text-white shadow-[0_8px_22px_rgba(16,185,129,0.18)] dark:bg-emerald-500" : "text-slate-600 hover:bg-white/75 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"}`}
+            className="min-h-[38px] min-w-0 truncate rounded-[11px] px-1 text-[12.5px] font-bold transition"
+            style=${active
+              ? { background: "var(--cs-sel-bg)", color: "var(--cs-sel-fg)" }
+              : { background: "transparent", color: "var(--cs-body)" }}
           >
             ${tab.label}
           </button>
