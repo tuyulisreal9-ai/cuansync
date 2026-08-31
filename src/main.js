@@ -8,6 +8,7 @@ import { AuthRecoveryScreen, AuthScreen } from "./components/auth/index.js";
 import { WealthGoalsPage } from "./components/assets/index.js";
 import { ControlCenterPage } from "./components/control/index.js";
 import { HomeDashboardPage } from "./components/home/index.js";
+import { QuickEntrySheet } from "./components/transactions/QuickEntrySheet.js";
 import { DesktopRightPanel } from "./components/layout/index.js";
 import {
   DesktopNavigation,
@@ -2517,6 +2518,8 @@ function App() {
   const [movementInitialMode, setMovementInitialMode] = useState("exchange");
   const [assetFormRequest, setAssetFormRequest] = useState(0);
   const [budgetFocusCategoryKey, setBudgetFocusCategoryKey] = useState(null);
+  const [historyFocusCategory, setHistoryFocusCategory] = useState("");
+  const [quickEntryOpen, setQuickEntryOpen] = useState(false);
   const [transactionFabHintDismissed, setTransactionFabHintDismissed] = useState(() =>
     Boolean(readAppStorage("transactionFabHintDismissed", false)),
   );
@@ -5487,23 +5490,18 @@ function App() {
   const resolvedTheme = resolveThemeMode(theme, systemPrefersDark);
   const isDark = resolvedTheme === "dark";
   const menuActiveTab = activeTab === "control" ? "overview" : activeTab;
-  const menuTabClass = (tab) =>
+  const menuTabStyle = (tab) =>
     tab === menuActiveTab
-      ? "bg-brand-600 text-white shadow-[0_16px_40px_rgba(16,185,129,0.22)] dark:bg-emerald-500 dark:text-white"
-      : isDark
-        ? "bg-slate-900/88 text-slate-100 hover:bg-slate-800 hover:text-white"
-        : "bg-white/70 text-slate-700 hover:bg-white hover:text-slate-950";
+      ? { background: "var(--cs-sel-bg)", color: "var(--cs-sel-fg)" }
+      : { background: "var(--cs-card)", color: "var(--cs-body)" };
   const menuPanelClass =
     "cuan-menu fixed right-3 top-20 z-30 max-h-[calc(100svh-6rem)] w-[min(18rem,calc(100vw-1.5rem))] overflow-y-auto rounded-[24px] p-3 md:right-4 md:top-24 md:w-[min(20rem,calc(100vw-2rem))] md:rounded-[28px] md:p-4";
   const menuProfileCardClass =
     "cuan-menu-card flex items-center gap-3 rounded-2xl p-3";
-  const navigationTabs = [
-    { key: "overview", label: "Beranda" },
-    { key: "investment", label: "Dompet" },
-    { key: "budget", label: "Anggaran" },
-    { key: "history", label: "Riwayat" },
-    { key: "settings", label: "Pengaturan" },
-  ];
+  /* Beranda, Dompet, Anggaran, dan Riwayat sudah punya tempat tetap di
+     navigasi bawah, jadi mengulangnya di menu profil hanya menggandakan jalan
+     yang sama. Yang tersisa di sini hanya tujuan yang tidak ada di bawah. */
+  const navigationTabs = [{ key: "settings", label: "Pengaturan" }];
   const historyTransactions = [...orderTransactions(transactions)].reverse();
   const walletBalances = {
     ...metrics.currencyBalances,
@@ -5670,6 +5668,21 @@ function App() {
     writeAppStorage("transactionFabHintDismissed", true);
   }
 
+  // Catat cepat: sheet keypad untuk pemasukan dan pengeluaran sederhana.
+  // Transfer, tukar mata uang, dan pengaturan detail tetap lewat form lengkap.
+  function openQuickEntry() {
+    if (!spendableAssetAccounts.length) {
+      setToast({
+        message: "Tambahkan dompet terlebih dahulu sebelum mencatat transaksi.",
+        tone: "warning",
+      });
+      openAssetFormFromQuickAction();
+      return;
+    }
+    dismissTransactionFabHint();
+    setQuickEntryOpen(true);
+  }
+
   function openTransactionForm(entryType = "expense", target = null) {
     if (!spendableAssetAccounts.length) {
       setToast({
@@ -5721,9 +5734,12 @@ function App() {
     navigateAppTab(transactionReturnTab || "overview");
   }
 
+  /* Tombol + di navigasi langsung membuka Catat transaksi. Sebelumnya ia
+     membuka menu Aksi cepat yang menawarkan tambah dompet dan lainnya, jadi
+     mencatat uang butuh dua ketukan. Alur tambah dompet tetap tersedia dari
+     halaman Dompet. */
   function openQuickActionMenu() {
-    dismissTransactionFabHint();
-    setQuickActionOpen(true);
+    openQuickEntry();
   }
 
   function openAssetFormFromQuickAction() {
@@ -5778,14 +5794,12 @@ function App() {
               loading=${loading}
               onBudgetDelete=${handleDeleteBudget}
               onBudgetSubmit=${handleSaveBudget}
-              onCreateGoal=${handleCreateGoal}
-              onUpdateGoal=${handleUpdateGoal}
-              onDeleteGoal=${handleDeleteGoal}
-              onArchiveGoal=${handleArchiveGoal}
-              onGoalActivity=${handleGoalActivity}
-              onMoveAllocation=${handleMoveGoalAllocation}
-              onUseGoal=${(goal) => openTransactionForm("expense", goal)}
               focusCategoryKey=${budgetFocusCategoryKey}
+              onNavigate=${navigateAppTab}
+              onOpenCategoryHistory=${(budget) => {
+                setHistoryFocusCategory(budget.categoryKey || "");
+                navigateAppTab("history");
+              }}
             />
           </section>
         `
@@ -5848,6 +5862,10 @@ function App() {
                   emptyHint="Mulai dari satu transaksi kecil. Setelah itu, CUANSYNC bisa menampilkan riwayat dan laporan yang lebih berguna."
                   emptyActionLabel="Tambah transaksi"
                   onEmptyAction=${() => openTransactionForm("expense")}
+                  monthLabel=${metrics.currentMonthLabel}
+                  monthlyIncome=${Number(metrics.monthlyIncomeIdr || 0)}
+                  monthlyExpense=${Number(metrics.monthlyExpenseIdr || 0)}
+                  focusCategory=${historyFocusCategory}
                 />
               </section>
             `
@@ -5863,11 +5881,12 @@ function App() {
                     valuationsByCurrency=${walletValuationsByCurrency}
                     totalValueBase=${walletTotalValueBase}
                     visible=${balanceVisible}
+                    onToggleVisible=${handleToggleBalanceVisibility}
                     fallbackRate=${latestTransactionRate}
                     onNavigate=${navigateAppTab}
                     canTransfer=${hasTransferPair}
                     canExchange=${hasExchangePair}
-                    onAddTransaction=${() => openTransactionForm("expense")}
+                    onAddTransaction=${openQuickEntry}
                     onExchange=${(mode) => openMovementWorkspace(mode)}
                     onAddWallet=${openAssetFormFromQuickAction}
                   />
@@ -5926,7 +5945,10 @@ function App() {
                         onDeleteAssetAccount=${handleDeleteAssetAccount}
                         onSetPrimaryAccount=${handleSetPrimaryAccount}
                         onCreateGoal=${handleCreateGoal}
+                        onUpdateGoal=${handleUpdateGoal}
                         onDeleteGoal=${handleDeleteGoal}
+                        onArchiveGoal=${handleArchiveGoal}
+                        onMoveAllocation=${handleMoveGoalAllocation}
                         onContribute=${handleAddGoalProgress}
                         onUseGoal=${(goal) => openTransactionForm("expense", goal)}
                         onOpenGoals=${() => navigateAppTab("budget")}
@@ -5944,7 +5966,7 @@ function App() {
     activeTab === "budget";
 
   return html`
-    <main className="app-shell relative isolate min-h-screen overflow-x-clip px-3 pt-3 md:px-5 md:py-5 lg:px-6 lg:pt-6">
+    <main className="app-shell relative isolate min-h-screen overflow-x-clip px-6 pt-2 md:px-6 md:py-5 lg:px-6 lg:pt-6">
       <${PremiumMeshBackground} />
       <${ToastMessage} toast=${toast} onDismiss=${() => setToast(null)} />
       <div className="cs-workspace relative z-10 mx-auto max-w-[1440px] lg:grid lg:grid-cols-[76px_minmax(0,1fr)] lg:items-start lg:gap-4">
@@ -5977,6 +5999,12 @@ function App() {
           activeTab === "budget" ||
           activeTab === "history"}
           historyCompact=${activeTab === "history"}
+          activeTab=${activeTab}
+          userName=${(profile?.full_name || user?.user_metadata?.full_name || "")
+            .trim()
+            .split(" ")[0] || ""}
+          onBack=${() =>
+            navigateAppTab(activeTab === "control" ? "budget" : "overview")}
         />
 
         ${menuOpen
@@ -5996,16 +6024,22 @@ function App() {
                 <div className=${menuProfileCardClass}>
                   <${AvatarBadge} src=${profilePhoto} initials=${userInitials} size="md" />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-950 dark:text-white">
+                    <p
+                      className="truncate text-sm font-bold"
+                      style=${{ color: "var(--cs-ink)" }}
+                    >
                       ${userDisplayName}
                     </p>
-                    <p className="truncate text-xs text-slate-500 dark:text-slate-300">
+                    <p
+                      className="truncate text-xs"
+                      style=${{ color: "var(--cs-mut)" }}
+                    >
                       ${user?.email || "Demo Lokal"}
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-4 space-y-2">
+                <div className="mt-3 space-y-2">
                   ${navigationTabs.map(
                     (tab) => html`
                       <button
@@ -6015,10 +6049,16 @@ function App() {
                           setActiveTab(tab.key);
                           setMenuOpen(false);
                         }}
-                        className=${`flex min-h-11 w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${menuTabClass(tab.key)}`}
+                        className="dc-press dc-press-96 flex min-h-11 w-full items-center justify-between rounded-[14px] border px-4 py-3 text-left text-[13.5px] font-medium"
+                        style=${{
+                          ...menuTabStyle(tab.key),
+                          borderColor:
+                            menuActiveTab === tab.key
+                              ? "transparent"
+                              : "var(--cs-line)",
+                        }}
                       >
                         <span>${tab.label}</span>
-                        ${menuActiveTab === tab.key ? html`<span>Aktif</span>` : null}
                       </button>
                     `,
                   )}
@@ -6071,9 +6111,20 @@ function App() {
         open=${quickActionOpen}
         canExchange=${hasExchangePair}
         onClose=${() => setQuickActionOpen(false)}
-        onAddTransaction=${() => openTransactionForm("expense")}
+        onAddTransaction=${openQuickEntry}
         onExchange=${() => openMovementWorkspace("exchange")}
         onAddWallet=${openAssetFormFromQuickAction}
+      />
+
+      <${QuickEntrySheet}
+        open=${quickEntryOpen}
+        onClose=${() => setQuickEntryOpen(false)}
+        onSubmit=${handleCreateTransaction}
+        loading=${loading}
+        accounts=${spendableAssetAccounts}
+        categories=${CATEGORY_OPTIONS}
+        baseCurrency=${walletBaseCurrency}
+        onOpenFullForm=${(entryType) => openTransactionForm(entryType)}
       />
     </main>
   `;

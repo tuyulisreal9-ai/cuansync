@@ -13,6 +13,58 @@ import {
 
 const html = htm.bind(React.createElement);
 
+/* Skor dan statusnya sudah dihitung buildScoring() di domain/control.js —
+   panel ini hanya menampilkannya, tidak menghitung ulang apa pun. Ketika ada
+   pilar yang datanya belum lengkap, buildScoring mengembalikan score null dan
+   panel jujur menyatakan skor belum bisa dinilai. */
+function ScorePanel({ scoring }) {
+  const score = scoring?.score;
+  const hasScore = Number.isFinite(score);
+  const ratio = hasScore ? Math.min(Math.max(score / 100, 0), 1) : 0;
+  const pending = (scoring?.pillars || []).filter((pillar) => !pillar.evaluable);
+
+  return html`
+    <section className="dc-panel flex flex-col gap-[18px] p-[22px]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex flex-col gap-[7px]">
+          <span className="text-[13px] text-[#9c968b]">Skor keuanganmu</span>
+          <div className="flex items-end gap-[7px]">
+            <span className="dc-num text-[36px] leading-none tracking-[-1.6px]">
+              ${hasScore ? score : "—"}
+            </span>
+            <span className="pb-[5px] text-[13px] text-[#9c968b]">dari 100</span>
+          </div>
+        </div>
+        <span
+          className="shrink-0 whitespace-nowrap rounded-full px-[11px] py-[7px] text-[11.5px] font-bold"
+          style=${{
+            background: "rgba(250,247,241,0.1)",
+            color: hasScore ? "var(--cs-pos)" : "#9c968b",
+          }}
+        >
+          ${scoring?.status || "Belum cukup data"}
+        </span>
+      </div>
+      <div
+        className="h-2.5 overflow-hidden rounded-full"
+        style=${{ background: "rgba(250,247,241,0.14)" }}
+      >
+        <div
+          className="h-full rounded-full"
+          style=${{ width: `${ratio * 100}%`, background: "var(--cs-acc)" }}
+        ></div>
+      </div>
+      <span className="text-[12.5px] leading-[1.5] text-[#9c968b]">
+        ${hasScore
+          ? `Kelengkapan data ${scoring.completeness}%. Skor dihitung dari anggaran, arus kas, daya tahan dana, dan tagihan rutin.`
+          : `Skor belum bisa dinilai karena ${pending
+              .map((pillar) => pillar.label)
+              .join(", ") || "sebagian data"} belum lengkap.`}
+      </span>
+    </section>
+  `;
+}
+
 export function ControlCenterPage({
   summary,
   visible = true,
@@ -22,24 +74,7 @@ export function ControlCenterPage({
 }) {
   return html`
     <div className="mx-auto grid w-full max-w-md gap-3 pb-[calc(7rem+env(safe-area-inset-bottom))] lg:pb-6">
-      <header className="flex min-h-11 items-center gap-3">
-        <button
-          type="button"
-          onClick=${() => onNavigate("overview")}
-          aria-label="Kembali ke Beranda"
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-200 text-slate-600 transition hover:bg-slate-100 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800"
-        >
-          <${ArrowLeft} aria-hidden="true" className="h-4 w-4" />
-        </button>
-        <div className="min-w-0">
-          <h1 className="text-base font-black text-slate-950 dark:text-white">
-            Pusat Kontrol
-          </h1>
-          <p className=${`text-[10px] ${CONTROL_MUTED}`}>
-            ${summary.monthLabel}
-          </p>
-        </div>
-      </header>
+      <${ScorePanel} scoring=${summary.scoring} />
 
       <${ControlCoachCard}
         summary=${summary}

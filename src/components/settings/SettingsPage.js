@@ -29,16 +29,18 @@ function SettingsSwitch({ checked, onChange, label }) {
       aria-checked=${checked}
       aria-label=${label}
       onClick=${() => onChange(!checked)}
-      className=${`relative inline-flex h-11 min-h-11 w-16 shrink-0 items-center rounded-full border p-2 transition focus:outline-none focus:ring-2 focus:ring-emerald-500/60 ${
+      className="dc-press relative inline-flex h-11 min-h-11 w-16 shrink-0 items-center rounded-full border p-2 focus:outline-none"
+      style=${
         checked
-          ? "border-emerald-400/50 bg-emerald-500 shadow-[0_12px_28px_rgba(16,185,129,0.22)]"
-          : "border-slate-300/80 bg-slate-200/80 dark:border-white/10 dark:bg-slate-800"
-      }`}
+          ? { background: "var(--cs-acc)", borderColor: "transparent" }
+          : { background: "var(--cs-track)", borderColor: "var(--cs-line)" }
+      }
     >
       <span
-        className=${`h-6 w-6 rounded-full bg-white shadow-sm transition ${
+        className=${`h-6 w-6 rounded-full transition ${
           checked ? "translate-x-6" : "translate-x-0"
         }`}
+        style=${{ background: checked ? "var(--cs-on-acc)" : "var(--cs-card)" }}
       ></span>
     </button>
   `;
@@ -63,12 +65,18 @@ function SettingsRow({
   const content = html`
     <${React.Fragment}>
       <span className="min-w-0 flex-1">
-        <span className=${`block truncate text-sm font-black ${danger ? "text-rose-600 dark:text-rose-300" : "text-slate-950 dark:text-white"}`}>
+        <span
+          className="block truncate text-sm font-medium"
+          style=${{ color: danger ? "var(--cs-danger)" : "var(--cs-ink)" }}
+        >
           ${label}
         </span>
         ${helper
           ? html`
-              <span className="mt-0.5 block truncate text-xs font-semibold text-slate-500 dark:text-slate-400">
+              <span
+                className="mt-0.5 block truncate text-xs"
+                style=${{ color: "var(--cs-mut)" }}
+              >
                 ${helper}
               </span>
             `
@@ -77,7 +85,10 @@ function SettingsRow({
       <span className=${rightClass}>
         ${value
           ? html`
-              <span className="max-w-[9rem] truncate text-right text-sm font-bold text-slate-500 dark:text-slate-300">
+              <span
+                className="max-w-[9rem] truncate text-right text-[13.5px]"
+                style=${{ color: "var(--cs-body)" }}
+              >
                 ${value}
               </span>
             `
@@ -85,8 +96,13 @@ function SettingsRow({
         ${right}
         ${onClick
           ? html`
-              <span className=${`text-lg font-black ${danger ? "text-rose-400" : "text-slate-400 dark:text-slate-500"}`}>
-                >
+              <span
+                className="text-base"
+                style=${{
+                  color: danger ? "var(--cs-danger)" : "var(--cs-faint)",
+                }}
+              >
+                ›
               </span>
             `
           : null}
@@ -100,7 +116,7 @@ function SettingsRow({
         type="button"
         onClick=${onClick}
         disabled=${disabled}
-        className=${`${rowClass} text-left transition hover:bg-slate-950/[0.035] disabled:cursor-not-allowed disabled:opacity-55 dark:hover:bg-white/[0.045]`}
+        className=${`${rowClass} dc-press text-left disabled:cursor-not-allowed disabled:opacity-55`}
       >
         ${content}
       </button>
@@ -114,13 +130,22 @@ function SettingsRow({
   `;
 }
 
+/* Desain memakai judul seksi 15px/700 dengan padding 0 2px, lalu kartu
+   radius 24. Gaya lama memakai kapital kecil 11px bertracking lebar yang
+   tidak ada di artifact. */
 function SettingsSection({ title, children }) {
   return html`
-    <section className="w-full min-w-0 max-w-full">
-      <h3 className="px-1 text-[11px] font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+    <section className="flex w-full min-w-0 max-w-full flex-col gap-2.5">
+      <h3
+        className="px-0.5 text-[15px] font-bold"
+        style=${{ color: "var(--cs-ink)" }}
+      >
         ${title}
       </h3>
-      <div className="cuan-card-soft mt-2 w-full min-w-0 max-w-full divide-y divide-slate-200/70 overflow-hidden rounded-[24px] dark:divide-white/10">
+      <div
+        className="dc-card w-full min-w-0 max-w-full divide-y overflow-hidden"
+        style=${{ borderColor: "var(--cs-line)" }}
+      >
         ${children}
       </div>
     </section>
@@ -136,18 +161,29 @@ function ProfileSummaryRow({ profile, user, avatarSrc, onClick }) {
     <button
       type="button"
       onClick=${onClick}
-      className="cuan-card-soft flex min-h-[68px] w-full items-center gap-3 rounded-[24px] px-3 py-3 text-left transition hover:-translate-y-0.5 hover:border-emerald-400/30"
+      className="dc-card dc-press dc-press-96 flex w-full items-center gap-3.5 p-[18px] text-left"
     >
       <${AvatarBadge} src=${avatarSrc} initials=${initials} size="md" />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-base font-black text-slate-950 dark:text-white">
+        <span
+          className="block truncate text-base font-bold"
+          style=${{ color: "var(--cs-ink)" }}
+        >
           ${displayName}
         </span>
-        <span className="mt-0.5 block truncate text-xs font-semibold text-slate-500 dark:text-slate-400">
+        <span
+          className="mt-0.5 block truncate text-[12.5px]"
+          style=${{ color: "var(--cs-mut)" }}
+        >
           ${email}
         </span>
       </span>
-      <span className="shrink-0 text-lg font-black text-slate-400 dark:text-slate-500">></span>
+      <span
+        className="shrink-0 text-[12.5px] font-bold"
+        style=${{ color: "var(--cs-link)" }}
+      >
+        Ubah
+      </span>
     </button>
   `;
 }
@@ -578,11 +614,12 @@ function ThemeSegmentedControl({ value, onChange }) {
           key=${option.key}
           type="button"
           onClick=${() => onChange(option.key)}
-          className=${`min-h-11 rounded-[14px] px-2 text-xs font-black transition ${
+          className="dc-press dc-press-96 min-h-10 rounded-[11px] px-2 text-[13px] font-bold"
+          style=${
             normalizedValue === option.key
-              ? "bg-brand-600 text-white shadow-[0_12px_28px_rgba(16,185,129,0.22)] dark:bg-emerald-500"
-              : "text-slate-600 hover:bg-white/70 hover:text-slate-950 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-white"
-          }`}
+              ? { background: "var(--cs-sel-bg)", color: "var(--cs-sel-fg)" }
+              : { background: "transparent", color: "var(--cs-body)" }
+          }
         >
           ${option.label}
         </button>
@@ -636,15 +673,9 @@ export function SettingsPage({
 
   return html`
     <div className="settings-page mx-auto grid w-full min-w-0 max-w-2xl gap-4 overflow-x-clip pb-[calc(110px+env(safe-area-inset-bottom))] md:pb-6">
-      <div className="px-1">
-        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-emerald-600 dark:text-emerald-300">
-          CUANSYNC
-        </p>
-        <h2 className="mt-1 font-display text-2xl font-black text-slate-950 dark:text-white">
-          Pengaturan
-        </h2>
-      </div>
-
+      ${/* Judul halaman sudah ditampilkan header shell, jadi judul kedua di
+            dalam halaman hanya mengulang. Desain memulai layar ini langsung
+            dari kartu profil. */ null}
       <${ProfileSummaryRow}
         profile=${profile}
         user=${user}

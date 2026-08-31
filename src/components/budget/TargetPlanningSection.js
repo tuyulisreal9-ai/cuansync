@@ -8,7 +8,6 @@ import {
   GOAL_TYPE_COLLECT_BY_DATE,
   GOAL_TYPE_HOLD_BALANCE,
   GOAL_PROTECTION_MODES,
-  GOAL_TYPES,
   getDefaultGoalFundingAccountId,
   getGoalFundingAccountOptions,
 } from "../../domain/goals.js";
@@ -98,6 +97,12 @@ export function TargetForm({
     spending_reduces_progress: goal?.spendingReducesProgress ?? true,
     note: goal?.note || "",
   }));
+  /* Batas waktu dan catatan disembunyikan sampai diminta, supaya form baru
+     hanya tiga baris. Saat mengedit tabungan yang sudah punya salah satunya,
+     bagian ini langsung terbuka agar isinya tidak tersembunyi. */
+  const [detailsOpen, setDetailsOpen] = useState(
+    Boolean(goal?.deadline || goal?.note),
+  );
   const currency = normalizeCurrencyCode(form.currency);
   const compatibleAccounts = accounts.filter(
     (account) =>
@@ -105,19 +110,6 @@ export function TargetForm({
       account.is_allocatable !== false &&
       !account.is_archived,
   );
-  const selectedAccount = compatibleAccounts.find(
-    (account) => account.id === form.account_id,
-  );
-  const unallocated = Number(
-    selectedAccount?.availableBalance ?? selectedAccount?.balance_amount ?? 0,
-  );
-  const initialAllocation = Number(
-    normalizeNumericInput(form.initial_allocation),
-  );
-  const allocationInvalid =
-    !editing &&
-    (initialAllocation > unallocated + 0.0001 ||
-      (initialAllocation > 0 && !selectedAccount));
 
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -125,14 +117,22 @@ export function TargetForm({
 
   async function submit(event) {
     event.preventDefault();
-    if (allocationInvalid) return;
+    const hasDeadline = String(form.deadline || "").trim().length > 0;
     const ok = await onSubmit({
       ...form,
+      /* Jenis diturunkan dari batas waktu untuk tabungan baru. Saat mengedit,
+         nilai tersimpan dipertahankan supaya tipe tabungan lama tidak berubah
+         hanya karena batas waktunya disunting. */
+      target_type: editing
+        ? form.target_type
+        : hasDeadline
+          ? GOAL_TYPE_COLLECT_BY_DATE
+          : GOAL_TYPE_HOLD_BALANCE,
       target_amount: normalizeNumericInput(form.target_amount),
       target_amount_idr: normalizeNumericInput(form.target_amount),
-      initial_allocation: editing
-        ? 0
-        : normalizeNumericInput(form.initial_allocation),
+      /* Alokasi awal selalu nol: pengisian dana dilakukan lewat aksi
+         "Sisihkan" setelah tabungan dibuat. */
+      initial_allocation: 0,
       account_id: form.account_id || null,
     });
     if (ok) onCancel();
@@ -151,29 +151,11 @@ export function TargetForm({
         />
       </label>
 
-      <fieldset>
-        <legend className="cs-entry-label">Jenis tabungan</legend>
-        <div className="grid grid-cols-2 gap-2">
-          ${GOAL_TYPES.map(
-            (type) => html`
-              <button
-                key=${type.value}
-                type="button"
-                aria-pressed=${form.target_type === type.value}
-                onClick=${() => updateField("target_type", type.value)}
-                className=${`min-h-11 rounded-lg border px-2 py-2 text-xs font-bold transition ${
-                  form.target_type === type.value
-                    ? "border-emerald-400 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-                    : "border-slate-300 bg-white/60 text-slate-700 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300"
-                }`}
-              >
-                ${type.label}
-              </button>
-            `,
-          )}
-        </div>
-      </fieldset>
-
+      ${/* "Jenis tabungan" dihapus karena redundan: nilainya hanya
+            hold_balance atau collect_by_date, dan itu sudah tersirat dari ada
+            tidaknya batas waktu. Menurunkannya otomatis juga menutup celah
+            input yang bertentangan, misalnya jenis "Kumpulkan Sampai Tanggal"
+            tetapi batas waktunya kosong. Lihat penurunan nilainya di submit. */ null}
       <div className="grid grid-cols-[0.75fr_1.25fr] gap-2">
         <div className="block">
           <span className="cs-entry-label">Mata uang</span>
@@ -224,86 +206,59 @@ export function TargetForm({
               </select>
             </label>
 
-            <fieldset>
-              <legend className="cs-entry-label">Perlindungan saldo</legend>
-              <div className="grid gap-2">
-                ${GOAL_PROTECTION_MODES.map(
-                  (mode) => html`
-                    <button
-                      key=${mode.value}
-                      type="button"
-                      aria-pressed=${form.protection_mode === mode.value}
-                      onClick=${() => updateField("protection_mode", mode.value)}
-                      className=${`rounded-lg border p-3 text-left transition ${
-                        form.protection_mode === mode.value
-                          ? "border-emerald-400 bg-emerald-500/12"
-                          : "border-slate-300 bg-white/50 dark:border-slate-700 dark:bg-slate-900/40"
-                      }`}
-                    >
-                      <strong className="block text-xs text-slate-950 dark:text-white">${mode.label}</strong>
-                      <span className="mt-1 block text-[10px] leading-4 text-slate-600 dark:text-slate-400">${mode.description}</span>
-                    </button>
-                  `,
-                )}
-              </div>
-            </fieldset>
+            ${/* "Perlindungan saldo" dihapus dari form. Nilainya tetap
+                  ditulis: tabungan baru memakai "flexible", dan saat mengedit
+                  nilai tersimpan dipertahankan lewat initial state form, supaya
+                  tabungan lama bermode "strict" tidak diturunkan diam-diam.
+                  protectionMode masih menggerakkan logika di domain/goals.js. */ null}
             </div>
           `
         : null}
 
-      <label className="block">
-        <span className="cs-entry-label">Batas waktu opsional</span>
-        <input
-          type="date"
-          value=${form.deadline}
-          onChange=${(event) => updateField("deadline", event.target.value)}
-          className=${INPUT_CLASS}
-        />
-      </label>
-
-      ${!editing
+      ${/* "Alokasi awal" dihapus. Tabungan dibuat kosong lalu diisi lewat aksi
+            "Sisihkan" dari dompet sumber, sesuai prinsip bahwa tabungan adalah
+            alokasi dari dompet, bukan saldo tambahan. */ null}
+      ${detailsOpen
         ? html`
-            <label className="block">
-              <span className="cs-entry-label">Alokasi awal opsional</span>
-              <input
-                inputMode="decimal"
-                value=${form.initial_allocation}
-                onChange=${(event) =>
-                  updateField(
-                    "initial_allocation",
-                    formatNumericInput(event.target.value),
-                  )}
-                placeholder="0"
-                className=${INPUT_CLASS}
-              />
-              <span
-                className=${`mt-1.5 block text-[10px] ${
-                  allocationInvalid
-                    ? "text-rose-700 dark:text-rose-300"
-                    : "text-slate-600 dark:text-slate-400"
-                }`}
-              >
-                Dana tersedia pada ${selectedAccount?.name || "akun yang dipilih"}:
-                ${formatCurrency(unallocated, currency)}
-              </span>
-            </label>
+            <div key="goal-details" className="grid gap-3">
+              <label className="block">
+                <span className="cs-entry-label">Batas waktu opsional</span>
+                <input
+                  type="date"
+                  value=${form.deadline}
+                  onChange=${(event) => updateField("deadline", event.target.value)}
+                  className=${INPUT_CLASS}
+                />
+              </label>
+
+              <label className="block">
+                <span className="cs-entry-label">Catatan opsional</span>
+                <textarea
+                  value=${form.note}
+                  onChange=${(event) => updateField("note", event.target.value)}
+                  placeholder="Keterangan singkat"
+                  className=${`${INPUT_CLASS} min-h-20 resize-none`}
+                ></textarea>
+              </label>
+            </div>
           `
-        : null}
+        : html`
+            <button
+              type="button"
+              onClick=${() => setDetailsOpen(true)}
+              className="dc-press dc-press-94 flex min-h-11 items-center justify-center text-[13px] font-medium"
+              style=${{ color: "var(--cs-link)" }}
+            >
+              + Batas waktu atau catatan
+            </button>
+          `}
 
-      <label className="block">
-        <span className="cs-entry-label">Catatan opsional</span>
-        <textarea
-          value=${form.note}
-          onChange=${(event) => updateField("note", event.target.value)}
-          placeholder="Keterangan singkat"
-          className=${`${INPUT_CLASS} min-h-20 resize-none`}
-        ></textarea>
-      </label>
-
-      <p className="rounded-lg border border-emerald-400/20 bg-emerald-500/8 px-3 py-2 text-[10px] leading-4 text-emerald-700 dark:text-emerald-300">
-        Ringkasan: ${form.account_id ? selectedAccount?.name : "rencana tanpa akun"},
-        perlindungan ${GOAL_PROTECTION_MODES.find((mode) => mode.value === form.protection_mode)?.label || "Fleksibel"}.
-        Alokasi tidak mengubah saldo aktual rekening.
+      <p
+        className="px-0.5 text-xs leading-[1.45]"
+        style=${{ color: "var(--cs-mut)" }}
+      >
+        Menyisihkan dana tidak mengubah saldo aktual dompet. Isi dananya lewat
+        "Sisihkan" setelah tabungan ini dibuat.
       </p>
 
       <${FormActionDock}>
@@ -311,14 +266,16 @@ export function TargetForm({
           <button
             type="button"
             onClick=${onCancel}
-            className="min-h-12 rounded-xl border border-slate-300 text-xs font-bold text-slate-700 dark:border-slate-700 dark:text-slate-300"
+            className="dc-press dc-press-96 min-h-12 rounded-[16px] border text-sm font-bold"
+            style=${{ borderColor: "var(--cs-line)", color: "var(--cs-body)" }}
           >
             Batal
           </button>
           <button
             type="submit"
-            disabled=${loading || allocationInvalid}
-            className="min-h-12 rounded-xl bg-emerald-500 px-3 text-xs font-black text-white disabled:opacity-50"
+            disabled=${loading}
+            className="dc-press dc-press-96 min-h-[52px] rounded-[17px] px-3 text-[15px] font-bold disabled:opacity-50"
+            style=${{ background: "var(--cs-acc)", color: "var(--cs-on-acc)" }}
           >
             ${editing ? "Simpan perubahan" : createLabel}
           </button>

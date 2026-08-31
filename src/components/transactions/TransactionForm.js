@@ -6,6 +6,7 @@ import React, {
 } from "react";
 import htm from "htm";
 import {
+  ArrowDown,
   ArrowDownLeft,
   ArrowLeftRight,
   ArrowRight,
@@ -979,6 +980,346 @@ export function TransactionForm({
     { value: "income", label: "Pemasukan", tone: "emerald", icon: ArrowDownLeft },
     { value: "expense", label: "Pengeluaran", tone: "rose", icon: ArrowUpRight },
   ];
+
+  /* Tampilan khusus "Kirim antar dompet" dan "Tukar mata uang" mengikuti
+     artifact desain. Yang berubah hanya markup: seluruh state, handler,
+     perhitungan kurs, validasi, dan payload memakai yang sudah ada di atas
+     supaya tidak ada logika yang bergeser. Ditempatkan sesudah semua hook
+     agar urutan hook React tetap sama di setiap render. */
+  if (workspace) {
+    const movementTitle = isTransfer ? "Kirim antar dompet" : "Tukar mata uang";
+    /* Desain menampilkan simbol mata uang ("Rp", "$"), bukan kodenya. Simbol
+       diturunkan dari hasil format nol karena registry tidak menyimpannya. */
+    const symbolOf = (code) =>
+      formatCurrency(0, code || baseCurrency)
+        .replace(/[\d.,\s]/g, "")
+        .trim() || (code || baseCurrency);
+    const fromSymbol = symbolOf(form.from_currency);
+    const toSymbol = symbolOf(form.to_currency);
+    const resultAmount = settledMovementForm.to_amount;
+
+    const walletChip = (account, active, onPick) => html`
+      <button
+        key=${account.id}
+        type="button"
+        onClick=${onPick}
+        aria-pressed=${active}
+        className="dc-press dc-press-94 flex min-h-11 flex-none flex-col justify-center gap-0.5 rounded-[14px] border px-3.5 text-left"
+        style=${active
+          ? {
+              background: "var(--cs-sel-bg)",
+              color: "var(--cs-sel-fg)",
+              borderColor: "var(--cs-sel-bg)",
+            }
+          : {
+              background: "var(--cs-card)",
+              color: "var(--cs-body)",
+              borderColor: "var(--cs-line)",
+            }}
+      >
+        <span className="whitespace-nowrap text-[12.5px] font-bold">
+          ${account.name}
+        </span>
+        <span className="whitespace-nowrap text-[10.5px] opacity-75">
+          ${formatMoney(
+            Number(account.balance_amount ?? account.balanceAmount ?? 0),
+            account.currency,
+          )}
+        </span>
+      </button>
+    `;
+
+    return html`
+      <div className="cs-movement-workspace flex w-full flex-col gap-4 pb-28">
+        <div className="flex items-center justify-between">
+          <span className="text-[17px] font-bold tracking-[-0.2px]">
+            ${movementTitle}
+          </span>
+          <button
+            type="button"
+            onClick=${onClose}
+            className="flex min-h-11 items-center pl-4 text-[13px]"
+            style=${{ color: "var(--cs-mut)" }}
+          >
+            Nanti
+          </button>
+        </div>
+
+        ${!spendableAccounts.length
+          ? html`
+              <div
+                className="dc-card flex flex-col gap-3 p-4 text-[13px] leading-[1.45]"
+                style=${{ color: "var(--cs-body)" }}
+              >
+                <p>
+                  Tambahkan minimal dua dompet aktif sebelum membuat transfer
+                  atau tukar mata uang.
+                </p>
+                ${onRequestAddWallet
+                  ? html`
+                      <button
+                        type="button"
+                        onClick=${onRequestAddWallet}
+                        className="dc-press dc-press-96 min-h-[52px] rounded-[17px] text-[15px] font-bold"
+                        style=${{
+                          background: "var(--cs-acc)",
+                          color: "var(--cs-on-acc)",
+                        }}
+                      >
+                        Tambah dompet
+                      </button>
+                    `
+                  : null}
+              </div>
+            `
+          : html`
+              <${React.Fragment}>
+              <div
+                className="dc-card flex flex-col gap-3 rounded-[20px] p-4"
+              >
+                <span className="text-xs" style=${{ color: "var(--cs-mut)" }}>
+                  Dari
+                </span>
+                <div className="dc-scroll-x flex gap-2 overflow-x-auto pb-0.5">
+                  ${spendableAccounts.map((account) =>
+                    walletChip(
+                      account,
+                      account.id === form.source_account_id,
+                      () => selectMovementAccount("source_account_id", account.id),
+                    ),
+                  )}
+                </div>
+                <div
+                  className="flex items-end gap-1.5 pb-2"
+                  style=${{ borderBottom: "1.5px solid var(--cs-line)" }}
+                >
+                  <span
+                    className="pb-[3px] text-[15px]"
+                    style=${{ color: "var(--cs-mut)" }}
+                  >
+                    ${fromSymbol}
+                  </span>
+                  <input
+                    inputMode="decimal"
+                    autoComplete="off"
+                    value=${form.from_amount}
+                    onChange=${(event) =>
+                      updateField(
+                        "from_amount",
+                        formatNumericInput(event.target.value),
+                      )}
+                    onBlur=${() => settleExchangeField("from_amount")}
+                    placeholder="0"
+                    className="dc-num min-w-0 flex-1 border-none bg-transparent p-0 text-[26px] tracking-[-0.8px] outline-none"
+                    style=${{ color: "var(--cs-ink)" }}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 px-1">
+                <span
+                  className="h-px flex-1"
+                  style=${{ background: "var(--cs-line)" }}
+                ></span>
+                <span
+                  className="flex h-8 w-8 flex-none items-center justify-center rounded-[11px]"
+                  style=${{ background: "var(--cs-chip)" }}
+                >
+                  <${ArrowDown}
+                    aria-hidden="true"
+                    className="h-4 w-4"
+                    style=${{ color: "var(--cs-body)" }}
+                    strokeWidth=${1.75}
+                  />
+                </span>
+                <span
+                  className="h-px flex-1"
+                  style=${{ background: "var(--cs-line)" }}
+                ></span>
+              </div>
+
+              <div className="dc-card flex flex-col gap-3 rounded-[20px] p-4">
+                <span className="text-xs" style=${{ color: "var(--cs-mut)" }}>
+                  Ke
+                </span>
+                <div className="dc-scroll-x flex gap-2 overflow-x-auto pb-0.5">
+                  ${movementDestinationOptions.length
+                    ? movementDestinationOptions.map((account) =>
+                        walletChip(
+                          account,
+                          account.id === form.destination_account_id,
+                          () =>
+                            selectMovementAccount(
+                              "destination_account_id",
+                              account.id,
+                            ),
+                        ),
+                      )
+                    : html`
+                        <span
+                          className="py-2 text-[12.5px]"
+                          style=${{ color: "var(--cs-mut)" }}
+                        >
+                          Tidak ada dompet yang sesuai
+                        </span>
+                      `}
+                </div>
+                <div className="flex items-baseline gap-1.5">
+                  <span
+                    className="text-[15px]"
+                    style=${{ color: "var(--cs-mut)" }}
+                  >
+                    ${toSymbol}
+                  </span>
+                  <span
+                    className="dc-num text-[26px] tracking-[-0.8px]"
+                    style=${{
+                      color: Number(normalizeNumericInput(resultAmount)) > 0
+                        ? "var(--cs-ink)"
+                        : "var(--cs-faint)",
+                    }}
+                  >
+                    ${resultAmount || "0"}
+                  </span>
+                </div>
+              </div>
+              <//>
+            `}
+
+        ${spendableAccounts.length && !isTransfer
+          ? html`
+              <div
+                className="flex flex-col gap-3 rounded-[14px] p-3.5"
+                style=${{ background: "var(--cs-chip)" }}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span
+                    className="text-xs"
+                    style=${{ color: "var(--cs-body)" }}
+                  >
+                    Kurs sekarang
+                  </span>
+                  <span
+                    className="dc-num whitespace-nowrap text-[12.5px]"
+                    style=${{ color: "var(--cs-mut)" }}
+                  >
+                    ${globalPairRate.exchangeRate
+                      ? `1 ${rateBaseCurrency} = ${formatMoney(
+                          Number(globalPairRate.exchangeRate),
+                          rateQuoteCurrency,
+                        )}`
+                      : "Kurs belum tersedia"}
+                  </span>
+                </div>
+                <span
+                  className="h-px"
+                  style=${{ background: "var(--cs-line)" }}
+                ></span>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span
+                      className="text-xs"
+                      style=${{ color: "var(--cs-body)" }}
+                    >
+                      Isi kurs sendiri
+                    </span>
+                    ${rateMode === "custom"
+                      ? html`
+                          <button
+                            type="button"
+                            onClick=${() => setRateMode("global")}
+                            className="text-[11.5px] font-bold"
+                            style=${{ color: "var(--cs-link)" }}
+                          >
+                            Pakai kurs app
+                          </button>
+                        `
+                      : null}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="dc-num whitespace-nowrap text-sm">
+                      1 ${rateBaseCurrency}
+                    </span>
+                    <span
+                      className="text-sm"
+                      style=${{ color: "var(--cs-mut)" }}
+                    >
+                      =
+                    </span>
+                    ${/* Saat memakai kurs app, kolom dibiarkan kosong dan kurs
+                          resmi tampil sebagai placeholder terformat. Nilai
+                          mentah punya presisi penuh (17857.143176020414) yang
+                          tidak enak dibaca dan bukan angka yang diketik
+                          pengguna. Begitu diketik, mode pindah ke custom dan
+                          nilai aslinya yang tampil. */ null}
+                    <input
+                      inputMode="decimal"
+                      autoComplete="off"
+                      value=${rateMode === "custom" ? form.exchange_rate : ""}
+                      onChange=${(event) => {
+                        if (rateMode !== "custom") setRateMode("custom");
+                        updateField("exchange_rate", event.target.value);
+                      }}
+                      onBlur=${() => settleExchangeField("exchange_rate")}
+                      placeholder=${globalPairRate.exchangeRate
+                        ? formatMoney(
+                            Number(globalPairRate.exchangeRate),
+                            rateQuoteCurrency,
+                          )
+                        : "0"}
+                      className="dc-num min-h-11 min-w-[96px] flex-1 rounded-xl border px-3 text-[15px] outline-none"
+                      style=${{
+                        background: "var(--cs-card)",
+                        borderColor: exchangeRateValidation.valid
+                          ? "var(--cs-line)"
+                          : "var(--cs-danger)",
+                        color: "var(--cs-ink)",
+                      }}
+                    />
+                    <span className="dc-num whitespace-nowrap text-sm">
+                      ${rateQuoteCurrency}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            `
+          : null}
+
+        <span
+          className="px-0.5 text-xs leading-[1.45]"
+          style=${{
+            color: sourceBalanceSufficient
+              ? "var(--cs-mut)"
+              : "var(--cs-danger)",
+          }}
+        >
+          ${!sourceBalanceSufficient
+            ? `Saldo ${sourceAccount?.name || "dompet asal"} tidak mencukupi.`
+            : "Isi jumlahnya dulu, nanti kelihatan uangnya masuk berapa."}
+        </span>
+
+        <div className="sticky bottom-0 -mx-1 flex flex-col px-1 pb-2 pt-3">
+          <button
+            type="button"
+            onClick=${handleSubmit}
+            disabled=${submitDisabled || loading}
+            className="dc-press dc-press-96 flex min-h-[52px] items-center justify-center rounded-[17px] text-[15px] font-bold"
+            style=${submitDisabled || loading
+              ? { background: "var(--cs-track)", color: "var(--cs-faint)" }
+              : { background: "var(--cs-acc)", color: "var(--cs-on-acc)" }}
+          >
+            ${loading
+              ? "Menyimpan..."
+              : submitDisabled
+                ? "Isi jumlahnya dulu"
+                : isTransfer
+                  ? "Kirim sekarang"
+                  : "Tukar sekarang"}
+          </button>
+        </div>
+      </div>
+    `;
+  }
 
   return html`
     <div className=${workspace

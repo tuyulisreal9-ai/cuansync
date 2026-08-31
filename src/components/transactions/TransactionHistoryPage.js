@@ -1,15 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import htm from "htm";
-import {
-  Download,
-  Search,
-  SlidersHorizontal,
-  X,
-} from "lucide-react";
 import { getLatestRateForCurrencyUntil } from "../../domain/exchange.js";
 import { transactionBelongsToAccount } from "../../domain/transactions.js";
 import {
   DEFAULT_BASE_CURRENCY,
+  formatCurrency,
   normalizeCurrencyCode,
 } from "../../lib/currency.js";
 import { getMonthKey } from "../../lib/dates.js";
@@ -56,6 +51,10 @@ export function TransactionHistoryPage({
   emptyHint = "Catat transaksi pertama agar riwayat, saldo, dan laporan mulai terisi.",
   emptyActionLabel = "Catat transaksi pertama",
   onEmptyAction = null,
+  monthLabel = "",
+  monthlyIncome = null,
+  monthlyExpense = null,
+  focusCategory = "",
 }) {
   const [filters, setFilters] = useState(() => ({ ...DEFAULT_TRANSACTION_FILTERS }));
   const [exportMonthKey, setExportMonthKey] = useState(getMonthKey(new Date()));
@@ -118,19 +117,6 @@ export function TransactionHistoryPage({
       ).length,
     [exportTransactions, exportMonthKey],
   );
-  const hiddenTransactionCount = Math.max(
-    filteredTransactions.length - visibleTransactions.length,
-    0,
-  );
-  const hasDateFilter = Boolean(filters.startDate || filters.endDate);
-  const rangeLabel = hasDateFilter ? getTransactionRangeLabel(filters) : "";
-  const historyCountLabel = !transactions.length
-    ? "0 transaksi"
-    : hasFilters
-      ? `${filteredTransactions.length} dari ${transactions.length} transaksi${hasDateFilter ? ` - ${rangeLabel}` : ""}`
-      : hiddenTransactionCount
-        ? `${visibleTransactions.length} terbaru dari ${transactions.length} transaksi`
-        : `${filteredTransactions.length} transaksi`;
   const categoryLabelByValue = useMemo(
     () => new Map(categoryOptions.map((option) => [option.value, option.label])),
     [categoryOptions],
@@ -212,6 +198,13 @@ export function TransactionHistoryPage({
     setShowAllHistory(false);
   }, [filters]);
 
+  // "Lihat transaksinya" dari halaman Jatah membuka Riwayat yang sudah
+  // tersaring ke kategori itu, bukan daftar penuh yang menyesatkan.
+  useEffect(() => {
+    if (!focusCategory) return;
+    setFilters((current) => ({ ...current, category: focusCategory }));
+  }, [focusCategory]);
+
   useEffect(() => {
     if (
       exportAccountId !== "all" &&
@@ -237,121 +230,129 @@ export function TransactionHistoryPage({
 
   return html`
     <div className="history-page grid gap-2.5 pb-[calc(5.75rem+env(safe-area-inset-bottom))] lg:pb-0">
-      <section
-        className="history-filter-panel rounded-2xl border p-2.5"
-        aria-label="Pencarian dan penyaring transaksi"
-      >
-        <div className="grid gap-2.5">
-          <label className="relative block">
-            <span className="sr-only">Cari transaksi</span>
-            <${Search}
-              aria-hidden="true"
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
-            />
-            <input
-              type="search"
-              autoComplete="off"
-              placeholder="Cari transaksi"
-              value=${filters.search}
-              onChange=${(event) => updateFilter("search", event.target.value)}
-              className="cuan-input min-h-11 w-full rounded-xl py-2 pl-9 pr-12 text-sm transition"
-            />
-            ${filters.search
-              ? html`
-                  <button
-                    type="button"
-                    onClick=${() => updateFilter("search", "")}
-                    aria-label="Hapus pencarian"
-                    className="absolute right-0 top-1/2 inline-flex h-11 min-h-11 w-11 -translate-y-1/2 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-200/70 dark:hover:bg-white/10"
-                  >
-                    <${X} aria-hidden="true" className="h-4 w-4" />
-                  </button>
-                `
-              : null}
-          </label>
-          <${TransactionFilterTabs}
-            value=${filters.type}
-            onChange=${(value) => updateFilter("type", value)}
-          />
-          <div className="flex min-h-9 items-center justify-between gap-2 border-t border-slate-200/70 pt-2 dark:border-white/10">
-            <p className="min-w-0 truncate text-[11px] font-bold text-slate-500 dark:text-slate-400">
-              ${historyCountLabel}
-            </p>
-            <div className="flex shrink-0 items-center gap-1.5">
-              ${!hasFilters && filteredTransactions.length > HISTORY_VISIBLE_LIMIT
-                ? html`
-                    <button
-                      type="button"
-                      onClick=${() => setShowAllHistory((current) => !current)}
-                      className="min-h-11 rounded-lg px-2 text-[10px] font-black text-emerald-600 transition hover:bg-emerald-500/10 dark:text-emerald-300"
-                    >
-                      ${showAllHistory ? "Ringkas" : "Lihat semua"}
-                    </button>
-                  `
-                : null}
-              <button
-                type="button"
-                onClick=${() => setFilterSheetOpen(true)}
-                className="cuan-secondary inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2.5 text-[10px] font-black transition"
-              >
-                <${SlidersHorizontal} aria-hidden="true" className="h-3.5 w-3.5" />
-                ${advancedFilterCount ? `Filter (${advancedFilterCount})` : "Filter"}
-              </button>
-              <button
-                type="button"
-                onClick=${() => setExportSheetOpen(true)}
-                aria-label="Unduh mutasi"
-                title="Unduh mutasi"
-                className="cuan-secondary inline-flex h-11 min-h-11 w-11 items-center justify-center rounded-lg transition"
-              >
-                <${Download} aria-hidden="true" className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-          ${activeFilterChips.length
+      ${Number.isFinite(monthlyIncome) && Number.isFinite(monthlyExpense)
+        ? html`
+            <section className="dc-panel flex gap-4 p-[18px]">
+              <div className="flex flex-1 flex-col gap-1">
+                <span className="text-[11.5px] text-[#9c968b]">
+                  Masuk ${monthLabel}
+                </span>
+                <span
+                  className="dc-num text-[16px]"
+                  style=${{ color: "var(--cs-pos)" }}
+                >
+                  +${formatCurrency(monthlyIncome, normalizeCurrencyCode(baseCurrency))}
+                </span>
+              </div>
+              <div
+                className="w-px shrink-0"
+                style=${{ background: "rgba(250,247,241,0.14)" }}
+              ></div>
+              <div className="flex flex-1 flex-col gap-1">
+                <span className="text-[11.5px] text-[#9c968b]">
+                  Keluar ${monthLabel}
+                </span>
+                <span className="dc-num text-[16px]">
+                  −${formatCurrency(monthlyExpense, normalizeCurrencyCode(baseCurrency))}
+                </span>
+              </div>
+            </section>
+          `
+        : null}
+
+      <div className="flex items-center gap-2.5" aria-label="Penyaring transaksi">
+        <${TransactionFilterTabs}
+          value=${filters.type}
+          onChange=${(value) => updateFilter("type", value)}
+        />
+        <button
+          type="button"
+          onClick=${() => setFilterSheetOpen(true)}
+          aria-label=${advancedFilterCount
+            ? `Saring riwayat, ${advancedFilterCount} filter aktif`
+            : "Saring riwayat"}
+          className="relative flex h-[46px] w-[46px] shrink-0 flex-col items-center justify-center gap-[3.5px] rounded-[15px] border"
+          style=${advancedFilterCount
+            ? { background: "var(--cs-sel-bg)", borderColor: "var(--cs-sel-bg)" }
+            : { background: "var(--cs-card)", borderColor: "var(--cs-line)" }}
+        >
+          ${[16, 11, 6].map(
+            (width) => html`
+              <span
+                key=${width}
+                className="block h-[1.6px] rounded-sm"
+                style=${{
+                  width: `${width}px`,
+                  background: advancedFilterCount
+                    ? "var(--cs-sel-fg)"
+                    : "var(--cs-body)",
+                }}
+              ></span>
+            `,
+          )}
+          ${advancedFilterCount
             ? html`
-                <div className="flex flex-wrap gap-1.5" aria-label="Filter aktif">
-                  ${activeFilterChips.map(
-                    (chip) => html`
-                      <button
-                        key=${chip.key}
-                        type="button"
-                        onClick=${chip.clear}
-                        className="inline-flex min-h-11 max-w-full items-center gap-1 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2 text-[10px] font-bold text-emerald-700 dark:text-emerald-300"
-                        aria-label=${`Hapus filter ${chip.label}`}
-                      >
-                        <span className="truncate">${chip.label}</span>
-                        <${X} aria-hidden="true" className="h-3 w-3 shrink-0" />
-                      </button>
-                    `,
-                  )}
-                  <button
-                    type="button"
-                    onClick=${resetFilters}
-                    className="min-h-11 rounded-lg px-2 text-[10px] font-black text-slate-500 transition hover:bg-slate-200/60 dark:text-slate-400 dark:hover:bg-white/10"
-                  >
-                    Reset filter
-                  </button>
-                </div>
+                <span
+                  className="absolute -right-[5px] -top-[5px] flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-[10px] font-bold"
+                  style=${{ background: "var(--cs-acc)", color: "var(--cs-on-acc)" }}
+                >
+                  ${advancedFilterCount}
+                </span>
               `
             : null}
-        </div>
-      </section>
+        </button>
+      </div>
 
-      <section className="history-list-panel rounded-2xl p-2">
+      ${activeFilterChips.length
+        ? html`
+            <div className="flex flex-wrap items-center gap-2" aria-label="Filter aktif">
+              ${activeFilterChips.map(
+                (chip) => html`
+                  <button
+                    key=${chip.key}
+                    type="button"
+                    onClick=${chip.clear}
+                    aria-label=${`Hapus filter ${chip.label}`}
+                    className="inline-flex min-h-8 max-w-full items-center gap-2 rounded-full px-3 text-xs font-medium"
+                    style=${{ background: "var(--cs-seg)", color: "var(--cs-body)" }}
+                  >
+                    <span className="truncate">${chip.label}</span>
+                    <span
+                      aria-hidden="true"
+                      className="shrink-0 text-[13px]"
+                      style=${{ color: "var(--cs-faint)" }}
+                    >
+                      ×
+                    </span>
+                  </button>
+                `,
+              )}
+              <button
+                type="button"
+                onClick=${resetFilters}
+                className="px-1 py-1.5 text-xs font-bold"
+                style=${{ color: "var(--cs-link)" }}
+              >
+                Hapus semua
+              </button>
+            </div>
+          `
+        : null}
+
+      <section className="grid gap-4">
         ${visibleTransactions.length
           ? html`
-              <div className="grid gap-3">
+              <div className="grid gap-4">
                 ${groupedTransactions.map(
                   (group) => html`
-                    <div key=${group.key} className="grid gap-1.5">
-                      <div className="history-date-header flex min-h-7 items-center justify-between border-b px-1.5 py-1 text-[10px] font-black text-slate-600 dark:text-slate-300">
-                        <span className="truncate">${group.label}</span>
-                        <span className="shrink-0 text-slate-400">
-                          ${group.transactions.length} transaksi
-                        </span>
-                      </div>
-                      <div className="grid gap-1.5">
+                    <div key=${group.key} className="grid gap-2.5">
+                      <span
+                        className="truncate px-0.5 text-[13px] font-bold"
+                        style=${{ color: "var(--cs-mut)" }}
+                      >
+                        ${group.label}
+                      </span>
+                      <div className="dc-card overflow-hidden">
                         ${group.transactions.map(
                           (transaction) => html`
                             <${TransactionItem}
@@ -367,6 +368,20 @@ export function TransactionHistoryPage({
                     </div>
                   `,
                 )}
+                ${!hasFilters && filteredTransactions.length > HISTORY_VISIBLE_LIMIT
+                  ? html`
+                      <button
+                        type="button"
+                        onClick=${() => setShowAllHistory((current) => !current)}
+                        className="min-h-11 w-full rounded-xl border text-xs font-bold"
+                        style=${{ borderColor: "var(--cs-line)", color: "var(--cs-body)" }}
+                      >
+                        ${showAllHistory
+                          ? "Ringkas lagi"
+                          : `Lihat semua ${filteredTransactions.length} transaksi`}
+                      </button>
+                    `
+                  : null}
               </div>
             `
           : html`
@@ -416,6 +431,7 @@ export function TransactionHistoryPage({
         onClose=${() => setFilterSheetOpen(false)}
         categoryOptions=${categoryOptions}
         currencyOptions=${currencyOptions}
+        onExport=${() => setExportSheetOpen(true)}
       />
 
       <${StatementExportSheet}

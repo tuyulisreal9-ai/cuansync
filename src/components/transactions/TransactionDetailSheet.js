@@ -46,8 +46,12 @@ import {
 } from "./presentation.js";
 
 const html = htm.bind(React.createElement);
+/* Angka input dan label mengikuti sheet "Ubah catatan" di artifact:
+   input tinggi 48, radius 14, border --line, latar --card, padding 0 14,
+   teks 14.5px; label 12px --mut dengan padding 0 2. */
 const INPUT_CLASS =
-  "w-full min-h-12 rounded-2xl px-4 py-3.5 text-sm transition cuan-input";
+  "w-full min-h-12 rounded-[14px] border px-3.5 text-[14.5px] cs-edit-input";
+const EDIT_LABEL_CLASS = "block px-0.5 text-xs cs-edit-label";
 
 function getTransactionIdrValuationWithRate(transaction, fallbackRate = 0) {
   const valuation = resolveTransactionBaseValue(transaction, fallbackRate);
@@ -245,23 +249,23 @@ function TransactionEditForm({
   }
 
   return html`
-    <form className="mt-5 grid gap-3" onSubmit=${handleSubmit}>
-      <div key="edit-type" className="rounded-[24px] border border-slate-200/70 bg-white/60 p-4 dark:border-white/10 dark:bg-slate-900/42">
-        <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-          Jenis transaksi
-        </p>
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <p className="text-sm font-black text-slate-950 dark:text-white">
-            ${formSubtitle}
-          </p>
-          <span className="rounded-full border border-brand-300/25 bg-brand-500/10 px-3 py-1 text-[11px] font-black text-brand-700 dark:border-brand-300/20 dark:text-brand-200">
-            Aktif
-          </span>
+    <form className="grid gap-4" onSubmit=${handleSubmit}>
+      <div key="edit-type" className="flex flex-col gap-2">
+        <span className=${EDIT_LABEL_CLASS}>Jenis transaksi</span>
+        <div
+          className="flex min-h-12 items-center rounded-[14px] border px-3.5 text-[14.5px] font-medium"
+          style=${{
+            borderColor: "var(--cs-line)",
+            background: "var(--cs-chip)",
+            color: "var(--cs-ink)",
+          }}
+        >
+          ${formSubtitle}
         </div>
       </div>
 
       <label key="edit-description" className="block space-y-2">
-        <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+        <span className=${EDIT_LABEL_CLASS}>
           Catatan
         </span>
         <input
@@ -278,7 +282,7 @@ function TransactionEditForm({
         ? html`
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-2xl border border-slate-200/70 bg-white/45 p-3 dark:border-white/10 dark:bg-slate-900/30">
-                <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                <span className=${EDIT_LABEL_CLASS}>
                   Dari mata uang
                 </span>
                 <strong className="mt-1 block text-sm text-slate-950 dark:text-white">
@@ -286,7 +290,7 @@ function TransactionEditForm({
                 </strong>
               </div>
               <div className="rounded-2xl border border-slate-200/70 bg-white/45 p-3 dark:border-white/10 dark:bg-slate-900/30">
-                <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                <span className=${EDIT_LABEL_CLASS}>
                   Ke mata uang
                 </span>
                 <strong className="mt-1 block text-sm text-slate-950 dark:text-white">
@@ -297,7 +301,7 @@ function TransactionEditForm({
 
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block space-y-2">
-                <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                <span className=${EDIT_LABEL_CLASS}>
                   Dompet asal
                 </span>
                 <select
@@ -316,7 +320,7 @@ function TransactionEditForm({
                 </select>
               </label>
               <label className="block space-y-2">
-                <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+                <span className=${EDIT_LABEL_CLASS}>
                   Dompet tujuan
                 </span>
                 <select
@@ -337,7 +341,7 @@ function TransactionEditForm({
             </div>
 
             <label className="block space-y-2">
-              <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+              <span className=${EDIT_LABEL_CLASS}>
                 Jumlah ditukar
               </span>
               <input
@@ -355,7 +359,7 @@ function TransactionEditForm({
             </label>
 
             <label className="block space-y-2">
-              <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+              <span className=${EDIT_LABEL_CLASS}>
                 Jumlah diterima
               </span>
               <input
@@ -373,7 +377,7 @@ function TransactionEditForm({
             </label>
 
             <label className="block space-y-2">
-              <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+              <span className=${EDIT_LABEL_CLASS}>
                 Kurs money changer
               </span>
               <span className="mb-2 block text-xs font-bold text-emerald-600 dark:text-emerald-300">
@@ -409,7 +413,7 @@ function TransactionEditForm({
       ${(isIncome || isExpense) && !isExchange
         ? html`
             <label key="edit-entry-account" className="block space-y-2">
-              <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+              <span className=${EDIT_LABEL_CLASS}>
                 ${isIncome ? "Masuk ke dompet" : "Keluar dari dompet"}
               </span>
               <select
@@ -440,7 +444,7 @@ function TransactionEditForm({
             </label>
 
             <label key="edit-entry-amount" className="block space-y-2">
-              <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+              <span className=${EDIT_LABEL_CLASS}>
                 Nominal ${transactionCurrency}
               </span>
               <input
@@ -462,7 +466,7 @@ function TransactionEditForm({
       ${isExpense
         ? html`
             <label key="edit-category" className="block space-y-2">
-              <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+              <span className=${EDIT_LABEL_CLASS}>
                 Kategori
               </span>
               <select
@@ -483,7 +487,7 @@ function TransactionEditForm({
         : null}
 
       <label key="edit-occurred-at" className="block space-y-2">
-        <span className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
+        <span className=${EDIT_LABEL_CLASS}>
           Tanggal
         </span>
         <input
@@ -503,35 +507,60 @@ function TransactionEditForm({
           : null}
       </label>
 
-      <div key="edit-actions" className="history-detail-actions sticky bottom-0 z-10 -mx-5 mt-2 grid grid-cols-2 gap-3 border-t border-slate-200/70 bg-white/85 p-5 shadow-[0_-18px_50px_rgba(15,23,42,0.08)] backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/86 dark:shadow-black/28">
-        <button
-          type="button"
-          onClick=${onCancel}
-          className="cuan-secondary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
-        >
-          Batal
-        </button>
+      ${/* Footer mengikuti artifact: simpan tinggi 52 radius 17 berlatar aksen,
+            lalu aksi sekunder tinggi 48 radius 16 bergaris tepi. */ null}
+      <div
+        key="edit-actions"
+        className="sticky bottom-0 z-10 -mx-5 flex flex-col gap-2 px-5 pb-2 pt-3"
+        style=${{ background: "var(--cs-bg)" }}
+      >
         <button
           type="submit"
           disabled=${submitDisabled}
-          className="min-h-12 rounded-2xl bg-brand-600 px-4 py-3 text-sm font-black text-white shadow-[0_18px_44px_rgba(16,185,129,0.22)] transition hover:-translate-y-0.5 hover:bg-brand-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-500 dark:bg-emerald-500 dark:disabled:bg-slate-800 dark:disabled:text-slate-500"
+          className="dc-press dc-press-96 flex min-h-[52px] items-center justify-center rounded-[17px] text-[15px] font-bold disabled:cursor-not-allowed"
+          style=${
+            submitDisabled
+              ? { background: "var(--cs-track)", color: "var(--cs-faint)" }
+              : { background: "var(--cs-acc)", color: "var(--cs-on-acc)" }
+          }
         >
           ${loading ? "Menyimpan..." : "Simpan"}
+        </button>
+        <button
+          type="button"
+          onClick=${onCancel}
+          className="dc-press dc-press-96 flex min-h-12 items-center justify-center rounded-[16px] border text-sm font-bold"
+          style=${{
+            borderColor: "var(--cs-line)",
+            color: "var(--cs-body)",
+          }}
+        >
+          Batal
         </button>
       </div>
     </form>
   `;
 }
 
-function ReceiptMetaCard({ label, value }) {
+/* Baris rincian memakai pola daftar yang sama dengan Pengaturan dan Dompet:
+   label kiri berwarna redup, nilai kanan berwarna tinta. Sebelumnya berupa
+   kotak-kotak kecil dengan label kapital bertracking lebar yang tidak dipakai
+   di mana pun lagi setelah redesign. */
+function ReceiptMetaRow({ label, value }) {
   return html`
-    <div className="history-receipt-meta rounded-[20px] px-3 py-2.5">
-      <p className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-500">
+    <div className="flex min-h-[44px] items-center justify-between gap-3 px-4 py-2.5">
+      <span
+        className="shrink-0 text-[13px]"
+        style=${{ color: "var(--cs-mut)" }}
+      >
         ${label}
-      </p>
-      <p className="mt-1 truncate text-sm font-black text-slate-900 dark:text-slate-100">
+      </span>
+      <span
+        className="min-w-0 truncate text-right text-[13.5px] font-medium"
+        style=${{ color: "var(--cs-ink)" }}
+      >
         ${value}
-      </p>
+      </span>
     </div>
   `;
 }
@@ -567,6 +596,15 @@ export function TransactionDetailSheet({
 
   const flow = getTransactionFlow(transaction);
   const tone = getTransactionTone(transaction);
+  /* Warna nominal memakai token, bukan kelas emerald/rose warisan. Maknanya
+     dipertahankan seperti sebelumnya: masuk hijau, keluar merah, tukar netral. */
+  const detailFlow = getTransactionFlow(transaction);
+  const detailAmountColor =
+    detailFlow === "income"
+      ? "var(--cs-pos)"
+      : detailFlow === "exchange"
+        ? "var(--cs-mut)"
+        : "var(--cs-danger)";
   const currency = getTransactionCurrency(transaction);
   const mainAmount = getTransactionMainAmount(transaction);
   const valuationIdr = getTransactionIdrValuationWithRate(transaction, fallbackRate);
@@ -649,27 +687,43 @@ export function TransactionDetailSheet({
         key="detail-backdrop"
         type="button"
         aria-label="Tutup detail transaksi"
-        className="absolute inset-0 bg-slate-950/45 backdrop-blur-sm"
+        className="absolute inset-0"
+        style=${{ background: "rgba(20,18,15,0.42)" }}
         onClick=${onClose}
       ></button>
-      <section key="detail-panel" className="history-detail-sheet transaction-sheet relative max-h-[calc(100svh-1rem)] w-full overflow-y-auto rounded-t-[30px] p-5 md:max-h-[86svh] md:max-w-lg md:rounded-[30px]">
-        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-slate-300 dark:bg-slate-700 md:hidden"></div>
-        <div className="flex items-start justify-between gap-4">
+      <section
+        key="detail-panel"
+        className="transaction-sheet relative flex max-h-[calc(100svh-1rem)] w-full flex-col gap-4 overflow-y-auto px-5 pb-6 pt-3 md:max-h-[86svh] md:max-w-lg"
+        style=${{
+          background: "var(--cs-bg)",
+          borderRadius: "26px 26px 0 0",
+          boxShadow: "0 -12px 40px rgba(0,0,0,0.18)",
+        }}
+      >
+        <span
+          className="mx-auto block h-1 w-[42px] shrink-0 rounded-full md:hidden"
+          style=${{ background: "var(--cs-dim)" }}
+        ></span>
+        <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+            <p className="text-[17px] font-bold tracking-[-0.2px]">
               ${isEditing ? "Edit transaksi" : "Detail transaksi"}
             </p>
-            <p className="mt-1 truncate text-sm font-bold text-slate-600 dark:text-slate-300">
-              ${formatShortTime(transaction.occurred_at)} | ${getTransactionTypeLabel(transaction)}
+            <p
+              className="mt-0.5 truncate text-[13px]"
+              style=${{ color: "var(--cs-mut)" }}
+            >
+              ${formatShortTime(transaction.occurred_at)} · ${getTransactionTypeLabel(transaction)}
             </p>
           </div>
           <button
             type="button"
             onClick=${onClose}
-            className="cuan-secondary inline-flex min-h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-lg font-black"
+            className="flex min-h-11 shrink-0 items-center pl-4 text-[13px]"
+            style=${{ color: "var(--cs-mut)" }}
             aria-label="Tutup"
           >
-            x
+            Tutup
           </button>
         </div>
 
@@ -689,57 +743,94 @@ export function TransactionDetailSheet({
               />
             `
           : html`
-              <div key="detail-receipt" className="history-receipt-card mt-5 overflow-hidden rounded-[28px] p-4">
-                <div className="flex items-start gap-3">
-                  <span className=${`flex h-14 w-14 shrink-0 items-center justify-center rounded-[22px] text-xs font-black uppercase tracking-[0.08em] ring-1 ${tone.historyIcon}`}>
+              <${React.Fragment}>
+              <div key="detail-receipt" className="dc-card flex flex-col gap-4 p-[18px]">
+                <div className="flex items-center gap-3.5">
+                  <span
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-[12.5px] font-bold"
+                    style=${{
+                      background: "var(--cs-chip)",
+                      color: "var(--cs-body)",
+                    }}
+                  >
                     ${getTransactionIconLabel(transaction)}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-xl font-black text-slate-950 dark:text-white">
-                      ${description}
-                    </p>
-                    <p className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
+                    <p className="truncate text-base font-bold">${description}</p>
+                    <p
+                      className="mt-0.5 truncate text-[12.5px]"
+                      style=${{ color: "var(--cs-mut)" }}
+                    >
                       ${getTransactionTypeLabel(transaction)}
                     </p>
                   </div>
                 </div>
 
-                <div className="history-amount-card mt-5 rounded-[24px] p-4">
-                  <p className="text-[11px] font-black uppercase tracking-[0.18em] text-slate-500 dark:text-slate-500">
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs" style=${{ color: "var(--cs-mut)" }}>
                     Nominal
-                  </p>
-                  <p className=${`mt-2 break-words text-3xl font-black tracking-[-0.03em] ${tone.amount}`}>
+                  </span>
+                  <p
+                    className="dc-num break-words text-[26px] leading-none tracking-[-0.8px]"
+                    style=${{ color: detailAmountColor }}
+                  >
                     ${amountText}
                   </p>
-                  <p className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
-                    ${receiptHelper}
-                  </p>
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  ${receiptMeta.map(
-                    ([label, value]) => html`
-                      <${ReceiptMetaCard} key=${label} label=${label} value=${value} />
-                    `,
-                  )}
+                  ${receiptHelper
+                    ? html`
+                        <span
+                          className="text-xs leading-[1.45]"
+                          style=${{ color: "var(--cs-mut)" }}
+                        >
+                          ${receiptHelper}
+                        </span>
+                      `
+                    : null}
                 </div>
               </div>
 
-              <div key="detail-actions" className="history-detail-actions sticky bottom-0 z-10 -mx-5 mt-5 p-5">
+              <div
+                key="detail-meta"
+                className="dc-card divide-y overflow-hidden"
+                style=${{ borderColor: "var(--cs-line)" }}
+              >
+                ${receiptMeta.map(
+                  ([label, value]) => html`
+                    <${ReceiptMetaRow} key=${label} label=${label} value=${value} />
+                  `,
+                )}
+              </div>
+
+              <div
+                key="detail-actions"
+                className="sticky bottom-0 z-10 -mx-5 px-5 pb-2 pt-3"
+                style=${{ background: "var(--cs-bg)" }}
+              >
                 ${confirmingDelete
                   ? html`
-                      <div className="history-delete-confirm rounded-[24px] p-4">
-                        <p className="font-black text-slate-950 dark:text-white">
+                      <div
+                        className="flex flex-col gap-3 rounded-[18px] border p-4"
+                        style=${{
+                          borderColor: "var(--cs-danger)",
+                          background: "var(--cs-card)",
+                        }}
+                      >
+                        <p className="text-sm font-bold">
                           Yakin ingin menghapus transaksi ini?
                         </p>
-                        <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
-                          Data akan dihapus dari riwayat dan semua saldo serta summary akan dihitung ulang.
+                        <p
+                          className="text-[13px] leading-[1.45]"
+                          style=${{ color: "var(--cs-mut)" }}
+                        >
+                          Data akan dihapus dari riwayat dan semua saldo serta
+                          summary akan dihitung ulang.
                         </p>
-                        <div className="mt-4 grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-2 gap-2">
                           <button
                             type="button"
                             onClick=${() => setConfirmingDelete(false)}
-                            className="history-action-secondary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+                            className="dc-press dc-press-96 min-h-[52px] rounded-[17px] text-[15px] font-medium"
+                            style=${{ color: "var(--cs-body)" }}
                           >
                             Batal
                           </button>
@@ -747,7 +838,11 @@ export function TransactionDetailSheet({
                             type="button"
                             disabled=${loading}
                             onClick=${handleConfirmDelete}
-                            className="history-action-delete min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60"
+                            className="dc-press dc-press-96 min-h-[52px] rounded-[17px] text-[15px] font-bold disabled:cursor-not-allowed disabled:opacity-60"
+                            style=${{
+                              background: "var(--cs-danger)",
+                              color: "var(--cs-on-acc)",
+                            }}
                           >
                             ${loading ? "Menghapus..." : "Hapus"}
                           </button>
@@ -755,24 +850,30 @@ export function TransactionDetailSheet({
                       </div>
                     `
                   : html`
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-2 gap-2">
                         <button
                           type="button"
                           onClick=${() => setIsEditing(true)}
-                          className="history-action-primary min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+                          className="dc-press dc-press-96 min-h-[52px] rounded-[17px] text-[15px] font-bold"
+                          style=${{
+                            background: "var(--cs-acc)",
+                            color: "var(--cs-on-acc)",
+                          }}
                         >
                           Edit transaksi
                         </button>
                         <button
                           type="button"
                           onClick=${() => setConfirmingDelete(true)}
-                          className="history-action-danger min-h-12 rounded-2xl px-4 py-3 text-sm font-black transition hover:-translate-y-0.5"
+                          className="dc-press dc-press-96 min-h-[52px] rounded-[17px] text-[15px] font-bold"
+                          style=${{ color: "var(--cs-danger)" }}
                         >
                           Hapus transaksi
                         </button>
                       </div>
                     `}
               </div>
+              <//>
             `}
       </section>
     </div>

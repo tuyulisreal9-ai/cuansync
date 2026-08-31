@@ -9,52 +9,55 @@ async function source(path) {
 test("halaman Dompet menyatukan Dompet dan Tabungan tanpa menggandakan total", async () => {
   const page = await source("src/components/assets/WalletAccountsPage.js");
 
-  assert.match(page, />\s*Dompet\s*</);
+  assert.match(page, />\s*Dompetmu\s*</);
   assert.match(page, />\s*Tabungan\s*</);
-  assert.match(page, /\+ Tambah Baru/);
+  assert.match(page, /Tambah dompet/);
+  assert.match(page, /Tambah tabungan/);
   assert.doesNotMatch(page, /Kantong/i);
   assert.match(page, /metrics\.assetAccountTotalValueIdr/);
   assert.doesNotMatch(page, /assetAccountTotalValueIdr\s*\+\s*.*totalGoalSaved/);
-  assert.match(page, /Total uang tercatat/);
+
+  // Ringkasan atas membedakan tiga angka: total tercatat, yang bebas dipakai,
+  // dan yang sudah disisihkan ke Tabungan.
+  assert.match(page, /Semua uang yang kamu catat/);
   assert.match(page, /Bisa dipakai/);
-  assert.match(page, /Dana dicadangkan/);
+  assert.match(page, /Disisihkan/);
 });
 
-test("tampilan Semua menempatkan Tabungan sebagai bagian dana dari Dompet sumber", async () => {
-  const page = await source("src/components/assets/WalletAccountsPage.js");
-
-  assert.match(page, /function getAccountGoalAllocations/);
-  assert.match(page, /Dicadangkan untuk/);
-  assert.match(page, /allocations=\$\{getAccountGoalAllocations\(account, goals\)\}/);
-  assert.doesNotMatch(page, /filter === "all" \|\| filter === "saving"/);
-  assert.match(page, /Dana ini bagian dari saldo dompet, bukan saldo tambahan/);
-
-  const walletGrid = page.slice(
-    page.indexOf("${showsAccounts"),
-    page.indexOf("${showsGoals"),
-  );
-  assert.match(walletGrid, /accounts\.map/);
-  assert.doesNotMatch(walletGrid, /goals\.map/);
-});
-
-test("Tabungan berdiri sebagai seksi turunan, bukan kartu sejajar Dompet", async () => {
+test("Tabungan berdiri sebagai seksi turunan, bukan sejajar Dompet", async () => {
   const page = await source("src/components/assets/WalletAccountsPage.js");
 
   assert.match(page, /function GoalFundSection/);
-  assert.match(page, /const showsAccounts = filter !== "saving"/);
-  assert.match(page, /const showsGoals = filter !== "pay"/);
-  assert.match(page, /Dicadangkan dari dompet di atas, bukan saldo tambahan/);
-  assert.match(page, /\["all", "Semua", accounts\.length \+ goals\.length\]/);
+  assert.match(page, /Dana ini bagian dari saldo dompet, bukan saldo tambahan/);
+
+  // Daftar Dompet hanya boleh memetakan accounts. Tabungan dirender oleh
+  // GoalFundSection di bawahnya, bukan sebagai baris sejajar di daftar yang
+  // sama, supaya tidak terbaca sebagai saldo kedua.
+  const walletList = page.slice(
+    page.indexOf(">Dompetmu<"),
+    page.indexOf("<${GoalFundSection}"),
+  );
+  assert.match(walletList, /accounts\.map/);
+  assert.doesNotMatch(walletList, /goals\.map/);
+
+  // Filter tab lama dihapus: kedua seksi kini selalu terlihat.
+  assert.doesNotMatch(page, /cs-pocket-filter/);
+  assert.doesNotMatch(page, /filter === "all"/);
 });
 
-test("kartu Dompet menonjolkan dana bisa dipakai beserta saldo asalnya", async () => {
+test("baris Dompet menonjolkan dana bisa dipakai beserta saldo asalnya", async () => {
   const page = await source("src/components/assets/WalletAccountsPage.js");
 
+  // Angka utama = availableBalance saat ada pencadangan, dengan saldo rekening
+  // sebagai keterangan "dari ...". Tanpa pencadangan, angka utama = saldo asli.
   assert.match(page, /dari \$\{formatCurrency\(balanceAmount, account\.currency\)\}/);
-  assert.match(page, /const reservedRatio = balanceAmount > 0\.0001/);
-  assert.match(page, /cs-pocket-split-reserved/);
-  assert.match(page, /fullyReserved \? "text-slate-500 dark:text-slate-400" : "text-emerald-500"/);
-  assert.doesNotMatch(page, /dicadangkan`\s*:\s*""/);
+  assert.match(
+    page,
+    /hasReservedBalance \? availableBalance : balanceAmount/,
+  );
+  assert.match(page, /const fullyReserved = hasReservedBalance && availableBalance <= 0\.0001/);
+  // Saat seluruh saldo tercadang, angka Rp 0 tidak boleh tampil hijau.
+  assert.match(page, /fullyReserved \? "text-\[color:var\(--cs-mut\)\]" : ""/);
 });
 
 test("dompet utama dapat dilepas kembali, bukan hanya dipindah", async () => {
@@ -93,17 +96,37 @@ test("klik kartu hanya memilih mutasi sedangkan titik tiga membuka pengaturan", 
   assert.match(page, /function manageAccount\(account\)/);
   assert.match(page, /function selectGoal\(goal\)/);
   assert.match(page, /function manageGoal\(goal\)/);
-  assert.match(page, /<\$\{GoalActivity\} goal=\$\{selectedGoal\}/);
-  assert.match(page, /Aktivitas →/);
+  // Panel mutasi di bawah daftar sudah dihapus. Riwayat aktivitas Tabungan
+  // pindah ke dalam sheet rinciannya supaya tidak hilang aksesnya: alokasi dan
+  // pelepasan bukan transaksi biasa, jadi tidak muncul di halaman Riwayat.
+  assert.doesNotMatch(page, /<\$\{AccountActivity\}/);
+  assert.match(page, /<\$\{GoalActivity\} goal=\$\{detailGoal\}/);
+
+  // Pemilihan dan pengaturan tetap dua tombol terpisah walau tata letaknya
+  // kini baris daftar: badan baris memilih mutasi, titik tiga membuka sheet.
+  assert.match(page, /onSelect=\$\{\(\) => selectAccount\(account\)\}/);
+  assert.match(page, /onManage=\$\{\(\) => manageAccount\(account\)\}/);
+  assert.match(page, /onSelect=\$\{\(\) => onSelect\(goal\)\}/);
+  assert.match(page, /onManage=\$\{\(\) => onManage\(goal\)\}/);
 });
 
-test("tile Tambah Baru membuka pilihan Dompet atau Tabungan", async () => {
+test("tambah dompet dan tambah tabungan punya tombolnya sendiri tanpa sheet pemilih", async () => {
+  const wallet = await source("src/components/assets/WalletAccountsPage.js");
   const page = await source("src/components/assets/WealthGoalsPage.js");
 
-  assert.match(page, /title="Tambah Baru"/);
-  assert.match(page, />Dompet</);
-  assert.match(page, />Tabungan</);
-  assert.match(page, /Dana tabungan dengan dompet sumber yang jelas/);
+  // Dua tombol terpisah menggantikan satu tile yang dulu membuka sheet pemilih.
+  assert.match(wallet, /Tambah dompet/);
+  assert.match(wallet, /Tambah tabungan/);
+  assert.match(wallet, /onCreateWallet/);
+  assert.match(wallet, /onCreateGoal/);
+
+  // Sheet pemilih beserta state-nya sudah tidak ada lagi.
+  assert.doesNotMatch(page, /showPocketChooser/);
+  assert.doesNotMatch(page, /Pilih Dompet untuk saldo aktual/);
+
+  // Kedua tombol menuju langsung ke formnya masing-masing.
+  assert.match(page, /onCreateWallet=\$\{openAssetForm\}/);
+  assert.match(page, /onCreateGoal=\$\{openGoalForm\}/);
   assert.doesNotMatch(page, /Kantong/i);
 });
 
@@ -119,4 +142,74 @@ test("form pengeluaran memakai ringkasan sumber dana yang compact", async () => 
   assert.doesNotMatch(page, /Ambil dana dari/);
   assert.doesNotMatch(page, /Pengeluaran akan mengurangi saldo Dompet/);
   assert.doesNotMatch(page, /Gunakan target|Tanpa target/);
+});
+
+test("Riwayat memakai segmented dan tombol saring seperti desain", async () => {
+  const page = await source("src/components/transactions/TransactionHistoryPage.js");
+  const parts = await source("src/components/transactions/HistoryListParts.js");
+  const sheets = await source("src/components/transactions/HistoryToolSheets.js");
+
+  // Tab aktif memakai pil tinta (selBg/selFg), bukan aksen hijau.
+  assert.match(parts, /var\(--cs-sel-bg\)/);
+  assert.match(parts, /var\(--cs-sel-fg\)/);
+  assert.doesNotMatch(parts, /bg-brand-600/);
+
+  // Toolbar hanya segmented + satu tombol saring berbadge.
+  assert.match(page, /aria-label=\$\{advancedFilterCount/);
+  assert.doesNotMatch(page, /history-filter-panel/);
+
+  // Pencarian dan unduh mutasi tidak boleh hilang: keduanya pindah ke sheet.
+  assert.match(sheets, /showSearch=\$\{true\}/);
+  assert.match(sheets, /Unduh mutasi bulanan/);
+  assert.match(page, /onExport=\$\{\(\) => setExportSheetOpen\(true\)\}/);
+});
+
+test("Jatah memakai baris kategori yang bisa dibuka seperti desain", async () => {
+  const page = await source("src/components/budget/BudgetWorkspacePage.js");
+  const history = await source("src/components/transactions/TransactionHistoryPage.js");
+
+  // Header dan aksi mengikuti desain: "Per kategori" + tautan "Atur",
+  // serta "+ Tambah kategori" di dasar kartu.
+  assert.match(page, />Per kategori</);
+  assert.match(page, /Tambah kategori/);
+  assert.doesNotMatch(page, /Batas Anggaran Bulanan/);
+
+  // Baris kategori dapat dibuka dan memunculkan catatan beserta tiga aksi.
+  assert.match(page, /aria-expanded=\$\{open\}/);
+  assert.match(page, /Atur jatah/);
+  assert.match(page, /Lihat transaksinya/);
+
+  // Kartu kategori lama beserta warna acaknya sudah dihapus, bukan disembunyikan.
+  assert.doesNotMatch(page, /CATEGORY_COLORS/);
+  assert.doesNotMatch(page, /\$\{false/);
+
+  // "Lihat transaksinya" harus benar benar menyaring Riwayat, bukan sekadar
+  // membuka daftar penuh.
+  assert.match(page, /onOpenCategoryHistory\?\.\(budget\)/);
+  assert.match(history, /if \(!focusCategory\) return;/);
+});
+
+test("catat uang memakai sheet keypad seperti desain", async () => {
+  const sheet = await source("src/components/transactions/QuickEntrySheet.js");
+  const main = await source("src/main.js");
+
+  // Susunan keypad dan salinan tombol mengikuti desain.
+  assert.match(sheet, /"1", "2", "3", "4", "5", "6", "7", "8", "9", "000", "0", "⌫"/);
+  assert.match(sheet, /Catat transaksi/);
+  assert.match(sheet, /Berapa\?/);
+  assert.match(sheet, />\s*Nanti\s*</);
+  assert.match(sheet, /Simpan catatan/);
+  assert.match(sheet, /Isi jumlahnya dulu/);
+
+  // Segmented Keluar/Masuk memakai pil tinta, bukan aksen hijau.
+  assert.match(sheet, /var\(--cs-sel-bg\)/);
+
+  // FAB dan tile Catat membuka sheet ini, bukan form halaman penuh.
+  assert.match(main, /onAddTransaction=\$\{openQuickEntry\}/);
+  assert.match(main, /function openQuickEntry\(\)/);
+
+  // Form lengkap tidak boleh hilang: tetap dapat dibuka dari dalam sheet untuk
+  // tanggal, dompet non-utama, transfer, dan tukar mata uang.
+  assert.match(sheet, /onOpenFullForm/);
+  assert.match(main, /onOpenFullForm=\$\{\(entryType\) => openTransactionForm\(entryType\)\}/);
 });

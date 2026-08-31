@@ -152,9 +152,17 @@ test("navigation mobile menutup safe area bawah tanpa menindih konten", () => {
     navigation,
     /style=\$\{\{ bottom: "env\(safe-area-inset-bottom\)" \}\}/,
   );
+  // Nav bawah memakai warna kertas semi transparan dengan blur seperti desain,
+  // bukan permukaan kartu putih.
+  assert.match(styles, /\.cs-mobile-nav\s*\{\s*background:\s*var\(--cs-navbg\)/);
+  // Tab aktif ditandai warna tinta, bukan aksen hijau, agar mode terang bersih.
   assert.match(
     styles,
-    /\.cs-mobile-nav\s*\{\s*background:\s*var\(--cs-surface-raised\)/,
+    /\.cs-mobile-nav-item\.is-active\s*\{[^}]*color:\s*var\(--cs-ink\)/,
+  );
+  assert.doesNotMatch(
+    styles,
+    /\.cs-mobile-nav-item\.is-active\s*\{[^}]*var\(--cs-accent-soft\)/,
   );
 });
 

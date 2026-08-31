@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import htm from "htm";
 import {
-  MoreVertical,
+  BarChart3,
+  ChevronRight,
   PiggyBank,
   Trash2,
 } from "lucide-react";
@@ -9,38 +10,23 @@ import {
   CATEGORY_OPTIONS,
   calculateBudgetBaseAmount,
   getBudgetCategoryKey,
-  getBudgetCategoryMeta,
   getDefaultGroupForCategory,
   resolveAutomaticBudgetRate,
 } from "../../domain/budgets.js";
 import {
-  DEFAULT_ACTIVE_CURRENCIES,
   formatAutoNumericValue,
   formatCurrency,
   formatMoney,
   formatNumericInput,
   normalizeCurrencyCode,
-  normalizeCurrencyList,
   normalizeNumericInput,
 } from "../../lib/currency.js";
-import { CurrencyCombobox } from "../shared/CurrencyCombobox.js";
 import { FormActionDock } from "../shared/FormActionDock.js";
 import { SheetShell } from "../shared/SheetShell.js";
-import { TargetPlanningSection } from "./TargetPlanningSection.js";
 
 const html = htm.bind(React.createElement);
 const INPUT_CLASS =
   "cs-entry-input min-h-11 w-full rounded-lg px-3 py-2.5 text-sm";
-const CATEGORY_COLORS = [
-  "bg-rose-500",
-  "bg-pink-500",
-  "bg-orange-500",
-  "bg-red-500",
-  "bg-violet-500",
-  "bg-cyan-500",
-  "bg-lime-500",
-  "bg-slate-500",
-];
 
 function toDateInput(value, fallback = new Date()) {
   const date = value ? new Date(value) : fallback;
@@ -48,12 +34,6 @@ function toDateInput(value, fallback = new Date()) {
     return new Date().toISOString().slice(0, 10);
   }
   return date.toISOString().slice(0, 10);
-}
-
-function getRateSourceLabel(source) {
-  if (source === "custom") return "Kurs custom";
-  if (source === "legacy") return "Kurs lama";
-  return "Kurs otomatis";
 }
 
 function formatPlanningRate(rate, inputCurrency, baseCurrency) {
@@ -243,6 +223,8 @@ function BudgetSection({
   onBudgetDelete,
   onBudgetSubmit,
   focusCategoryKey = null,
+  daysLeftInMonth = 0,
+  onOpenCategoryHistory,
 }) {
   const [showForm, setShowForm] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(
@@ -257,10 +239,6 @@ function BudgetSection({
   const [openMenuId, setOpenMenuId] = useState(null);
   const [formError, setFormError] = useState("");
   const baseCurrency = normalizeCurrencyCode(currency);
-  const currencyOptions = normalizeCurrencyList(
-    [...activeCurrencies, ...DEFAULT_ACTIVE_CURRENCIES],
-    { baseCurrency },
-  );
   const activeBudgets = metrics.budgetInsights.filter(
     (budget) =>
       normalizeCurrencyCode(
@@ -384,13 +362,6 @@ function BudgetSection({
     resetForCategory(value);
   }
 
-  function selectInputCurrency(value) {
-    const code = normalizeCurrencyCode(value, baseCurrency);
-    setInputCurrency(code);
-    applyAutomaticRate(code);
-    setFormError("");
-  }
-
   async function submit(event) {
     event.preventDefault();
     const normalizedInputAmount = Number(
@@ -428,293 +399,268 @@ function BudgetSection({
 
   return html`
     <section>
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <${PiggyBank}
-            aria-hidden="true"
-            className="h-4 w-4 shrink-0 text-emerald-400"
-          />
-          <h2 className="truncate text-xs font-black text-slate-950 dark:text-white sm:text-sm">
-            Batas Anggaran Bulanan
-          </h2>
-        </div>
+      <div className="flex items-baseline justify-between gap-3 px-0.5">
+        <h2 className="truncate text-[15px] font-bold">Per kategori</h2>
         <button
           type="button"
           onClick=${showForm ? () => setShowForm(false) : () => openForm()}
-          className=${`min-h-11 shrink-0 rounded-lg px-3 text-[11px] font-black ${
-            showForm
-              ? "border border-slate-300 text-slate-700 dark:border-slate-700 dark:text-slate-300"
-              : "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300"
-          }`}
+          className="shrink-0 text-[13px] font-medium"
+          style=${{ color: "var(--cs-link)" }}
         >
-          ${showForm ? "Tutup" : "+ Atur Anggaran"}
+          ${showForm ? "Tutup" : "Atur"}
         </button>
       </div>
 
       ${showForm
         ? html`
+            <${React.Fragment}>
             <form
-              className="mt-3 grid gap-3 rounded-xl border border-slate-200 bg-white/80 p-3 shadow-sm dark:border-slate-800 dark:bg-slate-900/75 dark:shadow-none"
+              id="cs-budget-form"
+              className="dc-card mt-3 grid gap-4 p-[18px]"
               onSubmit=${submit}
             >
-              <label className="block">
+              ${/* Kategori memakai chip, bukan <select>. Daftar opsi select
+                    digambar oleh sistem operasi sehingga tidak bisa mengikuti
+                    token desain, dan semua kategori jadi tersembunyi di balik
+                    satu baris. Metrik chip mengikuti desain: tinggi 38, radius
+                    99, teks 13px/600. */ null}
+              <div className="block">
                 <span className="cs-entry-label">Pilih kategori</span>
-                <select
-                  value=${selectedCategory}
-                  onChange=${(event) => selectCategory(event.target.value)}
-                  className=${INPUT_CLASS}
-                >
-                  ${CATEGORY_OPTIONS.map(
-                    (category) => html`
-                      <option key=${category.value} value=${category.value}>
+                <div className="flex flex-wrap gap-2">
+                  ${CATEGORY_OPTIONS.map((category) => {
+                    const active = category.value === selectedCategory;
+                    return html`
+                      <button
+                        key=${category.value}
+                        type="button"
+                        aria-pressed=${active}
+                        onClick=${() => selectCategory(category.value)}
+                        className="dc-press dc-press-96 flex min-h-[38px] items-center rounded-full px-[15px] text-[13px] font-semibold"
+                        style=${
+                          active
+                            ? {
+                                background: "var(--cs-sel-bg)",
+                                color: "var(--cs-sel-fg)",
+                                border: "1px solid transparent",
+                              }
+                            : {
+                                background: "var(--cs-card)",
+                                color: "var(--cs-body)",
+                                border: "1px solid var(--cs-line)",
+                              }
+                        }
+                      >
                         ${category.label}
-                      </option>
-                    `,
-                  )}
-                </select>
+                      </button>
+                    `;
+                  })}
+                </div>
                 ${selectedBudget
                   ? html`
-                      <span className="mt-1.5 block text-[10px] leading-4 text-emerald-700 dark:text-emerald-300">
+                      <span
+                        className="mt-1.5 block text-xs leading-[1.45]"
+                        style=${{ color: "var(--cs-mut)" }}
+                      >
                         Anggaran ini sudah ada. Simpan untuk memperbarui batasnya.
                       </span>
                     `
                   : null}
-              </label>
+              </div>
 
               <label className="block">
                 <span className="cs-entry-label">
                   Batas pengeluaran bulanan
                 </span>
-                <span className="grid grid-cols-[minmax(0,1fr)_minmax(9rem,0.65fr)] gap-2">
-                  <input
-                    required
-                    inputMode="decimal"
-                    enterKeyHint="done"
-                    value=${inputAmount}
-                    onChange=${(event) =>
-                      setInputAmount(formatNumericInput(event.target.value))}
-                    placeholder="0"
-                    className=${INPUT_CLASS}
-                  />
-                  <${CurrencyCombobox}
-                    value=${inputCurrency}
-                    onChange=${selectInputCurrency}
-                    currencies=${currencyOptions}
-                    ariaLabel="Mata uang input anggaran"
-                    buttonClassName=${INPUT_CLASS}
-                  />
-                </span>
+                <input
+                  required
+                  inputMode="decimal"
+                  enterKeyHint="done"
+                  value=${inputAmount}
+                  onChange=${(event) =>
+                    setInputAmount(formatNumericInput(event.target.value))}
+                  placeholder="0"
+                  className=${INPUT_CLASS}
+                />
               </label>
 
-              ${inputCurrency !== baseCurrency
-                ? html`
-                    <div className="flex min-h-7 items-center justify-between gap-3 rounded-lg bg-slate-100 px-3 py-1.5 dark:bg-slate-950/70">
-                      <p className="min-w-0 truncate text-[10px] font-bold text-slate-600 dark:text-slate-300">
-                        ${officialAmount
-                          ? `≈ ${formatCurrency(officialAmount, baseCurrency)} · ${getRateSourceLabel(rateSource)}`
-                          : "Kurs otomatis belum tersedia"}
-                      </p>
-                      <button
-                        type="button"
-                        onClick=${() => setShowRateSheet(true)}
-                        className="min-h-11 shrink-0 rounded-lg px-2 text-[10px] font-black text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-300"
-                      >
-                        Ubah Kurs
-                      </button>
-                    </div>
-                  `
-                : null}
+              ${/* Batas jatah selalu dicatat dalam mata uang dasar. Belanja
+                    dalam mata uang lain tetap mengurangi jatah ini karena
+                    dikonversi lebih dulu lewat base_amount, jadi layar ini
+                    tidak perlu pemilih mata uang. */ null}
 
               ${formError
                 ? html`
-                    <p className="text-[10px] font-bold text-rose-600 dark:text-rose-300">
+                    <p
+                      className="text-xs font-medium leading-[1.45]"
+                      style=${{ color: "var(--cs-danger)" }}
+                    >
                       ${formError}
                     </p>
                   `
                 : null}
 
-              <${FormActionDock} fixedOnMobile=${true}>
-                <div className="grid grid-cols-[.75fr_1.25fr] gap-2">
-                  <button
-                    type="button"
-                    onClick=${() => setShowForm(false)}
-                    className="min-h-12 rounded-xl px-3 text-[10px] font-bold text-slate-600 dark:text-slate-400"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="submit"
-                    disabled=${loading}
-                    className="min-h-12 rounded-xl bg-emerald-500 px-4 text-[10px] font-black text-white disabled:opacity-50"
-                  >
-                    ${selectedBudget ? "Simpan Perubahan" : "Simpan Anggaran"}
-                  </button>
-                </div>
-              <//>
             </form>
+
+            ${/* Dock berada di luar <form> supaya spacer 80px miliknya tidak
+                  ikut menggelembungkan kartu dan meninggalkan ruang kosong di
+                  bawah input. Tombol simpan tetap tersambung lewat atribut
+                  form. */ null}
+            <${FormActionDock} fixedOnMobile=${true}>
+              <div className="grid grid-cols-[.75fr_1.25fr] gap-2">
+                <button
+                  type="button"
+                  onClick=${() => setShowForm(false)}
+                  className="dc-press dc-press-96 min-h-[52px] rounded-[17px] px-3 text-[15px] font-medium"
+                  style=${{ color: "var(--cs-body)" }}
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  form="cs-budget-form"
+                  disabled=${loading}
+                  className="dc-press dc-press-96 min-h-[52px] rounded-[17px] px-4 text-[15px] font-bold disabled:opacity-50"
+                  style=${{
+                    background: "var(--cs-acc)",
+                    color: "var(--cs-on-acc)",
+                  }}
+                >
+                  ${selectedBudget ? "Simpan Perubahan" : "Simpan Anggaran"}
+                </button>
+              </div>
+            <//>
+            <//>
           `
         : null}
 
-      <div className="mt-3 grid gap-2.5">
+      <div className="dc-card mt-3 flex flex-col gap-[15px] p-[18px]">
         ${activeBudgets.length
-          ? activeBudgets.map((budget, index) => {
+          ? activeBudgets.map((budget) => {
               const spent = Number(budget.spentAmount || 0);
               const limit = Number(budget.baseAmount || budget.limitAmount || 0);
               const remaining = limit - spent;
               const usage = limit > 0 ? spent / limit : 0;
+              const percent = Math.round(usage * 100);
               const barWidth = Math.min(
                 Math.max(usage * 100, spent > 0 ? 2 : 0),
                 100,
               );
-              const statusColor =
-                budget.status === "over"
-                  ? "bg-rose-500"
-                  : budget.status === "warning"
-                    ? "bg-amber-400"
-                    : "bg-emerald-400";
-              const meta = getBudgetCategoryMeta(
-                budget.category,
-                budget.group_key,
-              );
-              const sourceCurrency = normalizeCurrencyCode(
-                budget.inputCurrency || budget.input_currency || baseCurrency,
-                baseCurrency,
-              );
-              const menuOpen = openMenuId === budget.id;
+              const over = percent >= 100;
+              const barColor = over
+                ? "var(--cs-danger)"
+                : budget.status === "warning"
+                  ? "var(--cs-warn)"
+                  : "var(--cs-acc)";
+              const open = openMenuId === budget.id;
+              // Catatan dihitung dari data nyata, bukan teks contoh di desain.
+              const note = over
+                ? `Sudah lewat ${formatCurrency(Math.abs(remaining), baseCurrency)}. Sisanya terpaksa diambil dari jatah lain.`
+                : daysLeftInMonth > 0
+                  ? `Sisa ${formatCurrency(remaining, baseCurrency)}, kira-kira ${formatCurrency(remaining / daysLeftInMonth, baseCurrency)} per hari sampai akhir bulan.`
+                  : `Sisa ${formatCurrency(remaining, baseCurrency)} sampai akhir bulan.`;
+
               return html`
-                <article
+                <div
                   key=${budget.id}
                   data-budget-category=${budget.categoryKey}
-                  role="button"
-                  tabIndex="0"
-                  onClick=${() => loadBudgetForm(budget)}
-                  onKeyDown=${(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      loadBudgetForm(budget);
-                    }
-                  }}
-                  className=${`relative cursor-pointer rounded-xl border bg-white/80 p-3 text-left shadow-sm transition hover:border-emerald-400/45 dark:bg-slate-900/75 dark:shadow-none ${
-                    focusCategoryKey === budget.categoryKey
-                      ? "border-emerald-400 ring-2 ring-emerald-400/20"
-                      : "border-slate-200 dark:border-slate-800"
-                  }`}
+                  className="flex flex-col gap-[7px] py-1"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <span
-                        className=${`grid h-7 w-7 shrink-0 place-items-center rounded-md text-[10px] font-black text-white ${
-                          CATEGORY_COLORS[index % CATEGORY_COLORS.length]
-                        }`}
-                      >
-                        ${String(meta.label || budget.categoryLabel || "A")
-                          .charAt(0)
-                          .toUpperCase()}
-                      </span>
-                      <div className="min-w-0">
-                        <span className="flex min-w-0 items-center gap-1.5">
-                          <h3 className="truncate text-[11px] font-black text-slate-950 dark:text-white">
-                            ${budget.categoryLabel}
-                          </h3>
-                          ${sourceCurrency !== baseCurrency
-                            ? html`
-                                <span className="shrink-0 rounded bg-emerald-500/12 px-1.5 py-0.5 text-[8px] font-black text-emerald-700 dark:text-emerald-300">
-                                  ${sourceCurrency}
-                                </span>
-                              `
-                            : null}
-                        </span>
-                        <p className="mt-0.5 text-[9px] text-slate-600 dark:text-slate-400">
-                          Batas ${budget.hasPlanningSnapshot
-                            ? formatCurrency(limit, baseCurrency)
-                            : "belum dikonversi"}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      aria-label=${`Menu anggaran ${budget.categoryLabel}`}
-                      onClick=${(event) => {
-                        event.stopPropagation();
-                        setOpenMenuId(menuOpen ? null : budget.id);
-                      }}
-                      className="grid h-11 min-h-11 w-11 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-200 dark:hover:bg-slate-800"
+                  <button
+                    type="button"
+                    onClick=${() => setOpenMenuId(open ? null : budget.id)}
+                    aria-expanded=${open}
+                    className="flex items-baseline justify-between gap-2.5 text-left text-[13px]"
+                  >
+                    <span
+                      className="min-w-0 flex-1 truncate"
+                      style=${{ color: "var(--cs-body)" }}
                     >
-                      <${MoreVertical} aria-hidden="true" className="h-4 w-4" />
-                    </button>
-                  </div>
+                      ${budget.categoryLabel}
+                    </span>
+                    <span
+                      className="dc-num shrink-0 whitespace-nowrap text-[12.5px]"
+                      style=${{ color: over ? "var(--cs-danger)" : "var(--cs-ink)" }}
+                    >
+                      ${formatCurrency(spent, baseCurrency)} / ${formatCurrency(limit, baseCurrency)}
+                    </span>
+                  </button>
 
-                  ${menuOpen
+                  <span className="dc-track h-2">
+                    <span style=${{ width: `${barWidth}%`, background: barColor }}></span>
+                  </span>
+
+                  ${open
                     ? html`
-                        <div
-                          className="absolute right-3 top-11 z-10 min-w-28 overflow-hidden rounded-lg border border-slate-200 bg-white p-1 shadow-xl dark:border-slate-700 dark:bg-slate-900"
-                          onClick=${(event) => event.stopPropagation()}
-                        >
-                          <button
-                            type="button"
-                            onClick=${() => loadBudgetForm(budget)}
-                            className="block min-h-11 w-full rounded-md px-3 text-left text-[10px] font-bold text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800"
+                        <div className="flex flex-col gap-[9px] pt-[3px]">
+                          <span
+                            className="text-[12.5px] leading-[1.45]"
+                            style=${{ color: over ? "var(--cs-danger)" : "var(--cs-body)" }}
                           >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick=${() => {
-                              setOpenMenuId(null);
-                              onBudgetDelete(budget);
-                            }}
-                            className="flex min-h-11 w-full items-center gap-2 rounded-md px-3 text-left text-[10px] font-bold text-rose-600 hover:bg-rose-500/10 dark:text-rose-300"
-                          >
-                            <${Trash2} aria-hidden="true" className="h-3.5 w-3.5" />
-                            Hapus
-                          </button>
+                            ${note}
+                          </span>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick=${() => loadBudgetForm(budget)}
+                              className="text-xs font-bold"
+                              style=${{ color: "var(--cs-link)" }}
+                            >
+                              Atur jatah
+                            </button>
+                            <span style=${{ color: "var(--cs-faint)" }}>·</span>
+                            <button
+                              type="button"
+                              onClick=${() => onOpenCategoryHistory?.(budget)}
+                              className="text-xs font-medium"
+                              style=${{ color: "var(--cs-mut)" }}
+                            >
+                              Lihat transaksinya
+                            </button>
+                            <span style=${{ color: "var(--cs-faint)" }}>·</span>
+                            <button
+                              type="button"
+                              onClick=${() => {
+                                setOpenMenuId(null);
+                                onBudgetDelete(budget);
+                              }}
+                              className="text-xs font-medium"
+                              style=${{ color: "var(--cs-danger)" }}
+                            >
+                              Hapus
+                            </button>
+                          </div>
                         </div>
                       `
                     : null}
-
-                  <div className="mt-3 grid grid-cols-2 gap-3">
-                    <p className="text-[9px] font-bold text-slate-600 dark:text-slate-300">
-                      Terpakai
-                      <strong className="mt-0.5 block text-[10px] text-slate-950 dark:text-white">
-                        ${formatCurrency(spent, baseCurrency)}
-                      </strong>
-                    </p>
-                    <p className="text-right text-[9px] font-bold text-slate-600 dark:text-slate-300">
-                      Sisa
-                      <strong className=${`mt-0.5 block text-[10px] ${
-                        remaining < 0
-                          ? "text-rose-600 dark:text-rose-300"
-                          : "text-emerald-700 dark:text-emerald-300"
-                      }`}>
-                        ${formatCurrency(remaining, baseCurrency)}
-                      </strong>
-                    </p>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between gap-3">
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-                      <div
-                        className=${`h-full rounded-full ${statusColor}`}
-                        style=${{ width: `${barWidth}%` }}
-                      ></div>
-                    </div>
-                    <span className="shrink-0 text-[9px] font-black text-cyan-700 dark:text-cyan-300">
-                      ${Math.round(usage * 100)}%
-                    </span>
-                  </div>
-                </article>
+                </div>
               `;
             })
           : html`
-              <div className="rounded-xl border border-dashed border-slate-300 bg-white/35 px-4 py-6 text-center dark:border-slate-800 dark:bg-transparent">
-                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Belum ada anggaran bulan ini.
-                </p>
-                <p className="mt-1 text-[10px] text-slate-600 dark:text-slate-500">
-                  Atur kategori yang benar-benar ingin kamu batasi.
-                </p>
-              </div>
+              <p
+                className="py-2 text-center text-[13px] leading-[1.5]"
+                style=${{ color: "var(--cs-mut)" }}
+              >
+                Belum ada jatah bulan ini. Atur kategori yang benar-benar ingin
+                kamu batasi.
+              </p>
             `}
+
+        <button
+          type="button"
+          onClick=${() => {
+            setOpenMenuId(null);
+            setShowForm(true);
+          }}
+          className="flex items-center justify-center gap-2 pt-4"
+          style=${{ borderTop: "1px solid var(--cs-chip)" }}
+        >
+          <span className="text-[17px]" style=${{ color: "var(--cs-faint)" }}>+</span>
+          <span className="text-[13px] font-medium" style=${{ color: "var(--cs-mut)" }}>
+            Tambah kategori
+          </span>
+        </button>
       </div>
+
 
       <${BudgetRateSheet}
         open=${showRateSheet}
@@ -745,35 +691,58 @@ export function BudgetWorkspacePage({
   globalRateSnapshot = null,
   onBudgetDelete,
   onBudgetSubmit,
-  onCreateGoal,
-  onUpdateGoal,
-  onDeleteGoal,
-  onArchiveGoal,
-  onGoalActivity,
-  onMoveAllocation,
-  onUseGoal,
   focusCategoryKey = null,
   loading = false,
+  onNavigate,
+  onOpenCategoryHistory,
 }) {
   const budgetCurrency = normalizeCurrencyCode(baseCurrency);
 
+  const limitTotal = Number(metrics.budgetLimitTotal || 0);
+  const spentTotal = Number(metrics.budgetSpentTotal || 0);
+  const remaining = Math.max(limitTotal - spentTotal, 0);
+  const now = new Date();
+  const daysLeft = Math.max(
+    new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate() - now.getDate(),
+    0,
+  );
+  const perDay = daysLeft > 0 ? remaining / daysLeft : remaining;
+  const remainingText = formatCurrency(remaining, budgetCurrency);
+  const attentionCount =
+    Number(metrics.overspentCount || 0) + Number(metrics.warningCount || 0);
+
+  // Seksi Target sudah pindah ke halaman Dompet, jadi permintaan fokus
+  // "__goals__" diarahkan ke sana, bukan digulir di halaman ini.
   useEffect(() => {
     if (focusCategoryKey !== "__goals__") return;
-    document
-      .querySelector('[data-budget-section="goals"]')
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    onNavigate?.("investment");
   }, [focusCategoryKey]);
 
   return html`
     <div className="mx-auto grid max-w-md gap-4 pb-[calc(7rem+env(safe-area-inset-bottom))] lg:pb-6">
-      <header>
-        <h1 className="font-display text-lg font-black text-slate-950 dark:text-white">
-          Anggaran & Target Tabungan
-        </h1>
-        <p className="mt-1 text-[10px] leading-4 text-slate-600 dark:text-cyan-300/85">
-          Atur batas pengeluaran bulanan dan pantau progres rencana finansialmu.
-        </p>
-      </header>
+      <section className="dc-panel flex flex-col gap-3.5 p-[22px]">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[13px] text-[#9c968b]">
+            Sisa jatah ${metrics.currentMonthLabel || "bulan ini"}
+          </span>
+          <span className="shrink-0 text-[11.5px] text-[#9c968b]">
+            ${daysLeft} hari lagi
+          </span>
+        </div>
+        <div className="flex items-end gap-1.5">
+          <span className="pb-1.5 text-[19px] font-medium text-[#9c968b]">
+            ${budgetCurrency === "IDR" ? "Rp" : budgetCurrency}
+          </span>
+          <span className="dc-num text-[36px] leading-none tracking-[-1.6px]">
+            ${remainingText.replace(/^[^\d-]*/, "")}
+          </span>
+        </div>
+        <span className="text-[12.5px] leading-[1.45] text-[#9c968b]">
+          ${limitTotal > 0
+            ? `Kalau dibagi rata, kamu bisa pakai ${formatCurrency(perDay, budgetCurrency)} per hari sampai akhir bulan.`
+            : "Belum ada batas bulanan. Atur jatah per kategori supaya sisa harian bisa dihitung."}
+        </span>
+      </section>
 
       <${BudgetSection}
         metrics=${metrics}
@@ -786,26 +755,61 @@ export function BudgetWorkspacePage({
         focusCategoryKey=${focusCategoryKey === "__goals__"
           ? null
           : focusCategoryKey}
+        daysLeftInMonth=${daysLeft}
+        onOpenCategoryHistory=${onOpenCategoryHistory}
       />
 
-      <div data-budget-section="goals" className="scroll-mt-4">
-        <${TargetPlanningSection}
-          goals=${metrics.goalInsights}
-          summaries=${metrics.goalAllocationSummaries}
-          activeCurrencies=${activeCurrencies}
-          baseCurrency=${budgetCurrency}
-          transactions=${transactions}
-          accounts=${metrics.assetAccountInsights}
-          loading=${loading}
-          onCreateGoal=${onCreateGoal}
-          onUpdateGoal=${onUpdateGoal}
-          onDeleteGoal=${onDeleteGoal}
-          onArchiveGoal=${onArchiveGoal}
-          onGoalActivity=${onGoalActivity}
-          onMoveAllocation=${onMoveAllocation}
-          onUseGoal=${onUseGoal}
-        />
-      </div>
+
+      ${onNavigate
+        ? html`
+            <button
+              type="button"
+              onClick=${() => onNavigate("control")}
+              className="dc-card flex w-full flex-col gap-3.5 p-[18px] text-left"
+            >
+              <div className="flex items-center gap-3">
+                <span
+                  className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[13px]"
+                  style=${{ background: "var(--cs-acc)" }}
+                >
+                  <${BarChart3}
+                    aria-hidden="true"
+                    className="h-5 w-5"
+                    style=${{ color: "var(--cs-on-acc)" }}
+                    strokeWidth=${1.8}
+                  />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="text-[15px] font-bold">Kondisi keuanganmu</span>
+                  <span className="text-xs text-[color:var(--cs-mut)]">
+                    Diperbarui tiap kamu mencatat
+                  </span>
+                </span>
+                <${ChevronRight}
+                  aria-hidden="true"
+                  className="h-[18px] w-[18px] shrink-0"
+                  style=${{ color: "var(--cs-faint)" }}
+                />
+              </div>
+              <span className="text-[13px] leading-[1.5] text-[color:var(--cs-body)]">
+                Skor, rincian ke mana uangmu pergi, dan hal-hal yang bisa dirapikan
+                bulan ini.
+              </span>
+              ${attentionCount > 0
+                ? html`
+                    <span className="flex gap-2">
+                      <span
+                        className="rounded-full px-[11px] py-1.5 text-[11.5px] font-bold"
+                        style=${{ background: "var(--cs-seg)", color: "var(--cs-body)" }}
+                      >
+                        ${attentionCount} kategori perlu dilihat
+                      </span>
+                    </span>
+                  `
+                : null}
+            </button>
+          `
+        : null}
     </div>
   `;
 }
