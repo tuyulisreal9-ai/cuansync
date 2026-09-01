@@ -11,6 +11,7 @@ import {
   validateExchangeRate,
 } from "../src/domain/exchangeRate.js";
 import { settleExchangeCalculation } from "../src/domain/exchange.js";
+import { normalizeNumericInput } from "../src/lib/currency.js";
 import { buildAssetAccountBalancePlan } from "../src/domain/assets.js";
 import { getTransactionAccountMovements } from "../src/domain/transactions.js";
 
@@ -364,4 +365,58 @@ test("saldo tujuan bertambah sebesar hasil konversi tanpa dipotong biaya", () =>
     (account) => account.id === "destination-thb",
   );
   assert.equal(destination.balance_amount, 10000);
+});
+
+test("nominal tukar dapat diisi dari sisi penerima dan mengisi balik sumbernya", () => {
+  // Skenario: tukar rupiah ke rupee dengan kurs 1 LKR = Rp 45. Mengetik
+  // 100.000 di sisi penerima harus mengisi Rp 4.500.000 di sisi sumber.
+  const settled = settleExchangeCalculation(
+    {
+      from_currency: "IDR",
+      to_currency: "LKR",
+      from_amount: "",
+      to_amount: "100000",
+      exchange_rate: "45",
+      rate_base_currency: "LKR",
+      rate_quote_currency: "IDR",
+    },
+    "to_amount",
+    { rateField: "exchange_rate" },
+  );
+
+  assert.equal(normalizeNumericInput(settled.from_amount), "4500000");
+  assert.equal(normalizeNumericInput(settled.to_amount), "100000");
+
+  // Arah sebaliknya tetap bekerja seperti sebelumnya.
+  const back = settleExchangeCalculation(
+    {
+      from_currency: "IDR",
+      to_currency: "LKR",
+      from_amount: "4500000",
+      to_amount: "",
+      exchange_rate: "45",
+      rate_base_currency: "LKR",
+      rate_quote_currency: "IDR",
+    },
+    "from_amount",
+    { rateField: "exchange_rate" },
+  );
+
+  assert.equal(normalizeNumericInput(back.to_amount), "100000");
+});
+
+test("kolom penerima pada layar pindah uang berupa input, bukan tampilan", async () => {
+  const form = await readFile(
+    new URL("../src/components/transactions/TransactionForm.js", import.meta.url),
+    "utf8",
+  );
+
+  // Tanpa input ini pengguna hanya bisa mengisi dari sisi sumber.
+  assert.match(form, /aria-label=\$\{`Jumlah diterima dalam \$\{form\.to_currency\}`\}/);
+  assert.match(form, /updateField\(\s*"to_amount"/);
+  assert.match(form, /onBlur=\$\{\(\) => settleExchangeField\("to_amount"\)\}/);
+
+  // Pada transfer kedua sisi memakai mata uang sama, jadi mengetik di sisi
+  // penerima harus mengisi balik sumbernya supaya nominal kirim tidak kosong.
+  assert.match(form, /isTransfer && field === "to_amount"/);
 });

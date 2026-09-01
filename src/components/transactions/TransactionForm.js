@@ -756,6 +756,13 @@ export function TransactionForm({
         next.to_amount = value;
         next.exchange_rate = "1";
       }
+      /* Pada transfer kedua sisi memakai mata uang yang sama, jadi mengetik di
+         kolom "Ke" harus mengisi balik "Dari" dengan nilai yang sama. Tanpa
+         ini kolom bawah bisa diisi tetapi nominal yang dikirim tetap kosong. */
+      if (isTransfer && field === "to_amount") {
+        next.from_amount = value;
+        next.exchange_rate = "1";
+      }
       if (
         isMovement &&
         !isTransfer &&
@@ -996,7 +1003,6 @@ export function TransactionForm({
         .trim() || (code || baseCurrency);
     const fromSymbol = symbolOf(form.from_currency);
     const toSymbol = symbolOf(form.to_currency);
-    const resultAmount = settledMovementForm.to_amount;
 
     const walletChip = (account, active, onPick) => html`
       <button
@@ -1164,23 +1170,37 @@ export function TransactionForm({
                         </span>
                       `}
                 </div>
-                <div className="flex items-baseline gap-1.5">
+                ${/* Kolom "Ke" bisa diisi, tidak hanya menampilkan hasil.
+                      Mengetik di sini mengisi balik "Dari" memakai kurs yang
+                      berlaku, jadi menukar 100rb LKR dengan kurs 45 langsung
+                      mengisi Rp 4.500.000 di atas. Perhitungan dua arahnya
+                      sudah ada di settleExchangeCalculation, yang kurang hanya
+                      inputnya. */ null}
+                <div
+                  className="flex items-end gap-1.5 pb-2"
+                  style=${{ borderBottom: "1.5px solid var(--cs-line)" }}
+                >
                   <span
-                    className="text-[15px]"
+                    className="pb-[3px] text-[15px]"
                     style=${{ color: "var(--cs-mut)" }}
                   >
                     ${toSymbol}
                   </span>
-                  <span
-                    className="dc-num text-[26px] tracking-[-0.8px]"
-                    style=${{
-                      color: Number(normalizeNumericInput(resultAmount)) > 0
-                        ? "var(--cs-ink)"
-                        : "var(--cs-faint)",
-                    }}
-                  >
-                    ${resultAmount || "0"}
-                  </span>
+                  <input
+                    inputMode="decimal"
+                    autoComplete="off"
+                    aria-label=${`Jumlah diterima dalam ${form.to_currency}`}
+                    value=${form.to_amount}
+                    onChange=${(event) =>
+                      updateField(
+                        "to_amount",
+                        formatNumericInput(event.target.value),
+                      )}
+                    onBlur=${() => settleExchangeField("to_amount")}
+                    placeholder="0"
+                    className="dc-num min-w-0 flex-1 border-none bg-transparent p-0 text-[26px] tracking-[-0.8px] outline-none"
+                    style=${{ color: "var(--cs-ink)" }}
+                  />
                 </div>
               </div>
               <//>
