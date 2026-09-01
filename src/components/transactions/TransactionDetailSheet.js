@@ -684,26 +684,20 @@ export function TransactionDetailSheet({
   }
 
   return html`
-    <div className="fixed inset-0 z-[120] flex items-end justify-center md:items-center">
+    <div className="fixed inset-0 z-[120] flex items-end justify-center md:items-center lg:p-10">
       <button
         key="detail-backdrop"
         type="button"
         aria-label="Tutup detail transaksi"
-        className=${`${closing ? "dc-overlay-out" : "dc-overlay-in"} absolute inset-0`}
-        style=${{ background: "rgba(20,18,15,0.42)" }}
+        className=${`cs-sheet-scrim ${closing ? "dc-overlay-out" : "dc-overlay-in"} absolute inset-0`}
         onClick=${requestClose}
       ></button>
       <section
         key="detail-panel"
-        className=${`transaction-sheet ${closing ? "dc-sheet-down" : "dc-sheet-up"} relative flex max-h-[calc(100svh-1rem)] w-full flex-col gap-4 overflow-y-auto px-5 pb-6 pt-3 md:max-h-[86svh] md:max-w-lg`}
-        style=${{
-          background: "var(--cs-bg)",
-          borderRadius: "26px 26px 0 0",
-          boxShadow: "0 -12px 40px rgba(0,0,0,0.18)",
-        }}
+        className=${`transaction-sheet cs-sheet-panel ${closing ? "dc-sheet-down" : "dc-sheet-up"} relative flex max-h-[calc(100svh-1rem)] w-full flex-col gap-4 overflow-y-auto px-5 pb-6 pt-3 md:max-h-[86svh] md:max-w-lg lg:max-w-[560px] lg:px-[26px] lg:pb-[26px] lg:pt-6`}
       >
         <span
-          className="mx-auto block h-1 w-[42px] shrink-0 rounded-full md:hidden"
+          className="mx-auto block h-1 w-[42px] shrink-0 rounded-full md:hidden lg:hidden"
           style=${{ background: "var(--cs-dim)" }}
         ></span>
         <div className="flex items-center justify-between gap-3">

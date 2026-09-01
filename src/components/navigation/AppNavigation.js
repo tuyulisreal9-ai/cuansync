@@ -3,9 +3,11 @@ import htm from "htm";
 import {
   ArrowRight,
   House,
+  Moon,
   Plus,
   ReceiptText,
   Repeat2,
+  Sun,
   Target,
   WalletCards,
   X,
@@ -93,51 +95,120 @@ function AddButton({
   `;
 }
 
+/* Sidebar desktop mengikuti artifact 072730af: lebar tetap 264, menempel di
+   kiri setinggi layar, berisi merek, navigasi berlabel, sakelar tema, lalu
+   kartu profil di dasarnya. Rail ikon 76px yang lama diganti karena desain
+   desktop memakai label, bukan ikon saja. */
 export function DesktopNavigation({
   activeTab,
   onChange,
-  onAdd,
+  onSettings,
+  onToggleTheme,
+  isDark = false,
+  userName = "",
+  userEmail = "",
+  userInitials = "",
+  avatarSrc = null,
 }) {
   const activeKey = getPrimaryActiveKey(activeTab);
+  const ThemeIcon = isDark ? Moon : Sun;
 
   return html`
-    <aside className="hidden lg:block">
-      <nav
-        aria-label="Navigasi utama"
-        className="cs-desktop-rail sticky top-6 flex h-[calc(100vh-3rem)] min-h-[30rem] w-[76px] flex-col items-center justify-center gap-2 rounded-lg px-2 py-3"
-      >
-        <${NavigationItem}
-          item=${PRIMARY_NAV_ITEMS[0]}
-          active=${activeKey === PRIMARY_NAV_ITEMS[0].key}
-          onChange=${onChange}
-          desktop=${true}
-        />
-        <${NavigationItem}
-          item=${PRIMARY_NAV_ITEMS[1]}
-          active=${activeKey === PRIMARY_NAV_ITEMS[1].key}
-          onChange=${onChange}
-          desktop=${true}
-        />
-        <div className="my-1">
-          <${AddButton}
-            active=${activeTab === "add" || activeTab === "today"}
-            onClick=${onAdd}
-            desktop=${true}
+    <aside
+      aria-label="Navigasi utama"
+      className="cs-desktop-sidebar sticky top-0 hidden h-screen w-[264px] flex-none flex-col gap-7 border-r px-5 pb-6 pt-7 lg:flex"
+      style=${{ borderColor: "var(--cs-line)" }}
+    >
+      <div className="flex items-center gap-2.5 px-2">
+        <span
+          className="flex h-8 w-8 items-center justify-center rounded-[11px]"
+          style=${{ background: "var(--cs-acc)" }}
+        >
+          <${WalletCards}
+            aria-hidden="true"
+            className="h-[18px] w-[18px]"
+            style=${{ color: "var(--cs-on-acc)" }}
+            strokeWidth=${1.9}
           />
-        </div>
-        <${NavigationItem}
-          item=${PRIMARY_NAV_ITEMS[2]}
-          active=${activeKey === PRIMARY_NAV_ITEMS[2].key}
-          onChange=${onChange}
-          desktop=${true}
-        />
-        <${NavigationItem}
-          item=${PRIMARY_NAV_ITEMS[3]}
-          active=${activeKey === PRIMARY_NAV_ITEMS[3].key}
-          onChange=${onChange}
-          desktop=${true}
-        />
+        </span>
+        <span className="text-[15px] font-bold tracking-[0.4px]">CUANSYNC</span>
+      </div>
+
+      <nav className="flex flex-col gap-1">
+        ${PRIMARY_NAV_ITEMS.map((item) => {
+          const active = activeKey === item.key;
+          const Icon = item.icon;
+          return html`
+            <button
+              key=${item.key}
+              type="button"
+              aria-current=${active ? "page" : undefined}
+              onClick=${() => onChange(item.key)}
+              className="cs-sidebar-item dc-press dc-press-96 flex min-h-[46px] items-center gap-3 rounded-[14px] px-3.5 text-left"
+              style=${active
+                ? { background: "var(--cs-sel-bg)", color: "var(--cs-sel-fg)" }
+                : { background: "transparent", color: "var(--cs-body)" }}
+            >
+              <${Icon}
+                aria-hidden="true"
+                className="h-[19px] w-[19px] shrink-0"
+                strokeWidth=${1.75}
+              />
+              <span
+                className=${`flex-1 text-sm ${active ? "font-bold" : "font-medium"}`}
+              >
+                ${item.label}
+              </span>
+            </button>
+          `;
+        })}
       </nav>
+
+      <div className="flex-1"></div>
+
+      <button
+        type="button"
+        onClick=${onToggleTheme}
+        className="cs-sidebar-item dc-press dc-press-96 flex min-h-[46px] items-center gap-3 rounded-[14px] px-3.5 text-left"
+        style=${{ color: "var(--cs-body)" }}
+      >
+        <${ThemeIcon}
+          aria-hidden="true"
+          className="h-[18px] w-[18px] shrink-0"
+          strokeWidth=${1.75}
+        />
+        <span className="flex-1 text-[13.5px] font-medium">
+          ${isDark ? "Gelap" : "Terang"}
+        </span>
+      </button>
+
+      <button
+        type="button"
+        onClick=${onSettings}
+        className="dc-card cs-sidebar-card dc-press dc-press-96 flex items-center gap-[11px] p-3 text-left"
+      >
+        <span
+          className="flex h-[38px] w-[38px] shrink-0 items-center justify-center overflow-hidden rounded-full text-[12.5px] font-bold"
+          style=${{ background: "var(--cs-chip)", color: "var(--cs-body)" }}
+        >
+          ${avatarSrc
+            ? html`<img
+                src=${avatarSrc}
+                alt=""
+                className="h-full w-full object-cover"
+              />`
+            : userInitials}
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-px">
+          <span className="truncate text-[13.5px] font-bold">${userName}</span>
+          <span
+            className="truncate text-[11.5px]"
+            style=${{ color: "var(--cs-mut)" }}
+          >
+            ${userEmail}
+          </span>
+        </span>
+      </button>
     </aside>
   `;
 }

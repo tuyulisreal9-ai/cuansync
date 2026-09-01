@@ -149,33 +149,30 @@ export function QuickEntrySheet({
   `;
 
   return html`
-    <div className="fixed inset-0 z-50">
+    ${/* Desktop memakai dialog terpusat selebar 560 seperti artifact, bukan
+          bottom sheet yang meregang sepenuh layar. Bentuk mobile tidak berubah
+          karena semua penyesuaian ada di balik lg. */ null}
+    <div className="fixed inset-0 z-50 lg:flex lg:items-center lg:justify-center lg:p-10">
       <button
         type="button"
         aria-label="Tutup catat transaksi"
         onClick=${requestClose}
-        className=${`${closing ? "dc-overlay-out" : "dc-overlay-in"} absolute inset-0`}
-        style=${{ background: "rgba(20,18,15,0.42)" }}
+        className=${`cs-sheet-scrim ${closing ? "dc-overlay-out" : "dc-overlay-in"} absolute inset-0`}
       ></button>
 
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Catat transaksi"
-        className=${`${closing ? "dc-sheet-down" : "dc-sheet-up"} absolute inset-x-0 bottom-0 flex max-h-[92svh] flex-col gap-4 overflow-y-auto px-5 pb-6 pt-3`}
-        style=${{
-          background: "var(--cs-bg)",
-          borderRadius: "26px 26px 0 0",
-          boxShadow: "0 -12px 40px rgba(0,0,0,0.18)",
-        }}
+        className=${`cs-sheet-panel ${closing ? "dc-sheet-down" : "dc-sheet-up"} absolute inset-x-0 bottom-0 flex max-h-[92svh] flex-col gap-4 overflow-y-auto px-5 pb-6 pt-3 lg:relative lg:inset-auto lg:max-h-[86vh] lg:w-full lg:max-w-[560px] lg:px-[26px] lg:pb-[26px] lg:pt-6`}
       >
         <span
-          className="mx-auto block h-1 w-[42px] shrink-0 rounded-full"
+          className="mx-auto block h-1 w-[42px] shrink-0 rounded-full lg:hidden"
           style=${{ background: "var(--cs-dim)" }}
         ></span>
 
         <div className="flex items-center justify-between">
-          <span className="text-[17px] font-bold tracking-[-0.2px]">
+          <span className="text-[17px] font-bold tracking-[-0.2px] lg:text-[18px] lg:tracking-[-0.3px]">
             Catat transaksi
           </span>
           <button

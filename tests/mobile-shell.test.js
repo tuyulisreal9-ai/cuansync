@@ -219,3 +219,36 @@ test("body tidak boleh menjadi scroll container yang menghadang wheel dan sentuh
   assert.doesNotMatch(styles, /^html,\s*\n\s*body\s*\{[^}]*overflow-x:\s*hidden/m);
   assert.match(styles, /^body\s*\{[^}]*overflow-x:\s*clip/m);
 });
+
+test("desktop memakai sidebar 264px, topbar menempel, dan grid beranda", () => {
+  const nav = source("src/components/navigation/AppNavigation.js");
+  const header = source("src/components/wallet/WalletHeader.js");
+  const home = source("src/components/home/HomeDashboardPage.js");
+  const shell = source("src/main.js");
+  const styles = source("src/styles.css");
+
+  // Sidebar berlabel menggantikan rail ikon 76px.
+  assert.match(nav, /w-\[264px\]/);
+  assert.match(nav, /cs-desktop-sidebar/);
+  assert.doesNotMatch(nav, /cs-desktop-rail/);
+  assert.doesNotMatch(nav, /w-\[76px\]/);
+
+  // Sidebar hanya muncul dari lg ke atas supaya mobile tidak berubah.
+  assert.match(nav, /hidden[^"]*lg:flex/);
+
+  // Topbar menempel dengan judul 26px dan tiga aksi.
+  assert.match(header, /lg:sticky[^"]*lg:top-0/);
+  assert.match(header, /lg:text-\[26px\]/);
+  assert.match(header, /cs-topbar-action/);
+
+  // Beranda memakai grid auto-fit seperti artifact.
+  assert.match(home, /grid-template-columns:repeat\(auto-fit,minmax\(380px,1fr\)\)/);
+
+  // Kolom konten memakai lebar maksimum dan padding desktop.
+  assert.match(shell, /lg:max-w-\[1400px\]/);
+  assert.match(shell, /lg:px-8/);
+
+  // Hover hanya untuk penunjuk presisi, bukan layar sentuh.
+  assert.match(styles, /@media \(hover: hover\) and \(pointer: fine\)/);
+  assert.match(styles, /--cs-sidebar-bg/);
+});

@@ -30,23 +30,17 @@ export function SheetShell({ open, title, helper, onClose, children, labelledBy 
         type="button"
         aria-label="Tutup panel"
         onClick=${requestClose}
-        className=${`${closing ? "dc-overlay-out" : "dc-overlay-in"} absolute inset-0`}
-        style=${{ background: "rgba(20,18,15,0.42)" }}
+        className=${`cs-sheet-scrim ${closing ? "dc-overlay-out" : "dc-overlay-in"} absolute inset-0`}
       ></button>
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby=${labelledBy}
-        className=${`settings-bottom-sheet ${closing ? "dc-sheet-down" : "dc-sheet-up"} relative z-10 flex max-h-[calc(100dvh-.75rem)] w-full max-w-md flex-col gap-4 overflow-hidden px-5 pb-6 pt-3 md:max-h-[88dvh]`}
-        style=${{
-          background: "var(--cs-bg)",
-          color: "var(--cs-ink)",
-          borderRadius: "26px 26px 0 0",
-          boxShadow: "0 -12px 40px rgba(0,0,0,0.18)",
-        }}
+        className=${`settings-bottom-sheet cs-sheet-panel ${closing ? "dc-sheet-down" : "dc-sheet-up"} relative z-10 flex max-h-[calc(100dvh-.75rem)] w-full max-w-md flex-col gap-4 overflow-hidden px-5 pb-6 pt-3 md:max-h-[88dvh] lg:max-w-[560px] lg:px-[26px] lg:pb-[26px] lg:pt-6`}
+        style=${{ color: "var(--cs-ink)" }}
       >
         <span
-          className="mx-auto block h-1 w-[42px] shrink-0 rounded-full"
+          className="mx-auto block h-1 w-[42px] shrink-0 rounded-full lg:hidden"
           style=${{ background: "var(--cs-dim)" }}
         ></span>
         <div className="flex items-start justify-between gap-3">
