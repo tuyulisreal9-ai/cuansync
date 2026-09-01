@@ -9,7 +9,7 @@
     "cleartext": false
   },
   "android": {
-    "backgroundColor": "#020617",
+    "backgroundColor": "#080d0c",
     "allowMixedContent": false
   },
   "plugins": {
@@ -20,7 +20,7 @@
     "SplashScreen": {
       "launchShowDuration": 1400,
       "launchAutoHide": true,
-      "backgroundColor": "#020617",
+      "backgroundColor": "#080d0c",
       "androidScaleType": "CENTER_CROP",
       "showSpinner": false,
       "splashFullScreen": true,
@@ -28,7 +28,7 @@
     },
     "StatusBar": {
       "style": "DARK",
-      "backgroundColor": "#020617",
+      "backgroundColor": "#080d0c",
       "overlaysWebView": false
     }
   }

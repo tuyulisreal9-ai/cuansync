@@ -71,3 +71,29 @@ test("Pengaturan membuka file picker dan editor crop interaktif", () => {
   assert.match(settings, /Gunakan foto/);
   assert.match(settings, /Foto siap disimpan\./);
 });
+
+test("sapaan header memakai nama dari Pengaturan, bukan metadata akun", async () => {
+  const { getProfileDisplayName } = await import("../src/lib/profile.js");
+  const main = readFileSync(new URL("../src/main.js", import.meta.url), "utf8");
+
+  // Nama yang disimpan Pengaturan menang atas metadata akun dan nama email.
+  assert.equal(
+    getProfileDisplayName(
+      { display_name: "Steven" },
+      { user_metadata: { full_name: "Nama Lama" }, email: "tuyul@contoh.com" },
+    ),
+    "Steven",
+  );
+  // Tanpa display_name barulah jatuh ke metadata, lalu ke nama dari email.
+  assert.equal(
+    getProfileDisplayName({}, { user_metadata: { full_name: "Nama Lama" } }),
+    "Nama Lama",
+  );
+  assert.equal(getProfileDisplayName({}, { email: "tuyul@contoh.com" }), "tuyul");
+
+  // Header wajib memakai sumber yang sama, bukan membaca profile.full_name yang
+  // tidak pernah ada pada objek profil sehingga selalu jatuh ke metadata basi.
+  assert.match(main, /const greetingName = userDisplayName/);
+  assert.match(main, /userName=\$\{greetingName\}/);
+  assert.doesNotMatch(main, /profile\?\.full_name/);
+});

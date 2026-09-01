@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import htm from "htm";
 import { StickyNote } from "lucide-react";
 import { UNIVERSAL_BUDGET_GROUP } from "../../domain/budgets.js";
+import { useSheetClose } from "../../lib/sheetClose.js";
 import {
   DEFAULT_BASE_CURRENCY,
   formatCurrency,
@@ -34,20 +35,21 @@ export function QuickEntrySheet({
   baseCurrency = DEFAULT_BASE_CURRENCY,
   loading = false,
 }) {
-  const currency = normalizeCurrencyCode(baseCurrency);
+  const baseCode = normalizeCurrencyCode(baseCurrency);
   const [entryType, setEntryType] = useState("expense");
   const [digits, setDigits] = useState("");
   const [category, setCategory] = useState(categories[0]?.value || "");
   const [accountId, setAccountId] = useState("");
   const [note, setNote] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
+  const { closing, requestClose } = useSheetClose(onClose, open);
 
   useEffect(() => {
     if (!open) return;
     setEntryType("expense");
     setDigits("");
     setCategory(categories[0]?.value || "");
-    setAccountId(pickDefaultAccount(accounts, currency)?.id || "");
+    setAccountId(pickDefaultAccount(accounts, baseCode)?.id || "");
     setNote("");
     setNoteOpen(false);
   }, [open]);
@@ -58,7 +60,12 @@ export function QuickEntrySheet({
   const hasAmount = amount > 0;
   const account =
     accounts.find((item) => item.id === accountId) ||
-    pickDefaultAccount(accounts, currency);
+    pickDefaultAccount(accounts, baseCode);
+  /* Mata uang transaksi mengikuti dompet yang dipilih, bukan mata uang dasar.
+     validateTransactionAccountLinks menolak transaksi yang mata uangnya beda
+     dari dompetnya, jadi memakai mata uang dasar untuk dompet valas membuat
+     simpanan gagal sekaligus salah catat. */
+  const currency = normalizeCurrencyCode(account?.currency || baseCode);
   const isExpense = entryType === "expense";
   const categoryHint =
     categories.find((item) => item.value === category)?.description || "";
@@ -108,7 +115,7 @@ export function QuickEntrySheet({
       target_id: null,
     };
     const ok = await onSubmit(payload);
-    if (ok) onClose();
+    if (ok) requestClose();
   }
 
   const segment = (active) =>
@@ -146,8 +153,8 @@ export function QuickEntrySheet({
       <button
         type="button"
         aria-label="Tutup catat transaksi"
-        onClick=${onClose}
-        className="absolute inset-0"
+        onClick=${requestClose}
+        className=${`${closing ? "dc-overlay-out" : "dc-overlay-in"} absolute inset-0`}
         style=${{ background: "rgba(20,18,15,0.42)" }}
       ></button>
 
@@ -155,7 +162,7 @@ export function QuickEntrySheet({
         role="dialog"
         aria-modal="true"
         aria-label="Catat transaksi"
-        className="absolute inset-x-0 bottom-0 flex max-h-[92svh] flex-col gap-4 overflow-y-auto px-5 pb-6 pt-3"
+        className=${`${closing ? "dc-sheet-down" : "dc-sheet-up"} absolute inset-x-0 bottom-0 flex max-h-[92svh] flex-col gap-4 overflow-y-auto px-5 pb-6 pt-3`}
         style=${{
           background: "var(--cs-bg)",
           borderRadius: "26px 26px 0 0",
@@ -173,7 +180,7 @@ export function QuickEntrySheet({
           </span>
           <button
             type="button"
-            onClick=${onClose}
+            onClick=${requestClose}
             className="flex min-h-10 items-center pl-3.5 text-[13px]"
             style=${{ color: "var(--cs-mut)" }}
           >
@@ -302,11 +309,17 @@ export function QuickEntrySheet({
                   ${isExpense ? "Dari dompet mana?" : "Masuk ke dompet mana?"}
                 </span>
                 <div className="dc-scroll-x flex gap-2 overflow-x-auto pb-0.5">
-                  ${accounts.map((item) =>
-                    chip(item.name, item.id === account?.id, () =>
+                  ${/* Kode mata uang ditempel pada dompet valas supaya jelas
+                        bahwa nominal yang diketik mengikuti mata uang dompet
+                        itu, bukan mata uang dasar. */ null}
+                  ${accounts.map((item) => {
+                    const code = normalizeCurrencyCode(item.currency);
+                    const label =
+                      code === baseCode ? item.name : `${item.name} · ${code}`;
+                    return chip(label, item.id === account?.id, () =>
                       setAccountId(item.id),
-                    ),
-                  )}
+                    );
+                  })}
                 </div>
               </div>
             `

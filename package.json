@@ -9,7 +9,7 @@
     "mobile:open": "cap open android",
     "mobile:run": "pnpm mobile:sync && cap run android",
     "mobile:assets": "pnpm mobile:assets:android && pnpm mobile:assets:pwa",
-    "mobile:assets:android": "capacitor-assets generate --android --assetPath assets-native --iconBackgroundColor \"#020617\" --iconBackgroundColorDark \"#020617\" --splashBackgroundColor \"#020617\" --splashBackgroundColorDark \"#020617\" --logoSplashScale 0.18",
+    "mobile:assets:android": "capacitor-assets generate --android --assetPath assets-native --iconBackgroundColor \"#080d0c\" --iconBackgroundColorDark \"#080d0c\" --splashBackgroundColor \"#080d0c\" --splashBackgroundColorDark \"#080d0c\" --logoSplashScale 0.18",
     "mobile:assets:pwa": "capacitor-assets generate --pwa --assetPath assets",
     "mobile:apk": "pnpm mobile:sync && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-android.ps1"
   },

@@ -183,6 +183,206 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ==========================================================================
+   Sistem gerak, diambil dari artifact desain.
+   Konstanta di sana: EASE_IN cubic-bezier(0.2,0,0,1), EASE_OUT
+   cubic-bezier(0.4,0,1,1), SPRING cubic-bezier(0.34,1.56,0.64,1);
+   D_TAP 120, D_ELEMENT 200, D_SCREEN 320, D_BAR 400; STAGGER 35 dengan
+   STAGGER_MAX 6 langkah.
+   ========================================================================== */
+:root {
+  --dc-ease-in: cubic-bezier(0.2, 0, 0, 1);
+  --dc-ease-out: cubic-bezier(0.4, 0, 1, 1);
+  --dc-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dc-tap: 120ms;
+  --dc-element: 200ms;
+  --dc-screen: 320ms;
+  --dc-bar: 400ms;
+  --dc-stagger: 35ms;
+}
+
+@keyframes dcFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dcFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes dcRowIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dcSheetUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes dcOverlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Gerak menutup. Durasinya sama dengan gerak membuka supaya sheet terasa
+   seimbang, dan memakai EASE_OUT karena ini gerak meninggalkan layar. */
+@keyframes dcSheetDown {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes dcOverlayOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes dcPopIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes dcToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes dcNoteIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Pergantian layar. Kuncinya diganti tiap tab supaya animasi terulang.
+
+   Semua animasi bertransform memakai fill mode "backwards", bukan "both".
+   Dengan "both" keyframe terakhir menetap, sehingga transform: translateY(0)
+   tetap menempel pada elemen setelah animasi selesai. Elemen bertransform
+   menjadi containing block bagi turunan position: fixed, dan akibatnya setiap
+   sheet di dalamnya berhenti mengikuti viewport lalu salah posisi. Dengan
+   "backwards" elemen kembali ke gaya normal tanpa transform setelah selesai,
+   dan tampilan akhirnya tetap sama. Animasi yang hanya mengubah opacity aman
+   memakai "both" karena tidak membuat containing block. */
+.dc-screen {
+  animation: dcFadeUp var(--dc-screen) var(--dc-ease-in) backwards;
+}
+
+.dc-sheet-up {
+  animation: dcSheetUp var(--dc-element) var(--dc-ease-in) backwards;
+}
+
+.dc-overlay-in {
+  animation: dcOverlayIn var(--dc-element) var(--dc-ease-in) both;
+}
+
+/* forwards dipakai di sini supaya sheet tetap di luar layar sampai React
+   melepas simpulnya. Transform yang menetap tidak jadi masalah karena
+   elemennya memang akan dibongkar sesaat kemudian. */
+.dc-sheet-down {
+  animation: dcSheetDown var(--dc-element) var(--dc-ease-out) forwards;
+}
+
+.dc-overlay-out {
+  animation: dcOverlayOut var(--dc-element) var(--dc-ease-out) forwards;
+}
+
+.dc-pop-in {
+  animation: dcPopIn var(--dc-element) var(--dc-ease-in) backwards;
+}
+
+.dc-toast-in {
+  animation: dcToastIn var(--dc-element) var(--dc-ease-in) backwards;
+}
+
+.dc-note-in {
+  animation: dcNoteIn var(--dc-element) var(--dc-ease-in) backwards;
+}
+
+/* Daftar bertahap. Desain membatasi undur maksimum enam langkah, jadi baris
+   ketujuh dan seterusnya memakai undur yang sama dan daftar panjang tidak
+   terasa lambat di bagian bawah. */
+.dc-stagger > * {
+  animation: dcRowIn var(--dc-element) var(--dc-ease-in) backwards;
+  animation-delay: calc(5 * var(--dc-stagger));
+}
+
+.dc-stagger > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+
+.dc-stagger > *:nth-child(2) {
+  animation-delay: var(--dc-stagger);
+}
+
+.dc-stagger > *:nth-child(3) {
+  animation-delay: calc(2 * var(--dc-stagger));
+}
+
+.dc-stagger > *:nth-child(4) {
+  animation-delay: calc(3 * var(--dc-stagger));
+}
+
+.dc-stagger > *:nth-child(5) {
+  animation-delay: calc(4 * var(--dc-stagger));
+}
+
+/* Bilah progres tumbuh, bukan melompat. */
+.dc-track > span {
+  transition:
+    width var(--dc-bar) var(--dc-ease-in),
+    background-color var(--dc-screen) var(--dc-ease-in);
+}
+
 /* Transisi tekan desain: transform dan background-color 120ms dengan easing
    keluar cubic-bezier(0.4, 0, 1, 1). Skala tekan 0.96 untuk kartu dan tile,
    0.94 untuk tautan teks seperti "Lihat semua". */
@@ -1189,9 +1389,12 @@ select optgroup {
   backdrop-filter: blur(24px);
 }
 
+/* Sheet memakai gerak desain: sheetUp 200ms dengan EASE_IN. Aturan lama
+   wallet-sheet-up 220ms memakai easing lain dan hanya menggeser 18px, jadi
+   terasa berbeda dari sheet lain yang sudah mengikuti artifact. */
 .wallet-bottom-sheet,
 .settings-bottom-sheet {
-  animation: wallet-sheet-up 220ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: dcSheetUp var(--dc-element) var(--dc-ease-in) backwards;
 }
 
 @keyframes wallet-sheet-up {
@@ -1886,6 +2089,29 @@ body:has(.cs-quick-action-menu) .mobile-bottom-nav {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Desain tidak mematikan gerak begitu saja, melainkan menukarnya ke fade
+     tanpa perpindahan posisi. Undur bertahap dihapus supaya daftar muncul
+     sekaligus. */
+  .dc-screen,
+  .dc-sheet-up,
+  .dc-pop-in,
+  .dc-toast-in,
+  .dc-note-in,
+  .dc-stagger > * {
+    animation: dcFadeIn var(--dc-element) var(--dc-ease-in) both;
+    animation-delay: 0ms;
+  }
+
+  .dc-press,
+  .dc-track > span {
+    transition: none;
+  }
+
+  .dc-press-96:active,
+  .dc-press-94:active {
+    transform: none;
+  }
+
   .report-reveal,
   .report-bar-fill,
   .report-column,

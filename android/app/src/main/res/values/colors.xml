@@ -1,9 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="colorPrimary">#10B981</color>
-    <color name="colorPrimaryDark">#020617</color>
-    <color name="colorAccent">#22D3EE</color>
-    <color name="cuansync_navy">#020617</color>
-    <color name="cuansync_surface">#0F172A</color>
-    <color name="cuansync_emerald">#10B981</color>
+    <!-- Warna native mengikuti token desain CUANSYNC, bukan palet slate dan
+         emerald warisan sebelum redesign. cs_bg_light dan cs_bg_dark bernilai
+         sama dengan token latar halaman di styles.css. -->
+    <color name="cs_bg_light">#FAF7F1</color>
+    <color name="cs_bg_dark">#080D0C</color>
+    <color name="cs_ink_light">#211F1B</color>
+    <color name="cs_ink_dark">#EEF4F1</color>
+
+    <!-- Splash tetap gelap karena logo CUANSYNC berupa neon bercahaya dengan
+         latar transparan; di atas latar terang glow-nya kehilangan kontras. -->
+    <color name="cs_splash_bg">#080D0C</color>
+
+    <color name="colorPrimary">#211F1B</color>
+    <color name="colorPrimaryDark">#080D0C</color>
+    <color name="colorAccent">#211F1B</color>
 </resources>

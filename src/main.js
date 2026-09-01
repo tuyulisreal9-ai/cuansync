@@ -5477,6 +5477,13 @@ function App() {
       ? `Hari ini lewat ${formatCurrency(Math.abs(activeBudgetInsight.todayRemainingSafe), dailyExpenseCurrency)} dari batas aman. ${nextDayBudgetText}`
       : `Batas aman hari ini ${formatCurrency(activeBudgetInsight.dynamicDailyLimit, dailyExpenseCurrency)}. ${nextDayBudgetText}`;
   const userDisplayName = getProfileDisplayName(profile, user);
+  /* Sapaan header memakai sumber yang sama dengan kartu profil dan Pengaturan,
+     yaitu getProfileDisplayName yang membaca profile.display_name. Sebelumnya
+     header membaca profile.full_name, field yang tidak pernah ada pada objek
+     profil, sehingga selalu jatuh ke user.user_metadata.full_name. Metadata itu
+     berasal dari sesi auth saat login dan tidak ikut diperbarui setelah nama
+     diganti, jadi sapaan tetap memakai nama lama sampai pengguna login ulang. */
+  const greetingName = userDisplayName.trim().split(/\s+/)[0] || "";
   const userInitials = getUserInitials({
     ...user,
     user_metadata: { full_name: userDisplayName },
@@ -6000,9 +6007,7 @@ function App() {
           activeTab === "history"}
           historyCompact=${activeTab === "history"}
           activeTab=${activeTab}
-          userName=${(profile?.full_name || user?.user_metadata?.full_name || "")
-            .trim()
-            .split(" ")[0] || ""}
+          userName=${greetingName}
           onBack=${() =>
             navigateAppTab(activeTab === "control" ? "budget" : "overview")}
         />
@@ -6080,7 +6085,10 @@ function App() {
             ? "mx-auto mt-4 max-w-[34rem]"
             : "mx-auto mt-4 max-w-[1024px]"
           : "mt-5 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-5 xl:grid-cols-[minmax(0,760px)_320px] xl:justify-center"}>
-          <div className="min-w-0">
+          ${/* key diikat ke tab aktif supaya React memasang ulang node ini saat
+                tab berganti, dan animasi masuk fadeUp terulang tiap pindah
+                layar seperti tabAnim di artifact. */ null}
+          <div key=${`screen-${activeTab}`} className="dc-screen min-w-0">
             ${activeContent}
           </div>
           ${fullWidthWorkspace
