@@ -177,8 +177,34 @@ test("aset native memakai sumber logo CUANSYNC yang dapat dibuat ulang", () => {
     true,
   );
   assert.match(packageJson.scripts["mobile:assets:android"], /assets-native/);
-  assert.match(packageJson.scripts["mobile:assets:android"], /#020617/);
+  // Warna native memakai token desain --cs-bg gelap, bukan slate #020617
+  // warisan sebelum redesign. Splash tetap gelap karena logo CUANSYNC berupa
+  // neon bercahaya yang hilang kontrasnya di atas latar terang.
+  assert.match(packageJson.scripts["mobile:assets:android"], /#080d0c/i);
+  assert.doesNotMatch(packageJson.scripts["mobile:assets:android"], /#020617/i);
   assert.match(adaptiveIcon, /@mipmap\/ic_launcher_foreground/);
+});
+
+test("warna native mengikuti token desain dan berubah menurut mode sistem", () => {
+  const colors = source("android/app/src/main/res/values/colors.xml");
+  const light = source("android/app/src/main/res/values/styles.xml");
+  const night = source("android/app/src/main/res/values-night/styles.xml");
+  const capacitor = json("capacitor.config.json");
+
+  // Token native sama dengan --cs-bg di styles.css.
+  assert.match(colors, /name="cs_bg_light">#FAF7F1</i);
+  assert.match(colors, /name="cs_bg_dark">#080D0C</i);
+  assert.doesNotMatch(colors, /#020617/i);
+  assert.doesNotMatch(colors, /#10B981|#22D3EE/i);
+
+  // Navigation bar dan ikon status bar mengikuti mode sistem.
+  assert.match(light, /navigationBarColor">@color\/cs_bg_light</);
+  assert.match(light, /windowLightStatusBar">true</);
+  assert.match(night, /navigationBarColor">@color\/cs_bg_dark</);
+  assert.match(night, /windowLightStatusBar">false</);
+
+  assert.equal(capacitor.plugins.SplashScreen.backgroundColor, "#080d0c");
+  assert.equal(capacitor.android.backgroundColor, "#080d0c");
 });
 
 test("body tidak boleh menjadi scroll container yang menghadang wheel dan sentuh", () => {

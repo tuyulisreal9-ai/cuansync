@@ -254,7 +254,7 @@ function RecentActivity({ transactions = [], fallbackRate, onOpen }) {
           Lihat semua
         </button>
       </div>
-      <div className="dc-card overflow-hidden">
+      <div className="dc-card dc-stagger overflow-hidden">
         ${rows.length
           ? rows.map(
               (transaction) => html`

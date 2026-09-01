@@ -121,8 +121,10 @@ export async function minimizeNativeApp() {
 export async function updateNativeStatusBar(darkTheme) {
   if (!isNativeMobileApp()) return;
   await StatusBar.setOverlaysWebView({ overlay: false });
+  // Warna diambil dari token desain --cs-bg, bukan palet slate warisan,
+  // supaya status bar menyatu dengan latar halaman di kedua mode.
   await StatusBar.setBackgroundColor({
-    color: darkTheme ? "#020617" : "#f8fafc",
+    color: darkTheme ? "#080d0c" : "#faf7f1",
   });
   await StatusBar.setStyle({
     style: darkTheme ? Style.Dark : Style.Light,

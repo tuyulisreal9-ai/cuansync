@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import htm from "htm";
+import { useSheetClose } from "../../lib/sheetClose.js";
 import {
   CATEGORY_OPTIONS,
   DEFAULT_CATEGORY,
@@ -579,6 +580,7 @@ export function TransactionDetailSheet({
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const { closing, requestClose } = useSheetClose(onClose, Boolean(transaction));
 
   useEffect(() => {
     if (!transaction) return undefined;
@@ -687,13 +689,13 @@ export function TransactionDetailSheet({
         key="detail-backdrop"
         type="button"
         aria-label="Tutup detail transaksi"
-        className="absolute inset-0"
+        className=${`${closing ? "dc-overlay-out" : "dc-overlay-in"} absolute inset-0`}
         style=${{ background: "rgba(20,18,15,0.42)" }}
-        onClick=${onClose}
+        onClick=${requestClose}
       ></button>
       <section
         key="detail-panel"
-        className="transaction-sheet relative flex max-h-[calc(100svh-1rem)] w-full flex-col gap-4 overflow-y-auto px-5 pb-6 pt-3 md:max-h-[86svh] md:max-w-lg"
+        className=${`transaction-sheet ${closing ? "dc-sheet-down" : "dc-sheet-up"} relative flex max-h-[calc(100svh-1rem)] w-full flex-col gap-4 overflow-y-auto px-5 pb-6 pt-3 md:max-h-[86svh] md:max-w-lg`}
         style=${{
           background: "var(--cs-bg)",
           borderRadius: "26px 26px 0 0",

@@ -377,90 +377,175 @@ function AccountDetail({
   onDelete,
 }) {
   const Icon = getAccountIcon(account.account_type);
+  const hasReserved = Number(account.reservedBalance || 0) > 0.0001;
   const linkedGoals = goals.filter((goal) =>
     goal.accountBreakdown?.some((item) => item.accountId === account.id),
   );
 
   return html`
     <div className="grid gap-4">
-      <div className="flex items-center gap-3">
+      ${/* Kepala detail memakai pola kartu profil di artifact: ikon 44 dengan
+            radius 12, nama tebal 16px, lalu keterangan 12.5px redup. Angka
+            besar dipindah ke kartu ringkasan di bawahnya supaya satu layar
+            hanya punya satu angka utama. */ null}
+      <div className="dc-card flex items-center gap-3.5 p-[18px]">
         <span
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
           style=${{ color: accent.accent, background: accent.soft }}
         >
-          <${Icon} aria-hidden="true" className="h-5 w-5" />
+          <${Icon} aria-hidden="true" className="h-5 w-5" strokeWidth=${1.75} />
         </span>
-        <div className="min-w-0">
-          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">
-            Dompet • ${account.currency}
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-base font-bold">${account.name}</p>
+          <p
+            className="mt-0.5 truncate text-[12.5px]"
+            style=${{ color: "var(--cs-mut)" }}
+          >
+            ${account.typeLabel} · ${account.currency}
           </p>
-          <p className="mt-1 truncate font-display text-xl font-black text-slate-950 dark:text-white">
+        </div>
+        ${account.isPrimary
+          ? html`<${Star}
+              aria-hidden="true"
+              className="h-4 w-4 shrink-0"
+              style=${{ color: "var(--cs-warn)", fill: "var(--cs-warn)" }}
+            />`
+          : null}
+      </div>
+
+      ${/* Ringkasan saldo. Ketika ada pencadangan, angka utamanya adalah dana
+            yang bisa dipakai, dengan saldo rekening dan dana dicadangkan
+            sebagai baris rincian. */ null}
+      <div className="dc-card flex flex-col gap-4 p-[18px]">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs" style=${{ color: "var(--cs-mut)" }}>
+            ${hasReserved ? "Bisa dipakai" : "Saldo dompet"}
+          </span>
+          <p
+            className="dc-num text-[26px] leading-none tracking-[-0.8px]"
+            style=${{
+              color:
+                Number(account.availableBalance || 0) < 0
+                  ? "var(--cs-danger)"
+                  : "var(--cs-ink)",
+            }}
+          >
             ${formatCurrency(
-              Number(account.reservedBalance || 0) > 0.0001
-                ? account.availableBalance
-                : account.balanceAmount,
+              hasReserved ? account.availableBalance : account.balanceAmount,
               account.currency,
             )}
           </p>
-          ${Number(account.reservedBalance || 0) > 0.0001
-            ? html`<p className="mt-1 text-[10px] font-medium text-slate-500 dark:text-slate-400">Bisa dipakai • Saldo rekening ${formatCurrency(account.balanceAmount, account.currency)}</p>`
-            : null}
         </div>
+
+        ${hasReserved
+          ? html`
+              <div
+                className="flex flex-col divide-y"
+                style=${{ borderColor: "var(--cs-line)" }}
+              >
+                <div className="flex items-center justify-between gap-3 py-2.5">
+                  <span
+                    className="text-[13px]"
+                    style=${{ color: "var(--cs-mut)" }}
+                  >
+                    Saldo rekening
+                  </span>
+                  <span className="dc-num text-[13.5px]">
+                    ${formatCurrency(account.balanceAmount, account.currency)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3 py-2.5">
+                  <span
+                    className="text-[13px]"
+                    style=${{ color: "var(--cs-mut)" }}
+                  >
+                    Dicadangkan ke Tabungan
+                  </span>
+                  <span
+                    className="dc-num text-[13.5px]"
+                    style=${{ color: "var(--cs-warn)" }}
+                  >
+                    ${formatCurrency(account.reservedBalance || 0, account.currency)}
+                  </span>
+                </div>
+              </div>
+              <span
+                className="text-xs leading-[1.45]"
+                style=${{ color: "var(--cs-mut)" }}
+              >
+                Dana dicadangkan tetap berada di dompet ini; ia hanya ditandai
+                untuk Tabungan, bukan dipindahkan.
+              </span>
+            `
+          : null}
       </div>
 
-      <div className="grid grid-cols-3 gap-2 rounded-lg bg-slate-100/80 p-3 dark:bg-slate-900/70">
-        <div className="min-w-0">
-          <span className="block text-[8px] font-black uppercase text-slate-500 dark:text-slate-400">Saldo aktual</span>
-          <strong className="mt-1 block truncate text-[11px] tabular-nums">${formatCurrency(account.balanceAmount, account.currency)}</strong>
-        </div>
-        <div className="min-w-0">
-          <span className="block text-[8px] font-black uppercase text-slate-500 dark:text-slate-400">Dicadangkan</span>
-          <strong className="mt-1 block truncate text-[11px] tabular-nums text-amber-500">${formatCurrency(account.reservedBalance || 0, account.currency)}</strong>
-        </div>
-        <div className="min-w-0">
-          <span className="block text-[8px] font-black uppercase text-slate-500 dark:text-slate-400">Bisa dipakai</span>
-          <strong className=${`mt-1 block truncate text-[11px] tabular-nums ${Number(account.availableBalance || 0) < 0 ? "text-rose-500" : "text-emerald-500"}`}>${formatCurrency(account.availableBalance || 0, account.currency)}</strong>
-        </div>
-      </div>
-
-      <section>
-        <div className="flex items-center justify-between gap-2">
-          <h3 className="text-xs font-black text-slate-950 dark:text-white">Dipakai untuk tabungan</h3>
-          <span className="text-[9px] text-slate-500 dark:text-slate-400">${linkedGoals.length} tujuan</span>
+      <section className="flex flex-col gap-2.5">
+        <div className="flex items-baseline justify-between gap-3 px-0.5">
+          <h3 className="text-[15px] font-bold">Dipakai untuk tabungan</h3>
+          <span className="text-xs" style=${{ color: "var(--cs-mut)" }}>
+            ${linkedGoals.length} tujuan
+          </span>
         </div>
         ${linkedGoals.length
           ? html`
-              <div className="mt-2 grid gap-2">
+              <div className="dc-card dc-stagger overflow-hidden">
                 ${linkedGoals.map((goal) => {
                   const source = goal.accountBreakdown.find(
                     (item) => item.accountId === account.id,
                   );
                   return html`
-                    <div key=${goal.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-800">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <${ShieldCheck} aria-hidden="true" className="h-4 w-4 shrink-0 text-cyan-500" />
-                        <div className="min-w-0">
-                          <strong className="block truncate text-xs">${goal.name}</strong>
-                          <span className="text-[9px] text-slate-500 dark:text-slate-400">Alokasi virtual</span>
-                        </div>
+                    <div
+                      key=${goal.id}
+                      className="dc-row flex min-h-[56px] items-center gap-3 px-4 py-3"
+                    >
+                      <span
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+                        style=${{ background: "var(--cs-chip)" }}
+                      >
+                        <${ShieldCheck}
+                          aria-hidden="true"
+                          className="h-4 w-4"
+                          style=${{ color: "var(--cs-body)" }}
+                          strokeWidth=${1.75}
+                        />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          ${goal.name}
+                        </span>
+                        <span
+                          className="block truncate text-xs"
+                          style=${{ color: "var(--cs-mut)" }}
+                        >
+                          Dicadangkan dari dompet ini
+                        </span>
                       </div>
-                      <strong className="shrink-0 text-xs tabular-nums">${formatCurrency(source?.amount || 0, goal.currency)}</strong>
+                      <span className="dc-num shrink-0 text-[13.5px]">
+                        ${formatCurrency(source?.amount || 0, goal.currency)}
+                      </span>
                     </div>
                   `;
                 })}
               </div>
             `
           : html`
-              <div className="mt-2 rounded-lg border border-dashed border-slate-300 p-4 text-center text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                Belum menjadi sumber Tabungan.
+              <div className="dc-dashed flex min-h-14 items-center justify-center px-4">
+                <span className="text-[13px]" style=${{ color: "var(--cs-mut)" }}>
+                  Belum menjadi sumber Tabungan.
+                </span>
               </div>
             `}
       </section>
 
-      <div>
-        <p className="text-[10px] font-black uppercase tracking-wide text-slate-500 dark:text-slate-400">Warna dompet</p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <${Palette} aria-hidden="true" className="h-4 w-4 text-slate-400" />
+      <div className="flex flex-col gap-2.5">
+        <p className="px-0.5 text-[15px] font-bold">Warna dompet</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <${Palette}
+            aria-hidden="true"
+            className="h-4 w-4"
+            style=${{ color: "var(--cs-faint)" }}
+          />
           ${WALLET_COLOR_PRESETS.map(
             (color) => html`
               <button
@@ -478,7 +563,9 @@ function AccountDetail({
         </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_auto] gap-2">
+      ${/* Aksi mengikuti footer sheet desain: aksi utama tinggi 52 radius 17
+            berlatar aksen, aksi merusak berupa tombol bergaris tepi. */ null}
+      <div className="flex flex-col gap-2">
         <button
           type="button"
           onClick=${() =>
@@ -486,18 +573,33 @@ function AccountDetail({
           title=${account.isPrimary
             ? `Lepas ${account.name} dari akun utama pengeluaran ${account.currency}`
             : `Jadikan ${account.name} akun utama pengeluaran ${account.currency}`}
-          className=${`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-xs font-black ${account.isPrimary ? "bg-amber-500/15 text-amber-500" : "bg-emerald-500 text-white"}`}
+          className="dc-press dc-press-96 flex min-h-[52px] items-center justify-center gap-2 rounded-[17px] px-4 text-[15px] font-bold"
+          style=${account.isPrimary
+            ? {
+                background: "var(--cs-card)",
+                color: "var(--cs-body)",
+                border: "1px solid var(--cs-line)",
+              }
+            : { background: "var(--cs-acc)", color: "var(--cs-on-acc)" }}
         >
-          <${Star} aria-hidden="true" className=${`h-4 w-4 ${account.isPrimary ? "fill-amber-500" : ""}`} />
+          <${Star}
+            aria-hidden="true"
+            className="h-4 w-4"
+            style=${account.isPrimary
+              ? { color: "var(--cs-warn)", fill: "var(--cs-warn)" }
+              : undefined}
+          />
           ${account.isPrimary ? "Lepas dari utama" : "Jadikan utama"}
         </button>
         <button
           type="button"
           onClick=${() => onDelete(account)}
           aria-label=${`Hapus ${account.name}`}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-rose-500/10 text-rose-500"
+          className="dc-press dc-press-96 flex min-h-12 items-center justify-center gap-2 rounded-[16px] border text-sm font-bold"
+          style=${{ borderColor: "var(--cs-line)", color: "var(--cs-danger)" }}
         >
           <${Trash2} aria-hidden="true" className="h-4 w-4" />
+          Hapus dompet
         </button>
       </div>
     </div>
@@ -977,7 +1079,7 @@ export function WalletAccountsPage({
         </div>
         ${accounts.length
           ? html`
-              <div className="dc-card overflow-hidden">
+              <div className="dc-card dc-stagger overflow-hidden">
                 ${accounts.map(
                   (account, index) => html`
                     <${AccountCard}
