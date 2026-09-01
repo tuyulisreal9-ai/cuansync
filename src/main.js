@@ -5973,16 +5973,27 @@ function App() {
     activeTab === "budget";
 
   return html`
-    <main className="app-shell relative isolate min-h-screen overflow-x-clip px-6 pt-2 md:px-6 md:py-5 lg:px-6 lg:pt-6">
+    ${/* Di desktop padding dipindah ke kolom utama supaya sidebar bisa menempel
+          rapat ke tepi kiri layar seperti di artifact. */ null}
+    <main className="app-shell relative isolate min-h-screen overflow-x-clip px-6 pt-2 md:px-6 md:py-5 lg:p-0">
       <${PremiumMeshBackground} />
       <${ToastMessage} toast=${toast} onDismiss=${() => setToast(null)} />
-      <div className="cs-workspace relative z-10 mx-auto max-w-[1440px] lg:grid lg:grid-cols-[76px_minmax(0,1fr)] lg:items-start lg:gap-4">
+      ${/* Desktop memakai tata letak artifact: sidebar 264px yang menempel di
+            kiri, lalu kolom utama yang mengisi sisanya. Di bawah lg susunannya
+            tetap satu kolom seperti sebelumnya. */ null}
+      <div className="cs-workspace relative z-10 lg:flex lg:items-stretch">
         <${DesktopNavigation}
           activeTab=${activeTab}
           onChange=${navigateAppTab}
-          onAdd=${openQuickActionMenu}
+          onSettings=${() => navigateAppTab("settings")}
+          onToggleTheme=${() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+          isDark=${resolvedTheme === "dark"}
+          userName=${userDisplayName}
+          userEmail=${user?.email || "Demo Lokal"}
+          userInitials=${userInitials}
+          avatarSrc=${profilePhoto}
         />
-        <div className="min-w-0">
+        <div className="min-w-0 lg:flex lg:min-h-screen lg:flex-1 lg:flex-col">
         <${WalletHeader}
           appName=${APP_NAME}
           balances=${walletBalances}
@@ -6010,6 +6021,11 @@ function App() {
           userName=${greetingName}
           onBack=${() =>
             navigateAppTab(activeTab === "control" ? "budget" : "overview")}
+          onAddTransaction=${openQuickEntry}
+          onSend=${() => openMovementWorkspace("transfer")}
+          onSwap=${() => openMovementWorkspace("exchange")}
+          canSend=${hasTransferPair}
+          canSwap=${hasExchangePair}
         />
 
         ${menuOpen
@@ -6080,11 +6096,14 @@ function App() {
             `
           : null}
 
+        ${/* Desktop: kolom konten memakai padding 28/32/56 dan lebar maksimum
+              1400 seperti artifact. Batas lebar lama dilepas di lg supaya
+              grid dua kolom punya ruang. */ null}
         <div className=${fullWidthWorkspace
           ? activeTab === "movement" || activeTab === "budget"
-            ? "mx-auto mt-4 max-w-[34rem]"
-            : "mx-auto mt-4 max-w-[1024px]"
-          : "mt-5 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-5 xl:grid-cols-[minmax(0,760px)_320px] xl:justify-center"}>
+            ? "mx-auto mt-4 max-w-[34rem] lg:mt-0 lg:w-full lg:max-w-[46rem] lg:px-8 lg:pb-14 lg:pt-7"
+            : "mx-auto mt-4 max-w-[1024px] lg:mt-0 lg:w-full lg:max-w-[1400px] lg:px-8 lg:pb-14 lg:pt-7"
+          : "mt-5 lg:mt-0 lg:grid lg:w-full lg:max-w-[1400px] lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-6 lg:px-8 lg:pb-14 lg:pt-7"}>
           ${/* key diikat ke tab aktif supaya React memasang ulang node ini saat
                 tab berganti, dan animasi masuk fadeUp terulang tiap pindah
                 layar seperti tabAnim di artifact. */ null}

@@ -421,6 +421,101 @@
   color: var(--cs-mut);
 }
 
+/* ==========================================================================
+   Desktop. Nilai diambil dari artifact 072730af: sidebar 264px berlatar
+   sendiri, topbar menempel, dan state hover yang memang hanya ada di desktop.
+   ========================================================================== */
+:root {
+  --cs-sidebar-bg: #f5f0e6;
+  --cs-hover-card: #fffdf9;
+  --cs-hover-row: #f7f2e8;
+  --cs-hover-nav: #ece5d7;
+}
+
+:root.dark {
+  --cs-sidebar-bg: #0b1210;
+  --cs-hover-card: #16241f;
+  --cs-hover-row: #16241f;
+  --cs-hover-nav: #16241f;
+}
+
+.cs-desktop-sidebar {
+  background: var(--cs-sidebar-bg);
+}
+
+/* Topbar ikut latar halaman supaya konten yang lewat di belakangnya tidak
+   terlihat menembus saat digulir. */
+@media (min-width: 1024px) {
+  .cs-appbar {
+    background: var(--cs-bg);
+  }
+}
+
+/* Hover hanya dipasang pada penunjuk presisi. Di layar sentuh state ini
+   menempel setelah ketukan dan membuat item terlihat aktif terus. */
+@media (hover: hover) and (pointer: fine) {
+  .cs-sidebar-item:hover {
+    background: var(--cs-hover-nav);
+  }
+
+  .cs-sidebar-card:hover,
+  .cs-topbar-action:hover:not(:disabled) {
+    background: var(--cs-hover-card);
+    border-color: var(--cs-dim);
+  }
+
+  .dc-row:hover {
+    background: var(--cs-hover-row);
+  }
+}
+
+/* Sheet. Di mobile ia naik dari dasar layar dan hanya membulat di dua sudut
+   atas. Di desktop artifact memakai dialog terpusat selebar 560 dengan sudut
+   membulat penuh, garis tepi, dan bayangan lebih dalam. Tanpa ini sheet
+   melebar sepenuh layar dan keypad ikut meregang. */
+.cs-sheet-scrim {
+  background: rgba(20, 18, 15, 0.42);
+}
+
+.cs-sheet-panel {
+  background: var(--cs-bg);
+  border-radius: 26px 26px 0 0;
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.18);
+}
+
+@media (min-width: 1024px) {
+  .cs-sheet-scrim {
+    background: rgba(20, 18, 15, 0.46);
+    backdrop-filter: blur(2px);
+  }
+
+  .cs-sheet-panel {
+    border: 1px solid var(--cs-line);
+    border-radius: 26px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.28);
+  }
+
+  /* Dialog terpusat muncul dengan popIn, bukan naik dari dasar layar. */
+  .dc-sheet-up {
+    animation: dcPopIn var(--dc-element) var(--dc-ease-in) backwards;
+  }
+
+  .dc-sheet-down {
+    animation: dcPopOut var(--dc-element) var(--dc-ease-out) forwards;
+  }
+}
+
+@keyframes dcPopOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
 /* Tile di dalam panel gelap. Desain memakai putih 8% dengan radius 16. */
 .dc-panel-slot {
   border-radius: 16px;

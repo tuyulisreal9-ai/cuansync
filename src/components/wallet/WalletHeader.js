@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import htm from "htm";
+import { Plus, Repeat2, Send } from "lucide-react";
 import {
   DEFAULT_BASE_CURRENCY,
   DEFAULT_SELECTED_CURRENCIES,
@@ -569,6 +570,35 @@ function getGreeting(activeTab, userName) {
 /* Header desain: satu baris berisi sapaan, judul halaman, dan avatar.
    Wordmark dan tombol mata dihapus dari sini karena desain tidak memilikinya —
    sembunyikan saldo tetap tersedia di Pengaturan > Tampilan. */
+/* Aksi topbar desktop. Di artifact, Kirim dan Tukar berupa tombol bergaris
+   tepi sedangkan Catat transaksi memakai latar brand dengan radius 15. */
+function TopbarAction({ icon: Icon, label, onClick, disabled, primary }) {
+  return html`
+    <button
+      type="button"
+      onClick=${onClick}
+      disabled=${disabled}
+      className=${`cs-topbar-action dc-press dc-press-96 flex min-h-[46px] items-center gap-[9px] px-4 text-[13.5px] disabled:opacity-40 ${
+        primary ? "rounded-[15px] px-[18px] font-bold" : "rounded-[24px] border font-medium"
+      }`}
+      style=${primary
+        ? { background: "var(--cs-acc)", color: "var(--cs-on-acc)" }
+        : {
+            background: "var(--cs-card)",
+            borderColor: "var(--cs-line)",
+            color: "var(--cs-ink)",
+          }}
+    >
+      <${Icon}
+        aria-hidden="true"
+        className="h-[18px] w-[18px] shrink-0"
+        strokeWidth=${primary ? 2 : 1.75}
+      />
+      ${label}
+    </button>
+  `;
+}
+
 function DesignHeader({
   activeTab,
   userName,
@@ -576,13 +606,23 @@ function DesignHeader({
   avatarInitials,
   onAvatarClick,
   onBack,
+  onAddTransaction,
+  onSend,
+  onSwap,
+  canSend = false,
+  canSwap = false,
 }) {
   const greeting = getGreeting(activeTab, userName);
   const isBack = greeting.startsWith("‹");
 
+  /* Di desktop header menjadi topbar yang menempel: judul 26px dan tiga aksi
+     di kanan. Di mobile bentuknya tetap seperti sebelumnya. */
   return html`
-    <header className="flex items-center justify-between gap-3 px-1 pb-3.5 pt-1">
-      <div className="flex min-w-0 flex-col gap-px">
+    <header
+      className="cs-appbar flex items-center justify-between gap-3 px-1 pb-3.5 pt-1 lg:sticky lg:top-0 lg:z-30 lg:flex-wrap lg:gap-4 lg:border-b lg:px-8 lg:py-5"
+      style=${{ borderColor: "var(--cs-line)" }}
+    >
+      <div className="flex min-w-0 flex-col gap-px lg:gap-0.5">
         ${isBack
           ? html`
               <button
@@ -599,15 +639,39 @@ function DesignHeader({
                 ${greeting}
               </span>
             `}
-        <span className="truncate text-[17px] font-bold tracking-[-0.2px]">
+        <span className="truncate text-[17px] font-bold tracking-[-0.2px] lg:text-[26px] lg:tracking-[-0.6px]">
           ${PAGE_TITLES[activeTab] || "CUANSYNC"}
         </span>
       </div>
-      <${AvatarButton}
-        src=${avatarSrc}
-        initials=${avatarInitials}
-        onClick=${onAvatarClick}
-      />
+
+      <div className="hidden shrink-0 items-center gap-2.5 lg:flex">
+        <${TopbarAction}
+          icon=${Send}
+          label="Kirim"
+          onClick=${onSend}
+          disabled=${!canSend}
+        />
+        <${TopbarAction}
+          icon=${Repeat2}
+          label="Tukar"
+          onClick=${onSwap}
+          disabled=${!canSwap}
+        />
+        <${TopbarAction}
+          icon=${Plus}
+          label="Catat transaksi"
+          onClick=${onAddTransaction}
+          primary=${true}
+        />
+      </div>
+
+      <div className="lg:hidden">
+        <${AvatarButton}
+          src=${avatarSrc}
+          initials=${avatarInitials}
+          onClick=${onAvatarClick}
+        />
+      </div>
     </header>
   `;
 }
@@ -632,6 +696,11 @@ export function WalletHeader({
   activeTab = "overview",
   userName = "",
   onBack,
+  onAddTransaction,
+  onSend,
+  onSwap,
+  canSend = false,
+  canSwap = false,
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const currencies = normalizeCurrencyList(activeCurrencies, { baseCurrency });
@@ -662,6 +731,11 @@ export function WalletHeader({
         avatarInitials=${avatarInitials}
         onAvatarClick=${onAvatarClick}
         onBack=${onBack}
+        onAddTransaction=${onAddTransaction}
+        onSend=${onSend}
+        onSwap=${onSwap}
+        canSend=${canSend}
+        canSwap=${canSwap}
       />
     `;
   }

@@ -70,7 +70,9 @@ function BalancePanel({
   const { symbol, value } = splitCurrency(total, currency);
 
   return html`
-    <section className="dc-panel flex flex-col gap-6 p-6">
+    ${/* Desktop memberi panel ruang lebih: padding 28 dan dua blok berdampingan
+          rata bawah, seperti di artifact. */ null}
+    <section className="dc-panel flex flex-col gap-6 p-6 lg:flex-row lg:flex-wrap lg:items-end lg:justify-between lg:gap-8 lg:p-7">
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">
           <span className="text-[13px] text-[color:var(--cs-panel-mut)]">
@@ -292,7 +294,10 @@ export function HomeDashboardPage({
   const total = Number(metrics.assetAccountTotalValueIdr ?? totalValueBase ?? 0);
 
   return html`
-    <div className="cs-home-dashboard flex w-full min-w-0 max-w-full flex-col gap-4">
+    ${/* Di desktop beranda memakai grid auto-fit minmax(380px,1fr) seperti
+          artifact, jadi kartu mengalir jadi dua kolom saat ruang cukup dan
+          kembali satu kolom di layar sempit tanpa breakpoint tambahan. */ null}
+    <div className="cs-home-dashboard flex w-full min-w-0 max-w-full flex-col gap-4 lg:grid lg:items-start lg:gap-6 lg:[grid-template-columns:repeat(auto-fit,minmax(380px,1fr))]">
       <${BalancePanel}
         total=${total}
         income=${Number(metrics.monthlyIncomeIdr || 0)}
