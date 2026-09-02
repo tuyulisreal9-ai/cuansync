@@ -3,11 +3,16 @@ import htm from "htm";
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  Banknote,
+  BarChart3,
+  Building2,
+  ChevronRight,
   Eye,
   EyeOff,
   Repeat2,
   ReceiptText,
   Send,
+  WalletCards,
 } from "lucide-react";
 import { getTransactionFlow } from "../../domain/transactions.js";
 import {
@@ -16,9 +21,13 @@ import {
   formatCurrency,
   normalizeCurrencyCode,
 } from "../../lib/currency.js";
-import { useMaskedText } from "../../lib/balanceVisibility.js";
-import { formatShortTime } from "../../lib/dates.js";
 import {
+  useMaskedCurrency,
+  useMaskedText,
+} from "../../lib/balanceVisibility.js";
+import { formatRelativeTime, formatShortTime } from "../../lib/dates.js";
+import {
+  getTransactionCategoryLabel,
   getTransactionCompactAmount,
   getTransactionDisplayTitle,
 } from "../transactions/presentation.js";
@@ -201,7 +210,12 @@ function BudgetCard({ spent, limit, currency, visible, onOpen }) {
   `;
 }
 
-function ActivityRow({ transaction, fallbackRate }) {
+function ActivityRow({
+  transaction,
+  fallbackRate,
+  accountNames = {},
+  className = "",
+}) {
   /* Baris aktivitas ikut privasi juga. Menutup total saldo tapi membiarkan
      nominal tiap transaksi terbaca sama saja tidak menutup apa apa. */
   const maskText = useMaskedText();
@@ -217,8 +231,32 @@ function ActivityRow({ transaction, fallbackRate }) {
       ? "var(--cs-pos)"
       : "var(--cs-ink)";
 
+  /* Kode mata uang saja tidak memberi tahu apa apa, jadi tidak ikut dibawa.
+     Valuasi dan sisi lawan penukaran tetap dibawa karena itu angka yang
+     memang dicari, dan karena itu nominal, ia ikut sakelar privasi. */
+  const dompet =
+    accountNames[transaction.source_account_id] ||
+    accountNames[transaction.destination_account_id] ||
+    "";
+  const nominalTambahan = /^[A-Z]{3}$/.test(amount.secondary || "")
+    ? ""
+    : maskText(amount.secondary);
+  /* Catat cepat memakai nama kategori sebagai judul kalau catatannya kosong,
+     jadi kategori dilewati saat isinya sama persis dengan judul. Tanpa ini
+     barisnya berbunyi "Makan Harian" dua kali. */
+  const judul = getTransactionDisplayTitle(transaction);
+  const kategori = getTransactionCategoryLabel(transaction);
+  const konteks = [
+    kategori === judul ? "" : kategori,
+    dompet,
+    formatRelativeTime(transaction.occurred_at),
+    nominalTambahan,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return html`
-    <div className="dc-row flex min-h-[72px] items-center gap-4 p-4">
+    <div className=${`dc-row flex min-h-[72px] items-center gap-4 p-4 ${className}`}>
       <span
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl"
         style=${{ background: "var(--cs-chip)" }}
@@ -232,10 +270,18 @@ function ActivityRow({ transaction, fallbackRate }) {
       </span>
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-sm font-medium">
-          ${getTransactionDisplayTitle(transaction)}
+          ${judul}
         </span>
+        ${/* Ponsel memakai keterangan ringkas yang sudah ada; kolomnya
+              sempit dan valuasi adalah info yang paling dicari di sana.
+              Desktop punya ruang untuk konteks penuh: kategori, dompet, dan
+              kapan. Dirender dua duanya lalu dipilih lewat lg supaya susunan
+              ponsel benar benar tidak tersentuh. */ null}
         <span className="truncate text-xs text-[color:var(--cs-mut)]">
-          ${maskText(amount.secondary) || formatShortTime(transaction.occurred_at)}
+          <span className="lg:hidden">
+            ${maskText(amount.secondary) || formatShortTime(transaction.occurred_at)}
+          </span>
+          <span className="hidden lg:inline">${konteks}</span>
         </span>
       </span>
       <span className="dc-num shrink-0 text-[13.5px]" style=${{ color: tone }}>
@@ -245,11 +291,16 @@ function ActivityRow({ transaction, fallbackRate }) {
   `;
 }
 
-function RecentActivity({ transactions = [], fallbackRate, onOpen, className = "" }) {
-  const rows = transactions.slice(0, 4);
+function RecentActivity({ transactions = [], fallbackRate, accountNames, onOpen }) {
+  /* Ponsel cukup empat baris; layar desktop jauh lebih tinggi dan empat baris
+     menyisakan lubang di samping kolom kanan. Dua baris terakhir dirender
+     tetapi disembunyikan di bawah lg, bukan dipotong lewat JavaScript, supaya
+     jumlahnya ikut berubah saat jendela diubah ukurannya. */
+  const MOBILE_ROWS = 4;
+  const rows = transactions.slice(0, 6);
 
   return html`
-    <section className=${`flex flex-col gap-4 ${className}`}>
+    <section className="flex flex-col gap-4">
       <div className="flex items-center justify-between gap-3 px-0.5">
         <span className="text-[15px] font-bold">Aktivitas terakhir</span>
         <button
@@ -260,14 +311,16 @@ function RecentActivity({ transactions = [], fallbackRate, onOpen, className = "
           Lihat semua
         </button>
       </div>
-      <div className="dc-card dc-stagger overflow-hidden lg:flex-1">
+      <div className="dc-card dc-stagger overflow-hidden">
         ${rows.length
           ? rows.map(
-              (transaction) => html`
+              (transaction, index) => html`
                 <${ActivityRow}
                   key=${transaction.id}
                   transaction=${transaction}
                   fallbackRate=${fallbackRate}
+                  accountNames=${accountNames}
+                  className=${index >= MOBILE_ROWS ? "hidden lg:flex" : ""}
                 />
               `,
             )
@@ -281,8 +334,259 @@ function RecentActivity({ transactions = [], fallbackRate, onOpen, className = "
   `;
 }
 
+/* ---- Kolom kanan desktop -------------------------------------------------
+   Tiga kartu ini hanya muncul dari lg ke atas. Di ponsel ruangnya tidak ada
+   dan jalan pintasnya sudah diwakili baris tile, jadi menambahkannya di sana
+   hanya memperpanjang halaman tanpa memberi apa apa. */
+
+function QuickLinkRow({ icon: Icon, title, hint, onClick, disabled }) {
+  return html`
+    <button
+      type="button"
+      onClick=${onClick}
+      disabled=${disabled}
+      className="dc-press dc-press-96 flex min-h-[54px] items-center gap-3 rounded-[14px] border px-3 text-left disabled:cursor-not-allowed disabled:opacity-40"
+      style=${{ background: "var(--cs-card)", borderColor: "var(--cs-line)" }}
+    >
+      <span className="dc-chip flex h-8 w-8 shrink-0 items-center justify-center">
+        <${Icon}
+          aria-hidden="true"
+          className="h-4 w-4"
+          style=${{ color: "var(--cs-body)" }}
+          strokeWidth=${1.75}
+        />
+      </span>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="truncate text-[13.5px] font-medium">${title}</span>
+        <span
+          className="truncate text-[11.5px]"
+          style=${{ color: "var(--cs-mut)" }}
+        >
+          ${hint}
+        </span>
+      </span>
+    </button>
+  `;
+}
+
+function QuickLinksCard({
+  canTransfer,
+  canExchange,
+  onAddTransaction,
+  onExchange,
+}) {
+  return html`
+    <section className="dc-card flex flex-col gap-2.5 p-5">
+      <span className="px-0.5 text-[15px] font-bold">Jalan cepat</span>
+      <${QuickLinkRow}
+        icon=${ReceiptText}
+        title="Catat pengeluaran"
+        hint="atau pemasukan"
+        onClick=${() => onAddTransaction?.()}
+      />
+      <${QuickLinkRow}
+        icon=${Send}
+        title="Kirim antar dompet"
+        hint="mata uang sama"
+        disabled=${!canTransfer}
+        onClick=${() => onExchange?.("transfer")}
+      />
+      <${QuickLinkRow}
+        icon=${Repeat2}
+        title="Tukar mata uang"
+        hint="pakai kurs terakhir"
+        disabled=${!canExchange}
+        onClick=${() => onExchange?.("exchange")}
+      />
+    </section>
+  `;
+}
+
+/* Kalimat ringkasannya dirakit dari angka yang benar benar ada: rasio menabung
+   dari cashFlow dan jumlah kategori yang perlu ditinjau dari anggaran. Bagian
+   yang datanya belum lengkap dihilangkan, bukan diisi perkiraan, karena angka
+   karangan pada layar keuangan lebih berbahaya daripada kalimat yang pendek. */
+function buildHealthSentence(summary) {
+  const bagian = [];
+  const ratio = summary?.cashFlow?.savingsRatio;
+  if (summary?.cashFlow?.evaluable && Number.isFinite(ratio)) {
+    bagian.push(
+      `Bulan ini kamu menyisihkan ${Math.round(ratio * 100)}% pemasukan`,
+    );
+  }
+  const attention = Number(summary?.budget?.attentionCount || 0);
+  if (attention > 0) {
+    bagian.push(`ada ${attention} hal yang bisa dirapikan`);
+  }
+  if (!bagian.length) {
+    return (
+      summary?.recommendation?.body ||
+      "Catat beberapa transaksi dulu supaya kondisimu bisa dinilai."
+    );
+  }
+  return `${bagian.join(", dan ")}.`;
+}
+
+function HealthChip({ children }) {
+  return html`
+    <span
+      className="flex min-h-[26px] items-center rounded-full px-3 text-[11.5px] font-medium"
+      style=${{ background: "var(--cs-chip)", color: "var(--cs-body)" }}
+    >
+      ${children}
+    </span>
+  `;
+}
+
+function FinancialHealthCard({ summary, onOpen }) {
+  const score = summary?.scoring?.score;
+  const attention = Number(summary?.budget?.attentionCount || 0);
+
+  return html`
+    <button
+      type="button"
+      onClick=${onOpen}
+      className="dc-card dc-press dc-press-96 flex w-full flex-col gap-3.5 p-5 text-left"
+    >
+      <span className="flex items-center gap-3">
+        <span
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[12px]"
+          style=${{ background: "var(--cs-acc)" }}
+        >
+          <${BarChart3}
+            aria-hidden="true"
+            className="h-[18px] w-[18px]"
+            style=${{ color: "var(--cs-on-acc)" }}
+            strokeWidth=${1.75}
+          />
+        </span>
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span className="truncate text-[14.5px] font-bold">
+            Kondisi keuanganmu
+          </span>
+          <span
+            className="truncate text-[12px]"
+            style=${{ color: "var(--cs-mut)" }}
+          >
+            Diperbarui tiap kamu mencatat
+          </span>
+        </span>
+        <${ChevronRight}
+          aria-hidden="true"
+          className="h-4 w-4 shrink-0"
+          style=${{ color: "var(--cs-faint)" }}
+          strokeWidth=${1.75}
+        />
+      </span>
+
+      <span
+        className="text-[12.5px] leading-[1.55]"
+        style=${{ color: "var(--cs-body)" }}
+      >
+        ${buildHealthSentence(summary)}
+      </span>
+
+      ${attention > 0 || Number.isFinite(score)
+        ? html`
+            <span className="flex flex-wrap gap-2">
+              ${attention > 0
+                ? html`<${HealthChip} key="tips">${attention} tips baru<//>`
+                : null}
+              ${Number.isFinite(score)
+                ? html`<${HealthChip} key="skor">Skor ${score}<//>`
+                : null}
+            </span>
+          `
+        : null}
+    </button>
+  `;
+}
+
+function getWalletIcon(accountType) {
+  if (accountType === "cash") return Banknote;
+  if (accountType === "bank") return Building2;
+  return WalletCards;
+}
+
+function WalletsCard({ accounts = [], onManage }) {
+  const money = useMaskedCurrency();
+  /* Lima teratas saja. Daftar lengkapnya ada di halaman Dompet, dan kartu ini
+     bertugas memberi gambaran cepat, bukan menggantikannya. */
+  const rows = accounts.slice(0, 5);
+
+  return html`
+    <section className="dc-card flex flex-col gap-3 p-5">
+      <div className="flex items-baseline justify-between gap-3 px-0.5">
+        <span className="text-[15px] font-bold">Dompetmu</span>
+        <button
+          type="button"
+          onClick=${onManage}
+          className="dc-press dc-press-94 shrink-0 text-[13px] font-medium"
+          style=${{ color: "var(--cs-link)" }}
+        >
+          Kelola
+        </button>
+      </div>
+
+      ${rows.length
+        ? html`
+            <div className="flex flex-col">
+              ${rows.map((account) => {
+                const Icon = getWalletIcon(account.account_type);
+                /* Dirakit di sini, bukan di dalam template. Dipisah dua baris
+                   di JSX, htm memakan pergantian barisnya dan hasilnya
+                   menempel jadi "Bank ·IDR". */
+                const jenis = `${account.typeLabel} · ${normalizeCurrencyCode(account.currency)}`;
+                return html`
+                  <button
+                    key=${account.id}
+                    type="button"
+                    onClick=${onManage}
+                    aria-label=${`Lihat ${account.name}`}
+                    className="dc-row dc-press flex min-h-[52px] items-center gap-3 rounded-[14px] px-1 text-left"
+                  >
+                    <span className="dc-chip flex h-8 w-8 shrink-0 items-center justify-center">
+                      <${Icon}
+                        aria-hidden="true"
+                        className="h-4 w-4"
+                        style=${{ color: "var(--cs-body)" }}
+                        strokeWidth=${1.75}
+                      />
+                    </span>
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="truncate text-[13.5px] font-medium">
+                        ${account.name}
+                      </span>
+                      <span
+                        className="truncate text-[11.5px]"
+                        style=${{ color: "var(--cs-mut)" }}
+                      >
+                        ${jenis}
+                      </span>
+                    </span>
+                    <span className="dc-num shrink-0 text-[13px]">
+                      ${money(account.balanceAmount, account.currency)}
+                    </span>
+                  </button>
+                `;
+              })}
+            </div>
+          `
+        : html`
+            <p
+              className="px-1 py-6 text-center text-xs"
+              style=${{ color: "var(--cs-mut)" }}
+            >
+              Belum ada dompet.
+            </p>
+          `}
+    </section>
+  `;
+}
+
 export function HomeDashboardPage({
   metrics,
+  controlSummary,
   baseCurrency = DEFAULT_BASE_CURRENCY,
   totalValueBase = 0,
   visible = true,
@@ -296,6 +600,12 @@ export function HomeDashboardPage({
 }) {
   const currency = normalizeCurrencyCode(baseCurrency);
   const total = Number(metrics.assetAccountTotalValueIdr ?? totalValueBase ?? 0);
+  const accounts = metrics.assetAccountInsights || [];
+  /* Transaksi hanya menyimpan id dompet, jadi namanya dicari lewat peta ini
+     supaya baris aktivitas bisa menyebut "Bank Jago", bukan sebuah uuid. */
+  const accountNames = Object.fromEntries(
+    accounts.map((account) => [account.id, account.name]),
+  );
 
   return html`
     ${/* Di desktop beranda dibagi dua kolom: saldo dan jatah bertumpuk di
@@ -308,7 +618,7 @@ export function HomeDashboardPage({
           lebih tinggi, dan jarak antara saldo dan jatah melar dari 24px jadi
           68px. Di bawah lg wadah ini hanya kolom biasa dengan jarak yang sama
           seperti sebelumnya, jadi tampilan ponsel tidak bergeser. */ null}
-    <div className="cs-home-dashboard flex w-full min-w-0 max-w-full flex-col gap-4 lg:grid lg:items-start lg:gap-6 lg:[grid-template-columns:minmax(0,1.15fr)_minmax(0,1fr)]">
+    <div className="cs-home-dashboard flex w-full min-w-0 max-w-full flex-col gap-4 lg:grid lg:items-start lg:gap-6 lg:[grid-template-columns:minmax(0,1fr)_400px]">
       <div className="flex flex-col gap-4 lg:gap-6">
         <${BalancePanel}
           total=${total}
@@ -350,17 +660,33 @@ export function HomeDashboardPage({
           visible=${visible}
           onOpen=${() => onNavigate?.("budget")}
         />
+
+        <${RecentActivity}
+          transactions=${metrics.recent}
+          fallbackRate=${fallbackRate}
+          accountNames=${accountNames}
+          onOpen=${() => onNavigate?.("history")}
+        />
       </div>
 
-      ${/* Saat transaksinya sedikit, kartu daftar memanjang mengisi tinggi
-            kolom kiri lewat lg:flex-1, jadi tidak mengambang dengan ruang
-            kosong di bawahnya. */ null}
-      <${RecentActivity}
-        className="lg:self-stretch"
-        transactions=${metrics.recent}
-        fallbackRate=${fallbackRate}
-        onOpen=${() => onNavigate?.("history")}
-      />
+      ${/* Kolom kanan hanya untuk desktop. Di ponsel isinya sudah terwakili:
+            jalan pintas oleh baris tile, dompet oleh tab Dompet. */ null}
+      <aside className="hidden lg:flex lg:flex-col lg:gap-6">
+        <${QuickLinksCard}
+          canTransfer=${canTransfer}
+          canExchange=${canExchange}
+          onAddTransaction=${onAddTransaction}
+          onExchange=${onExchange}
+        />
+        <${FinancialHealthCard}
+          summary=${controlSummary}
+          onOpen=${() => onNavigate?.("control")}
+        />
+        <${WalletsCard}
+          accounts=${accounts}
+          onManage=${() => onNavigate?.("investment")}
+        />
+      </aside>
     </div>
   `;
 }

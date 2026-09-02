@@ -5837,6 +5837,7 @@ function App() {
           <section>
             <${BudgetWorkspacePage}
               metrics=${metrics}
+              controlSummary=${controlSummary}
               transactions=${transactions}
               activeCurrencies=${dashboardActiveCurrencies}
               baseCurrency=${walletBaseCurrency}
@@ -6154,7 +6155,7 @@ function App() {
               1400 seperti artifact. Batas lebar lama dilepas di lg supaya
               grid dua kolom punya ruang. */ null}
         <div className=${fullWidthWorkspace
-          ? activeTab === "movement" || activeTab === "budget"
+          ? activeTab === "movement"
             ? "mx-auto mt-4 max-w-[34rem] lg:mt-0 lg:w-full lg:max-w-[46rem] lg:px-8 lg:pb-14 lg:pt-7"
             : "mx-auto mt-4 max-w-[1024px] lg:mt-0 lg:w-full lg:max-w-[1400px] lg:px-8 lg:pb-14 lg:pt-7"
           : "mt-5 lg:mt-0 lg:grid lg:w-full lg:max-w-[1400px] lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start lg:gap-6 lg:px-8 lg:pb-14 lg:pt-7"}>

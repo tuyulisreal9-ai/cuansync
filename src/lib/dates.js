@@ -20,6 +20,11 @@ const longDateFormatter = new Intl.DateTimeFormat("id-ID", {
   year: "numeric",
 });
 
+const shortDateFormatter = new Intl.DateTimeFormat("id-ID", {
+  day: "numeric",
+  month: "short",
+});
+
 const shortTimeFormatter = new Intl.DateTimeFormat("id-ID", {
   hour: "2-digit",
   minute: "2-digit",
@@ -53,6 +58,42 @@ export function formatShortDateTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+/* Waktu relatif untuk baris aktivitas: "2 jam lalu" jauh lebih cepat dibaca
+   daripada jam persisnya saat yang dicari adalah "tadi atau kemarin".
+
+   Hari kalender diperiksa lebih dulu daripada selisih jam. Transaksi kemarin
+   malam yang dilihat sore ini berjarak 21 jam, dan "21 jam lalu" menuntut
+   pembaca menghitung sendiri bahwa itu kemarin. */
+export function formatRelativeTime(value, now = new Date()) {
+  // new Date(null) menghasilkan epoch 1970 yang valid, bukan Invalid Date,
+  // jadi nilai kosong harus ditolak lebih dulu supaya tidak tampil "1 Jan".
+  if (!value) return "";
+  const waktu = new Date(value);
+  if (Number.isNaN(waktu.getTime())) return "";
+
+  const selisihDetik = Math.floor((now.getTime() - waktu.getTime()) / 1000);
+  // Jam perangkat bisa tertinggal dari stempel server, jadi selisih negatif
+  // yang kecil diperlakukan sebagai baru saja, bukan "dalam -3 menit".
+  if (selisihDetik < 60) return "baru saja";
+
+  const menit = Math.floor(selisihDetik / 60);
+  if (menit < 60) return `${menit} menit lalu`;
+
+  const hariIni = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const hariTransaksi = new Date(
+    waktu.getFullYear(),
+    waktu.getMonth(),
+    waktu.getDate(),
+  );
+  const selisihHari = Math.round(
+    (hariIni.getTime() - hariTransaksi.getTime()) / 86400000,
+  );
+
+  if (selisihHari <= 0) return `${Math.floor(menit / 60)} jam lalu`;
+  if (selisihHari === 1) return "kemarin";
+  return shortDateFormatter.format(waktu);
 }
 
 export function getLocalDayKey(value) {
