@@ -245,11 +245,11 @@ function ActivityRow({ transaction, fallbackRate }) {
   `;
 }
 
-function RecentActivity({ transactions = [], fallbackRate, onOpen }) {
+function RecentActivity({ transactions = [], fallbackRate, onOpen, className = "" }) {
   const rows = transactions.slice(0, 4);
 
   return html`
-    <section className="flex flex-col gap-4">
+    <section className=${`flex flex-col gap-4 ${className}`}>
       <div className="flex items-center justify-between gap-3 px-0.5">
         <span className="text-[15px] font-bold">Aktivitas terakhir</span>
         <button
@@ -260,7 +260,7 @@ function RecentActivity({ transactions = [], fallbackRate, onOpen }) {
           Lihat semua
         </button>
       </div>
-      <div className="dc-card dc-stagger overflow-hidden">
+      <div className="dc-card dc-stagger overflow-hidden lg:flex-1">
         ${rows.length
           ? rows.map(
               (transaction) => html`
@@ -298,48 +298,65 @@ export function HomeDashboardPage({
   const total = Number(metrics.assetAccountTotalValueIdr ?? totalValueBase ?? 0);
 
   return html`
-    ${/* Di desktop beranda memakai grid auto-fit minmax(380px,1fr) seperti
-          artifact, jadi kartu mengalir jadi dua kolom saat ruang cukup dan
-          kembali satu kolom di layar sempit tanpa breakpoint tambahan. */ null}
-    <div className="cs-home-dashboard flex w-full min-w-0 max-w-full flex-col gap-4 lg:grid lg:items-start lg:gap-6 lg:[grid-template-columns:repeat(auto-fit,minmax(380px,1fr))]">
-      <${BalancePanel}
-        total=${total}
-        income=${Number(metrics.monthlyIncomeIdr || 0)}
-        expense=${Number(metrics.monthlyExpenseIdr || 0)}
-        currency=${currency}
-        visible=${visible}
-        onToggleVisible=${onToggleVisible}
-      />
+    ${/* Di desktop beranda dibagi dua kolom: saldo dan jatah bertumpuk di
+          kiri, aktivitas mengisi kanan. Sebelumnya kartu dialirkan auto-fit,
+          dan baris pintasan yang cuma setinggi 88px menempati satu sel selebar
+          setengah layar sehingga menyisakan lubang di sebelah panel saldo.
 
-      <div className="grid grid-cols-3 gap-2">
-        <${QuickAction}
-          icon=${ReceiptText}
-          label="Catat"
-          onClick=${() => onAddTransaction?.()}
+          Kolom kiri dibungkus satu wadah, bukan dua sel grid terpisah. Sebagai
+          sel terpisah, baris grid ikut meregang mengikuti kolom kanan yang
+          lebih tinggi, dan jarak antara saldo dan jatah melar dari 24px jadi
+          68px. Di bawah lg wadah ini hanya kolom biasa dengan jarak yang sama
+          seperti sebelumnya, jadi tampilan ponsel tidak bergeser. */ null}
+    <div className="cs-home-dashboard flex w-full min-w-0 max-w-full flex-col gap-4 lg:grid lg:items-start lg:gap-6 lg:[grid-template-columns:minmax(0,1.15fr)_minmax(0,1fr)]">
+      <div className="flex flex-col gap-4 lg:gap-6">
+        <${BalancePanel}
+          total=${total}
+          income=${Number(metrics.monthlyIncomeIdr || 0)}
+          expense=${Number(metrics.monthlyExpenseIdr || 0)}
+          currency=${currency}
+          visible=${visible}
+          onToggleVisible=${onToggleVisible}
         />
-        <${QuickAction}
-          icon=${Send}
-          label="Kirim"
-          disabled=${!canTransfer}
-          onClick=${() => onExchange?.("transfer")}
-        />
-        <${QuickAction}
-          icon=${Repeat2}
-          label="Tukar"
-          disabled=${!canExchange}
-          onClick=${() => onExchange?.("exchange")}
+
+        ${/* Topbar desktop sudah memuat Kirim, Tukar, dan Catat transaksi tepat
+              103px di atas baris ini. Menampilkan keduanya membuat tombol yang
+              sama muncul dua kali berdekatan, jadi di desktop baris ini
+              disembunyikan. Di ponsel tidak ada topbar, jadi tetap tampil. */ null}
+        <div className="grid grid-cols-3 gap-2 lg:hidden">
+          <${QuickAction}
+            icon=${ReceiptText}
+            label="Catat"
+            onClick=${() => onAddTransaction?.()}
+          />
+          <${QuickAction}
+            icon=${Send}
+            label="Kirim"
+            disabled=${!canTransfer}
+            onClick=${() => onExchange?.("transfer")}
+          />
+          <${QuickAction}
+            icon=${Repeat2}
+            label="Tukar"
+            disabled=${!canExchange}
+            onClick=${() => onExchange?.("exchange")}
+          />
+        </div>
+
+        <${BudgetCard}
+          spent=${Number(metrics.budgetSpentTotal || 0)}
+          limit=${Number(metrics.budgetLimitTotal || 0)}
+          currency=${currency}
+          visible=${visible}
+          onOpen=${() => onNavigate?.("budget")}
         />
       </div>
 
-      <${BudgetCard}
-        spent=${Number(metrics.budgetSpentTotal || 0)}
-        limit=${Number(metrics.budgetLimitTotal || 0)}
-        currency=${currency}
-        visible=${visible}
-        onOpen=${() => onNavigate?.("budget")}
-      />
-
+      ${/* Saat transaksinya sedikit, kartu daftar memanjang mengisi tinggi
+            kolom kiri lewat lg:flex-1, jadi tidak mengambang dengan ruang
+            kosong di bawahnya. */ null}
       <${RecentActivity}
+        className="lg:self-stretch"
         transactions=${metrics.recent}
         fallbackRate=${fallbackRate}
         onOpen=${() => onNavigate?.("history")}

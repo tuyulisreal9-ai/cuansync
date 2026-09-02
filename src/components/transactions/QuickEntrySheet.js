@@ -59,7 +59,6 @@ export function QuickEntrySheet({
     setNoteOpen(false);
   }, [open]);
 
-  if (!open) return null;
 
   const amount = Number(normalizeNumericInput(digits) || 0);
   const hasAmount = amount > 0;
@@ -82,6 +81,63 @@ export function QuickEntrySheet({
   function press(key) {
     setDigits((current) => pressAmountKey(current, key, fractionDigits));
   }
+
+  /* Di desktop keypad di layar bukan satu satunya jalan masuk: papan ketik
+     fisik harus bisa dipakai langsung tanpa perlu mengeklik angka satu per
+     satu. Pendengar dipasang di window, bukan pada elemen tertentu, karena
+     sheet ini tidak punya kolom isian untuk nominalnya. */
+  useEffect(() => {
+    if (!open) return undefined;
+
+    function handleKeyDown(event) {
+      // Biarkan pintasan peramban dan kombinasi lain lewat apa adanya.
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+      // Saat sedang mengetik catatan, semua tombol milik kolom itu.
+      const target = event.target;
+      const mengetikDiKolom =
+        target instanceof HTMLElement &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable);
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        requestClose();
+        return;
+      }
+      if (mengetikDiKolom) return;
+
+      if (event.key >= "0" && event.key <= "9") {
+        event.preventDefault();
+        press(event.key);
+        return;
+      }
+      // Koma ikut diterima karena papan ketik Indonesia dan tombol desimal
+      // di numpad sebagian melaporkannya sebagai koma.
+      if (event.key === "." || event.key === ",") {
+        event.preventDefault();
+        press(".");
+        return;
+      }
+      if (event.key === "Backspace" || event.key === "Delete") {
+        event.preventDefault();
+        press("⌫");
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        save();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+    /* Sengaja tanpa daftar dependensi: penanganannya memakai save() yang
+       menutup nilai nominal, dompet, dan kategori saat ini. Membatasi ke
+       [open] akan membekukan nilai nilai itu pada render pertama, sehingga
+       Enter menyimpan angka yang sudah basi. */
+  });
 
   /* Berpindah ke dompet dengan pecahan lebih sedikit harus memangkas angka di
      belakang titik. Tanpa ini "3.50" yang diketik di dompet dolar akan terbawa
@@ -138,6 +194,12 @@ export function QuickEntrySheet({
       ? { background: "var(--cs-sel-bg)", color: "var(--cs-sel-fg)" }
       : { background: "transparent", color: "var(--cs-body)" };
 
+  /* Baru berhenti di sini, bukan di awal fungsi. Pendengar papan ketik di atas
+     adalah sebuah hook, jadi keluar lebih dulu saat sheet tertutup akan membuat
+     jumlah hook berubah antar render dan React melempar galat. Semua
+     perhitungan di atas murni, jadi aman dijalankan walau sheet tertutup. */
+  if (!open) return null;
+
   /* Chip kategori dan chip dompet memakai metrik yang sama di desain:
      tinggi 38, radius 99, padding 0 15, teks 12.5px/500. */
   const chip = (label, active, onPick) => html`
@@ -167,7 +229,7 @@ export function QuickEntrySheet({
     ${/* Desktop memakai dialog terpusat selebar 560 seperti artifact, bukan
           bottom sheet yang meregang sepenuh layar. Bentuk mobile tidak berubah
           karena semua penyesuaian ada di balik lg. */ null}
-    <div className="fixed inset-0 z-50 lg:flex lg:items-center lg:justify-center lg:p-10">
+    <div className="fixed inset-0 z-50 lg:flex lg:items-center lg:justify-center lg:p-4">
       <button
         type="button"
         aria-label="Tutup catat transaksi"
@@ -175,18 +237,23 @@ export function QuickEntrySheet({
         className=${`cs-sheet-scrim ${closing ? "dc-overlay-out" : "dc-overlay-in"} absolute inset-0`}
       ></button>
 
+      ${/* Di desktop isinya dipecah jadi dua kolom: nominal dan keypad di
+            kiri, kategori serta dompet di kanan. Ditumpuk satu kolom, tinggi
+            totalnya 812px dan tidak muat di jendela setengah layar, sehingga
+            keypad terpotong di tengah baris. Urutan DOM tidak diubah supaya
+            susunan di ponsel tetap sama persis. */ null}
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Catat transaksi"
-        className=${`cs-sheet-panel ${closing ? "dc-sheet-down" : "dc-sheet-up"} absolute inset-x-0 bottom-0 flex max-h-[92svh] flex-col gap-4 overflow-y-auto px-5 pb-6 pt-3 lg:relative lg:inset-auto lg:max-h-[86vh] lg:w-full lg:max-w-[560px] lg:px-[26px] lg:pb-[26px] lg:pt-6`}
+        className=${`cs-sheet-panel ${closing ? "dc-sheet-down" : "dc-sheet-up"} absolute inset-x-0 bottom-0 flex max-h-[92svh] flex-col gap-4 overflow-y-auto px-5 pb-6 pt-3 lg:relative lg:inset-auto lg:grid lg:max-h-[calc(100dvh-2rem)] lg:w-full lg:max-w-[860px] lg:grid-cols-[300px_minmax(0,1fr)] lg:content-start lg:gap-x-5 lg:gap-y-3 lg:px-[26px] lg:pb-[26px] lg:pt-6`}
       >
         <span
           className="mx-auto block h-1 w-[42px] shrink-0 rounded-full lg:hidden"
           style=${{ background: "var(--cs-dim)" }}
         ></span>
 
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between lg:col-span-2">
           <span className="text-[17px] font-bold tracking-[-0.2px] lg:text-[18px] lg:tracking-[-0.3px]">
             Catat transaksi
           </span>
@@ -201,7 +268,7 @@ export function QuickEntrySheet({
         </div>
 
         <div
-          className="flex gap-1 rounded-[14px] p-1"
+          className="flex gap-1 rounded-[14px] p-1 lg:col-span-2"
           style=${{ background: "var(--cs-seg)" }}
         >
           <button
@@ -224,7 +291,7 @@ export function QuickEntrySheet({
           </button>
         </div>
 
-        <div className="flex flex-col items-center gap-1 py-1">
+        <div className="flex flex-col items-center gap-1 py-1 lg:col-start-1">
           <span className="text-xs" style=${{ color: "var(--cs-mut)" }}>Berapa?</span>
           <div className="flex items-end gap-[5px]">
             <span className="pb-[5px] text-[18px]" style=${{ color: "var(--cs-mut)" }}>
@@ -243,6 +310,10 @@ export function QuickEntrySheet({
           </div>
         </div>
 
+        ${/* Ketiganya dibungkus satu wadah supaya di desktop mereka jadi satu
+              sel grid di kolom kanan. Di ponsel wadah ini hanya kolom biasa,
+              jadi urutannya tetap nominal, kategori, catatan, dompet, keypad. */ null}
+        <div className="flex flex-col gap-4 lg:col-start-2 lg:row-span-2 lg:self-start lg:gap-3">
         ${isExpense && categories.length
           ? html`
               <div className="flex flex-col gap-1.5">
@@ -260,7 +331,7 @@ export function QuickEntrySheet({
                     ${categoryHint}
                   </span>
                 </div>
-                <div className="dc-scroll-x flex gap-2 overflow-x-auto pb-0.5">
+                <div className="dc-scroll-x flex gap-2 overflow-x-auto pb-0.5 lg:flex-wrap lg:overflow-x-visible lg:pb-0">
                   ${categories.map((item) =>
                     chip(item.label, item.value === category, () =>
                       setCategory(item.value),
@@ -322,7 +393,7 @@ export function QuickEntrySheet({
                 >
                   ${isExpense ? "Dari dompet mana?" : "Masuk ke dompet mana?"}
                 </span>
-                <div className="dc-scroll-x flex gap-2 overflow-x-auto pb-0.5">
+                <div className="dc-scroll-x flex gap-2 overflow-x-auto pb-0.5 lg:flex-wrap lg:overflow-x-visible lg:pb-0">
                   ${/* Kode mata uang ditempel pada dompet valas supaya jelas
                         bahwa nominal yang diketik mengikuti mata uang dompet
                         itu, bukan mata uang dasar. */ null}
@@ -338,8 +409,9 @@ export function QuickEntrySheet({
               </div>
             `
           : null}
+        </div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2 lg:col-start-1">
           ${keypad.map(
             (key) => html`
               <button
@@ -347,7 +419,7 @@ export function QuickEntrySheet({
                 type="button"
                 onClick=${() => press(key)}
                 aria-label=${key === "⌫" ? "Hapus satu angka" : key}
-                className="dc-num dc-press dc-press-96 flex min-h-[50px] items-center justify-center rounded-[15px] border text-[19px]"
+                className="dc-num dc-press dc-press-96 flex min-h-[50px] items-center justify-center rounded-[15px] border text-[19px] lg:min-h-[44px] lg:text-[17px]"
                 style=${{
                   background: "var(--cs-card)",
                   borderColor: "var(--cs-line)",
@@ -363,7 +435,7 @@ export function QuickEntrySheet({
           type="button"
           onClick=${save}
           disabled=${!hasAmount || !account || loading}
-          className="flex min-h-[52px] items-center justify-center rounded-[17px] text-[15px] font-bold"
+          className="flex min-h-[52px] items-center justify-center rounded-[17px] text-[15px] font-bold lg:col-span-2"
           style=${hasAmount && account
             ? { background: "var(--cs-acc)", color: "var(--cs-on-acc)" }
             : { background: "var(--cs-track)", color: "var(--cs-faint)" }}
@@ -383,7 +455,7 @@ export function QuickEntrySheet({
             onClose();
             onOpenFullForm?.(entryType, digits);
           }}
-          className="min-h-10 text-[13px] font-medium"
+          className="min-h-10 text-[13px] font-medium lg:col-span-2"
           style=${{ color: "var(--cs-link)" }}
         >
           Atur detail — tanggal atau tukar mata uang

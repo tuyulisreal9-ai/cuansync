@@ -241,8 +241,10 @@ test("desktop memakai sidebar 264px, topbar menempel, dan grid beranda", () => {
   assert.match(header, /lg:text-\[26px\]/);
   assert.match(header, /cs-topbar-action/);
 
-  // Beranda memakai grid auto-fit seperti artifact.
-  assert.match(home, /grid-template-columns:repeat\(auto-fit,minmax\(380px,1fr\)\)/);
+  // Beranda menempatkan tiap kartu sendiri, bukan mengalirkannya auto-fit.
+  // Dengan auto-fit, baris pintasan setinggi 88px menempati satu sel selebar
+  // setengah layar dan menyisakan lubang di sebelah panel saldo.
+  assert.match(home, /grid-template-columns:minmax\(0,1\.15fr\)_minmax\(0,1fr\)/);
 
   // Kolom konten memakai lebar maksimum dan padding desktop.
   assert.match(shell, /lg:max-w-\[1400px\]/);
@@ -279,4 +281,26 @@ test("pemilih mata uang tetap terlihat saat keyboard ponsel naik", () => {
 
   // Palet lama tidak boleh kembali.
   assert.doesNotMatch(combobox, /slate-\d|emerald-\d/);
+});
+
+test("beranda desktop tidak menggandakan aksi topbar", async () => {
+  const home = await source("src/components/home/HomeDashboardPage.js");
+  const header = await source("src/components/wallet/WalletHeader.js");
+
+  // Topbar desktop sudah memuat Kirim, Tukar, dan Catat transaksi. Baris
+  // pintasan di beranda menampilkan tombol yang sama hanya 103px di bawahnya,
+  // jadi di desktop baris itu disembunyikan. Di ponsel tidak ada topbar,
+  // sehingga baris pintasan tetap satu satunya jalan pintas.
+  assert.match(header, /cs-topbar-action/);
+  assert.match(home, /className="grid grid-cols-3 gap-2 lg:hidden"/);
+
+  // Aktivitas mengisi tinggi kolom, bukan mengambang dengan ruang kosong.
+  assert.match(home, /className="lg:self-stretch"/);
+  assert.match(home, /dc-card dc-stagger overflow-hidden lg:flex-1/);
+
+  // Saldo dan jatah dibungkus satu wadah, bukan dua sel grid terpisah.
+  // Sebagai sel terpisah, barisnya ikut meregang mengikuti kolom kanan dan
+  // jarak antara keduanya melar dari 24px jadi 68px.
+  assert.match(home, /<div className="flex flex-col gap-4 lg:gap-6">/);
+  assert.doesNotMatch(home, /lg:row-span-2/);
 });
