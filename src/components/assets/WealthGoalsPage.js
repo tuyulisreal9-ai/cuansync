@@ -20,13 +20,13 @@ import {
 import {
   DEFAULT_ACTIVE_CURRENCIES,
   DEFAULT_BASE_CURRENCY,
-  formatCurrency,
   formatNumericInput,
   formatPercent,
   getCurrencyOptions,
   normalizeCurrencyList,
   normalizeNumericInput,
 } from "../../lib/currency.js";
+import { useMaskedCurrency } from "../../lib/balanceVisibility.js";
 import { formatDateTime, getDateInputValue } from "../../lib/dates.js";
 
 const html = htm.bind(React.createElement);
@@ -37,6 +37,7 @@ const INPUT_CLASS =
   "w-full min-h-12 rounded-[14px] border px-3.5 text-[14.5px] cs-edit-input";
 const FIELD_LABEL_CLASS = "block px-0.5 text-xs cs-edit-label";
 function GoalTracker({ goals, accounts = [], onDelete, onContribute }) {
+  const money = useMaskedCurrency();
   const [openGoalId, setOpenGoalId] = useState(null);
   const [openAction, setOpenAction] = useState("deposit");
   const [amount, setAmount] = useState("");
@@ -115,10 +116,10 @@ function GoalTracker({ goals, accounts = [], onDelete, onContribute }) {
 
                     <div className="mt-4 flex items-center justify-between gap-3">
                       <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                        ${formatCurrency(goal.savedAmount, "idr")}
+                        ${money(goal.savedAmount, "idr")}
                       </p>
                       <p className="text-sm text-slate-500 dark:text-slate-400">
-                        Target ${formatCurrency(goal.targetAmount, "idr")}
+                        Target ${money(goal.targetAmount, "idr")}
                       </p>
                     </div>
 
@@ -131,7 +132,7 @@ function GoalTracker({ goals, accounts = [], onDelete, onContribute }) {
 
                     <div className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500 dark:text-slate-400">
                       <span>${formatPercent(goal.progress)} tercapai</span>
-                      <span>Sisa ${formatCurrency(goal.remainingIdr, "idr")}</span>
+                      <span>Sisa ${money(goal.remainingIdr, "idr")}</span>
                     </div>
 
                     <div className="mt-4 grid grid-cols-3 gap-2">
@@ -181,11 +182,11 @@ function GoalTracker({ goals, accounts = [], onDelete, onContribute }) {
                                 (account) => html`
                                   <option key=${account.id} value=${account.id}>
                                     ${account.name} — ${openAction === "withdraw"
-                                      ? `dialokasikan ${formatCurrency(
+                                      ? `dialokasikan ${money(
                                           account.allocatedAmount,
                                           account.currency,
                                         )}`
-                                      : `tersedia ${formatCurrency(
+                                      : `tersedia ${money(
                                           account.availableBalance,
                                           account.currency,
                                         )}`}
@@ -530,6 +531,7 @@ function AssetAccountForm({
 }
 
 function FinancialMonthlyPreview({ metrics, onOpenReport }) {
+  const money = useMaskedCurrency();
   const netCashflow = Number(metrics.monthlyNetChangeIdr || 0);
   const netPositive = netCashflow >= 0;
   const income = Number(metrics.monthlyIncomeIdr || 0);
@@ -539,19 +541,19 @@ function FinancialMonthlyPreview({ metrics, onOpenReport }) {
   const previewItems = [
     {
       label: "Uang masuk",
-      value: formatCurrency(income, "idr"),
+      value: money(income, "idr"),
     },
     {
       label: "Uang keluar",
-      value: formatCurrency(expense, "idr"),
+      value: money(expense, "idr"),
     },
     {
       label: "Dana target",
-      value: formatCurrency(savedGoals, "idr"),
+      value: money(savedGoals, "idr"),
     },
     {
       label: "Saldo tersedia",
-      value: formatCurrency(balance, "idr"),
+      value: money(balance, "idr"),
     },
   ];
 
@@ -564,7 +566,7 @@ function FinancialMonthlyPreview({ metrics, onOpenReport }) {
             Ringkasan Bulan Ini
           </p>
           <h3 className="mt-2 font-display text-2xl font-black text-slate-950 dark:text-white">
-            ${netPositive ? "+" : "-"}${formatCurrency(Math.abs(netCashflow), "idr")}
+            ${netPositive ? "+" : "-"}${money(Math.abs(netCashflow), "idr")}
           </h3>
           <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300/80">
             ${netPositive
@@ -603,6 +605,7 @@ function FinancialMonthlyPreview({ metrics, onOpenReport }) {
 }
 
 function AssetAccountsPanel({ metrics, onAddAccount, onDeleteAccount, baseCurrency }) {
+  const money = useMaskedCurrency();
   const accounts = metrics.assetAccountInsights || [];
   const totals = Object.entries(metrics.assetAccountTotalsByCurrency || {}).filter(
     ([, amount]) => Number(amount || 0) !== 0,
@@ -650,7 +653,7 @@ function AssetAccountsPanel({ metrics, onAddAccount, onDeleteAccount, baseCurren
             Estimasi nilai
           </p>
           <p className="mt-2 text-2xl font-black text-slate-950 dark:text-white">
-            ${formatCurrency(metrics.assetAccountTotalValueIdr || 0, "idr")}
+            ${money(metrics.assetAccountTotalValueIdr || 0, "idr")}
           </p>
           <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">
             Kurs global harian dari Exchange Rate API.
@@ -704,7 +707,7 @@ function AssetAccountsPanel({ metrics, onAddAccount, onDeleteAccount, baseCurren
                           Saldo ${account.currency}
                         </p>
                         <p className="mt-1 text-xl font-black text-slate-950 dark:text-white">
-                          ${formatCurrency(account.balanceAmount, account.currency)}
+                          ${money(account.balanceAmount, account.currency)}
                         </p>
                         <p className="mt-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
                           ${getAssetAccountValuationLabel(account, baseCurrency)}

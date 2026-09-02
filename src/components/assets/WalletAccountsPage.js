@@ -5,6 +5,8 @@ import {
   ArrowUpRight,
   Banknote,
   Building2,
+  Eye,
+  EyeOff,
   Info,
   MoreHorizontal,
   Palette,
@@ -22,12 +24,16 @@ import {
 } from "../../domain/goals.js";
 import {
   DEFAULT_BASE_CURRENCY,
-  formatCurrency,
   formatNumericInput,
   formatPercent,
   normalizeCurrencyCode,
   normalizeNumericInput,
 } from "../../lib/currency.js";
+import {
+  useBalanceVisible,
+  useMaskedCurrency,
+  useToggleBalanceVisible,
+} from "../../lib/balanceVisibility.js";
 import { formatShortDateTime } from "../../lib/dates.js";
 import { SheetShell } from "../shared/SheetShell.js";
 
@@ -60,11 +66,20 @@ function getWalletColor(colorPreferences, account, index) {
     WALLET_COLOR_PRESETS[index % WALLET_COLOR_PRESETS.length];
 }
 
+/* Mengembalikan angkanya saja, bukan teks jadi, supaya komponen pemanggil
+   yang memformat lewat money() dan valuasi ikut tertutup saat privasi menyala. */
 function getWalletValuation(account, baseCurrency) {
   if (account.currency === baseCurrency) return null;
   const valuation = Number(account.valuationIdr);
-  if (!Number.isFinite(valuation)) return "Kurs belum tersedia";
-  return `≈ ${formatCurrency(valuation, baseCurrency)}`;
+  if (!Number.isFinite(valuation)) return { text: "Kurs belum tersedia" };
+  return { amount: valuation };
+}
+
+/* Desain menaruh simbol mata uang di span terpisah, jadi awalannya dibuang
+   dari angka besarnya. Saat privasi menyala teksnya berisi titik titik tanpa
+   satu pun angka, dan membuang awalan akan menyisakan span kosong. */
+function stripCurrencyPrefix(text) {
+  return /\d/.test(text) ? text.replace(/^[^\d-]*/, "") : text;
 }
 
 function getAccountIcon(accountType) {
@@ -113,6 +128,7 @@ function AccountCard({
   onManage,
   accent,
 }) {
+  const money = useMaskedCurrency();
   const Icon = getAccountIcon(account.account_type);
   const valuation = getWalletValuation(account, baseCurrency);
   const reservedBalance = Number(account.reservedBalance || 0);
@@ -126,9 +142,14 @@ function AccountCard({
   // Baris kanan: angka utama adalah dana yang bisa dipakai ketika ada
   // pencadangan, dengan saldo rekening sebagai keterangan kecil. Prinsipnya
   // tidak berubah, hanya letaknya yang mengikuti tata letak daftar.
+  // Valuasi datang sebagai angka mentah, jadi diformat di sini lewat money()
+  // supaya ikut tertutup bersama saldo utamanya.
+  const valuationLabel = valuation
+    ? valuation.text || `≈ ${money(valuation.amount, baseCurrency)}`
+    : null;
   const subLabel = hasReservedBalance
-    ? `dari ${formatCurrency(balanceAmount, account.currency)}`
-    : valuation || `${account.typeLabel} · ${account.currency}`;
+    ? `dari ${money(balanceAmount, account.currency)}`
+    : valuationLabel || `${account.typeLabel} · ${account.currency}`;
 
   return html`
     <div className=${`dc-row flex items-center gap-[13px] px-4 py-[15px] ${selected ? "bg-[color:var(--cs-soft)]" : ""}`}>
@@ -167,7 +188,7 @@ function AccountCard({
         </span>
         <span className="flex shrink-0 flex-col items-end gap-0.5">
           <span className=${`dc-num text-[13.5px] ${fullyReserved ? "text-[color:var(--cs-mut)]" : ""}`}>
-            ${formatCurrency(
+            ${money(
               hasReservedBalance ? availableBalance : balanceAmount,
               account.currency,
             )}
@@ -190,6 +211,7 @@ function AccountCard({
 }
 
 function GoalCard({ goal, selected, onSelect, onManage }) {
+  const money = useMaskedCurrency();
   const progress = Math.max(0, Math.min(Number(goal.progress || 0), 1));
   return html`
     <article className=${`dc-card relative p-[18px] ${selected ? "ring-1 ring-[color:var(--cs-acc)]" : ""}`}>
@@ -203,14 +225,14 @@ function GoalCard({ goal, selected, onSelect, onManage }) {
         <span className="flex items-baseline justify-between gap-3 pr-7">
           <span className="truncate text-[15px] font-bold">${goal.name}</span>
           <span className="shrink-0 text-xs text-[color:var(--cs-mut)]">
-            target ${formatCurrency(goal.targetAmount || 0, goal.currency)}
+            target ${money(goal.targetAmount || 0, goal.currency)}
           </span>
         </span>
 
         <span className="flex flex-col gap-2">
           <span className="flex items-baseline justify-between gap-3 text-[13px]">
             <span className="text-[color:var(--cs-body)]">
-              Terkumpul ${formatCurrency(goal.availableAmount || 0, goal.currency)}
+              Terkumpul ${money(goal.availableAmount || 0, goal.currency)}
             </span>
             <span className="shrink-0 font-bold">${formatPercent(progress)}</span>
           </span>
@@ -292,6 +314,7 @@ function CreatePocketActions({ onAddWallet, onAddGoal }) {
 }
 
 function GoalActivity({ goal }) {
+  const money = useMaskedCurrency();
   const activities = [...(goal.activities || [])]
     .sort(
       (left, right) =>
@@ -347,7 +370,7 @@ function GoalActivity({ goal }) {
                     <strong className=${`max-w-[8.5rem] truncate text-right text-xs font-black tabular-nums ${
                       incoming ? "text-emerald-500" : "text-rose-500"
                     }`}>
-                      ${incoming ? "+" : "-"}${formatCurrency(
+                      ${incoming ? "+" : "-"}${money(
                         Math.abs(effect),
                         activity.currency || goal.currency,
                       )}
@@ -376,6 +399,7 @@ function AccountDetail({
   onSetPrimary,
   onDelete,
 }) {
+  const money = useMaskedCurrency();
   const Icon = getAccountIcon(account.account_type);
   const hasReserved = Number(account.reservedBalance || 0) > 0.0001;
   const linkedGoals = goals.filter((goal) =>
@@ -430,7 +454,7 @@ function AccountDetail({
                   : "var(--cs-ink)",
             }}
           >
-            ${formatCurrency(
+            ${money(
               hasReserved ? account.availableBalance : account.balanceAmount,
               account.currency,
             )}
@@ -451,7 +475,7 @@ function AccountDetail({
                     Saldo rekening
                   </span>
                   <span className="dc-num text-[13.5px]">
-                    ${formatCurrency(account.balanceAmount, account.currency)}
+                    ${money(account.balanceAmount, account.currency)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between gap-3 py-2.5">
@@ -465,7 +489,7 @@ function AccountDetail({
                     className="dc-num text-[13.5px]"
                     style=${{ color: "var(--cs-warn)" }}
                   >
-                    ${formatCurrency(account.reservedBalance || 0, account.currency)}
+                    ${money(account.reservedBalance || 0, account.currency)}
                   </span>
                 </div>
               </div>
@@ -522,7 +546,7 @@ function AccountDetail({
                         </span>
                       </div>
                       <span className="dc-num shrink-0 text-[13.5px]">
-                        ${formatCurrency(source?.amount || 0, goal.currency)}
+                        ${money(source?.amount || 0, goal.currency)}
                       </span>
                     </div>
                   `;
@@ -618,6 +642,7 @@ function GoalDetail({
   onArchive,
   onMove,
 }) {
+  const money = useMaskedCurrency();
   const [actionType, setActionType] = useState("assign");
   const [amount, setAmount] = useState("");
   const [accountId, setAccountId] = useState("");
@@ -682,14 +707,14 @@ function GoalDetail({
         </span>
         <div className="min-w-0">
           <p className="text-[10px] font-black uppercase tracking-wide text-cyan-500">Tabungan • Alokasi virtual</p>
-          <p className="mt-1 truncate font-display text-xl font-black text-slate-950 dark:text-white">${formatCurrency(goal.availableAmount || 0, goal.currency)}</p>
+          <p className="mt-1 truncate font-display text-xl font-black text-slate-950 dark:text-white">${money(goal.availableAmount || 0, goal.currency)}</p>
         </div>
       </div>
 
       <div>
         <div className="flex items-center justify-between gap-3 text-[10px] text-slate-500 dark:text-slate-400">
           <span>${formatPercent(progress)} tercapai</span>
-          <span>Target ${formatCurrency(goal.targetAmount || 0, goal.currency)}</span>
+          <span>Target ${money(goal.targetAmount || 0, goal.currency)}</span>
         </div>
         <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
           <div className="h-full rounded-full bg-cyan-400" style=${{ width: `${progress * 100}%` }}></div>
@@ -718,7 +743,7 @@ function GoalDetail({
                           <span className="text-[9px] text-slate-500 dark:text-slate-400">${account?.typeLabel || "Sumber dana"}${primary ? " • Sumber utama" : ""}</span>
                         </div>
                       </div>
-                      <strong className="shrink-0 text-xs tabular-nums">${formatCurrency(source.amount, goal.currency)}</strong>
+                      <strong className="shrink-0 text-xs tabular-nums">${money(source.amount, goal.currency)}</strong>
                     </div>
                   `;
                 })}
@@ -732,7 +757,7 @@ function GoalDetail({
                             <span className="text-[9px]">Progres lama sebelum pelacakan rekening</span>
                           </div>
                         </div>
-                        <strong className="shrink-0 text-xs tabular-nums">${formatCurrency(goal.unmappedAmount, goal.currency)}</strong>
+                        <strong className="shrink-0 text-xs tabular-nums">${money(goal.unmappedAmount, goal.currency)}</strong>
                       </div>
                     `
                   : null}
@@ -808,8 +833,8 @@ function GoalDetail({
                     (account) => html`
                       <option key=${account.id} value=${account.id}>
                         ${account.name} — ${actionType === "release"
-                          ? `dialokasikan ${formatCurrency(account.allocatedAmount, account.currency)}`
-                          : `tersedia ${formatCurrency(account.availableBalance, account.currency)}`}
+                          ? `dialokasikan ${money(account.allocatedAmount, account.currency)}`
+                          : `tersedia ${money(account.availableBalance, account.currency)}`}
                       </option>
                     `,
                   )}
@@ -958,6 +983,9 @@ export function WalletAccountsPage({
   onMoveGoalAllocation,
   onSelectAccountCurrency,
 }) {
+  const money = useMaskedCurrency();
+  const balanceVisible = useBalanceVisible();
+  const toggleBalanceVisible = useToggleBalanceVisible();
   const accounts = metrics.assetAccountInsights || [];
   const goals = (metrics.goalInsights || []).filter(
     (goal) => goal.status !== "archived",
@@ -1044,13 +1072,45 @@ export function WalletAccountsPage({
     <div className="cs-wallet-page grid w-full min-w-0 max-w-full gap-3">
       <section className="dc-panel flex flex-col gap-[18px] p-[22px]">
         <div className="flex flex-col gap-[7px]">
-          <span className="text-[13px] text-[#9c968b]">Semua uang yang kamu catat</span>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[13px] text-[#9c968b]">Semua uang yang kamu catat</span>
+            ${/* Sakelar privasi ada di sini juga, bukan hanya di Beranda. Tanpa
+                  tombolnya, saldo Dompet yang tertutup hanya bisa dibuka lagi
+                  dengan berpindah halaman. Margin negatif menahan tinggi baris
+                  supaya tombol 44px tidak menggelembungkan panel. */ null}
+            ${toggleBalanceVisible
+              ? html`
+                  <button
+                    type="button"
+                    onClick=${toggleBalanceVisible}
+                    aria-pressed=${!balanceVisible}
+                    aria-label=${balanceVisible ? "Sembunyikan saldo" : "Tampilkan saldo"}
+                    title=${balanceVisible ? "Sembunyikan saldo" : "Tampilkan saldo"}
+                    className="dc-press dc-press-96 -my-2.5 -mr-2.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full"
+                  >
+                    <${balanceVisible ? Eye : EyeOff}
+                      aria-hidden="true"
+                      className="h-[18px] w-[18px]"
+                      style=${{ color: "#9c968b" }}
+                      strokeWidth=${1.75}
+                    />
+                  </button>
+                `
+              : null}
+          </div>
           <div className="flex items-end gap-1.5">
-            <span className="pb-1.5 text-[19px] font-medium text-[#9c968b]">
-              ${normalizedBaseCurrency === "IDR" ? "Rp" : normalizedBaseCurrency}
-            </span>
+            ${/* Simbol mata uang ikut disembunyikan seperti di Beranda, supaya
+                  "Rp ••••••" tidak terbaca setengah terbuka. */ null}
+            ${balanceVisible
+              ? html`<span
+                  className="pb-1.5 text-[19px] font-medium text-[#9c968b]"
+                  >${normalizedBaseCurrency === "IDR"
+                    ? "Rp"
+                    : normalizedBaseCurrency}</span
+                >`
+              : null}
             <span className="dc-num text-[32px] leading-none tracking-[-1.4px]">
-              ${formatCurrency(totalActualBase, normalizedBaseCurrency).replace(/^[^\d-]*/, "")}
+              ${stripCurrencyPrefix(money(totalActualBase, normalizedBaseCurrency))}
             </span>
           </div>
         </div>
@@ -1058,13 +1118,13 @@ export function WalletAccountsPage({
           <div className="dc-panel-tile flex flex-1 flex-col gap-[3px] px-3.5 py-3">
             <span className="text-[11px] text-[#9c968b]">Bisa dipakai</span>
             <span className="text-[15px] font-bold">
-              ${formatCurrency(spendableBase, normalizedBaseCurrency)}
+              ${money(spendableBase, normalizedBaseCurrency)}
             </span>
           </div>
           <div className="dc-panel-tile flex flex-1 flex-col gap-[3px] px-3.5 py-3">
             <span className="text-[11px] text-[#9c968b]">Disisihkan</span>
             <span className="text-[15px] font-bold text-[color:var(--cs-pos)]">
-              ${formatCurrency(reservedBase || allocatedBase, normalizedBaseCurrency)}
+              ${money(reservedBase || allocatedBase, normalizedBaseCurrency)}
             </span>
           </div>
         </div>

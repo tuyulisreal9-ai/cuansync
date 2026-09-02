@@ -16,6 +16,7 @@ import {
   formatCurrency,
   normalizeCurrencyCode,
 } from "../../lib/currency.js";
+import { useMaskedText } from "../../lib/balanceVisibility.js";
 import { formatShortTime } from "../../lib/dates.js";
 import {
   getTransactionCompactAmount,
@@ -201,6 +202,9 @@ function BudgetCard({ spent, limit, currency, visible, onOpen }) {
 }
 
 function ActivityRow({ transaction, fallbackRate }) {
+  /* Baris aktivitas ikut privasi juga. Menutup total saldo tapi membiarkan
+     nominal tiap transaksi terbaca sama saja tidak menutup apa apa. */
+  const maskText = useMaskedText();
   const flow = getTransactionFlow(transaction);
   // getTransactionCompactAmount mengembalikan { primary, secondary } dan
   // primary sudah membawa tandanya sendiri, jadi jangan diberi awalan lagi.
@@ -231,11 +235,11 @@ function ActivityRow({ transaction, fallbackRate }) {
           ${getTransactionDisplayTitle(transaction)}
         </span>
         <span className="truncate text-xs text-[color:var(--cs-mut)]">
-          ${amount.secondary || formatShortTime(transaction.occurred_at)}
+          ${maskText(amount.secondary) || formatShortTime(transaction.occurred_at)}
         </span>
       </span>
       <span className="dc-num shrink-0 text-[13.5px]" style=${{ color: tone }}>
-        ${amount.primary}
+        ${maskText(amount.primary)}
       </span>
     </div>
   `;

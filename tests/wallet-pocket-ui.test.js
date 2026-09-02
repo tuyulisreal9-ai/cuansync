@@ -50,7 +50,7 @@ test("baris Dompet menonjolkan dana bisa dipakai beserta saldo asalnya", async (
 
   // Angka utama = availableBalance saat ada pencadangan, dengan saldo rekening
   // sebagai keterangan "dari ...". Tanpa pencadangan, angka utama = saldo asli.
-  assert.match(page, /dari \$\{formatCurrency\(balanceAmount, account\.currency\)\}/);
+  assert.match(page, /dari \$\{money\(balanceAmount, account\.currency\)\}/);
   assert.match(
     page,
     /hasReservedBalance \? availableBalance : balanceAmount/,
@@ -193,8 +193,10 @@ test("catat uang memakai sheet keypad seperti desain", async () => {
   const sheet = await source("src/components/transactions/QuickEntrySheet.js");
   const main = await source("src/main.js");
 
-  // Susunan keypad dan salinan tombol mengikuti desain.
-  assert.match(sheet, /"1", "2", "3", "4", "5", "6", "7", "8", "9", "000", "0", "⌫"/);
+  // Susunan keypad datang dari lib, dan tombol kiri bawahnya mengikuti
+  // pecahan mata uang dompet yang sedang dipilih.
+  assert.match(sheet, /keypad = buildKeypad\(fractionDigits\)/);
+  assert.match(sheet, /getCurrencyMeta\(currency\)\.fractionDigits/);
   assert.match(sheet, /Catat transaksi/);
   assert.match(sheet, /Berapa\?/);
   assert.match(sheet, />\s*Nanti\s*</);

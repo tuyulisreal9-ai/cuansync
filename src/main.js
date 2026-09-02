@@ -131,6 +131,7 @@ import {
   isGlobalRateSnapshotFresh,
   normalizeGlobalRateSnapshot,
 } from "./lib/exchangeRates.js";
+import { BalanceVisibilityProvider } from "./lib/balanceVisibility.js";
 import { readStorage, writeStorage } from "./lib/storage.js";
 import { normalizeCurrencySettings } from "./lib/currencySettings.js";
 import {
@@ -5973,6 +5974,13 @@ function App() {
     activeTab === "budget";
 
   return html`
+    ${/* Privasi disiarkan dari sini supaya kartu dompet, sheet detail, dan
+          baris aktivitas sedalam apa pun ikut tertutup tanpa perlu dioper
+          prop satu per satu. */ null}
+    <${BalanceVisibilityProvider}
+      visible=${balanceVisible}
+      onToggle=${handleToggleBalanceVisibility}
+    >
     ${/* Di desktop padding dipindah ke kolom utama supaya sidebar bisa menempel
           rapat ke tepi kiri layar seperti di artifact. */ null}
     <main className="app-shell relative isolate min-h-screen overflow-x-clip px-6 pt-2 md:px-6 md:py-5 lg:p-0">
@@ -6154,6 +6162,7 @@ function App() {
         onOpenFullForm=${(entryType) => openTransactionForm(entryType)}
       />
     </main>
+    <//>
   `;
 }
 

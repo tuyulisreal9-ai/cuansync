@@ -4,15 +4,20 @@ import { StickyNote } from "lucide-react";
 import { UNIVERSAL_BUDGET_GROUP } from "../../domain/budgets.js";
 import { useSheetClose } from "../../lib/sheetClose.js";
 import {
+  buildKeypad,
+  clampAmountFraction,
+  pressAmountKey,
+} from "../../lib/amountKeypad.js";
+import {
   DEFAULT_BASE_CURRENCY,
   formatCurrency,
+  formatNumericInput,
+  getCurrencyMeta,
   normalizeCurrencyCode,
+  normalizeNumericInput,
 } from "../../lib/currency.js";
 
 const html = htm.bind(React.createElement);
-
-/* Keypad mengikuti susunan desain: tiga kolom, 000 dan hapus di baris akhir. */
-const KEYPAD = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "000", "0", "⌫"];
 
 function pickDefaultAccount(accounts, currency) {
   const sameCurrency = accounts.filter(
@@ -56,7 +61,7 @@ export function QuickEntrySheet({
 
   if (!open) return null;
 
-  const amount = Number(digits || 0);
+  const amount = Number(normalizeNumericInput(digits) || 0);
   const hasAmount = amount > 0;
   const account =
     accounts.find((item) => item.id === accountId) ||
@@ -66,20 +71,30 @@ export function QuickEntrySheet({
      dari dompetnya, jadi memakai mata uang dasar untuk dompet valas membuat
      simpanan gagal sekaligus salah catat. */
   const currency = normalizeCurrencyCode(account?.currency || baseCode);
+  /* Jumlah pecahan mengikuti mata uang dompet: rupiah nol, dolar dua. Ini yang
+     menentukan tombol kiri bawah dan batas angka di belakang titik. */
+  const fractionDigits = getCurrencyMeta(currency).fractionDigits ?? 2;
+  const keypad = buildKeypad(fractionDigits);
   const isExpense = entryType === "expense";
   const categoryHint =
     categories.find((item) => item.value === category)?.description || "";
 
   function press(key) {
-    if (key === "⌫") {
-      setDigits((current) => current.slice(0, -1));
-      return;
-    }
-    setDigits((current) => {
-      const next = `${current}${key}`.replace(/^0+(?=\d)/, "");
-      // Batasi 12 digit agar nominal tetap terbaca pada satu baris.
-      return next.length > 12 ? current : next;
-    });
+    setDigits((current) => pressAmountKey(current, key, fractionDigits));
+  }
+
+  /* Berpindah ke dompet dengan pecahan lebih sedikit harus memangkas angka di
+     belakang titik. Tanpa ini "3.50" yang diketik di dompet dolar akan terbawa
+     ke dompet rupiah dan tersimpan sebagai nominal yang tidak bisa diketik
+     ulang di sana. */
+  function selectAccount(nextId) {
+    const nextAccount = accounts.find((item) => item.id === nextId);
+    const nextCurrency = normalizeCurrencyCode(
+      nextAccount?.currency || baseCode,
+    );
+    const nextFraction = getCurrencyMeta(nextCurrency).fractionDigits ?? 2;
+    setAccountId(nextId);
+    setDigits((current) => clampAmountFraction(current, nextFraction));
   }
 
   async function save() {
@@ -219,9 +234,11 @@ export function QuickEntrySheet({
               className="dc-num text-[34px] leading-none tracking-[-1.4px]"
               style=${{ color: hasAmount ? "var(--cs-ink)" : "var(--cs-faint)" }}
             >
-              ${hasAmount
-                ? formatCurrency(amount, currency).replace(/^[^\d-]*/, "")
-                : "0"}
+              ${/* Menampilkan angka yang sedang diketik, bukan hasil pembulatan
+                    mata uangnya. Kalau dibulatkan, titik desimal dan angka nol
+                    di belakangnya hilang tepat saat sedang diketik: "3." dan
+                    "3.50" akan langsung kembali menjadi "3". */ null}
+              ${digits ? formatNumericInput(digits) : "0"}
             </span>
           </div>
         </div>
@@ -314,7 +331,7 @@ export function QuickEntrySheet({
                     const label =
                       code === baseCode ? item.name : `${item.name} · ${code}`;
                     return chip(label, item.id === account?.id, () =>
-                      setAccountId(item.id),
+                      selectAccount(item.id),
                     );
                   })}
                 </div>
@@ -323,7 +340,7 @@ export function QuickEntrySheet({
           : null}
 
         <div className="grid grid-cols-3 gap-2">
-          ${KEYPAD.map(
+          ${keypad.map(
             (key) => html`
               <button
                 key=${key}
