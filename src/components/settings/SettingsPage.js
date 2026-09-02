@@ -17,6 +17,7 @@ import {
   cropProfileImage,
   readProfileImage,
 } from "../../lib/profileImage.js";
+import { MonthlyStatementExportSheet } from "./MonthlyStatementExportSheet.js";
 
 const html = htm.bind(React.createElement);
 const INPUT_CLASS =
@@ -661,6 +662,10 @@ export function SettingsPage({
   user,
   profile,
   profilePhoto,
+  transactions = [],
+  assetAccounts = [],
+  baseCurrency,
+  onLoadStatementTransactions,
   theme,
   onThemeChange,
   balanceVisible,
@@ -669,6 +674,7 @@ export function SettingsPage({
   onSignOut,
 }) {
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
+  const [statementSheetOpen, setStatementSheetOpen] = useState(false);
   const [logoutSheetOpen, setLogoutSheetOpen] = useState(false);
 
   return html`
@@ -707,16 +713,19 @@ export function SettingsPage({
         />
       <//>
 
+      <${SettingsSection} title="Data & laporan">
+        <${SettingsRow}
+          label="Laporan transaksi bulanan"
+          helper="Pilih bulan dan ekspor riwayat sebagai PDF"
+          value="PDF"
+          onClick=${() => setStatementSheetOpen(true)}
+        />
+      <//>
+
       <${SettingsSection} title="Keamanan & privasi">
         <${SettingsRow}
           label="Kunci aplikasi"
           helper="Kunci biometrik segera hadir"
-          value="Segera"
-          disabled=${true}
-        />
-        <${SettingsRow}
-          label="Ekspor / cadangkan data"
-          helper="Cadangan transaksi dan anggaran"
           value="Segera"
           disabled=${true}
         />
@@ -740,6 +749,16 @@ export function SettingsPage({
         avatarSrc=${profilePhoto}
         onClose=${() => setProfileSheetOpen(false)}
         onSave=${onSaveProfile}
+      />
+      <${MonthlyStatementExportSheet}
+        open=${statementSheetOpen}
+        onClose=${() => setStatementSheetOpen(false)}
+        user=${user}
+        profile=${profile}
+        transactions=${transactions}
+        assetAccounts=${assetAccounts}
+        baseCurrency=${baseCurrency}
+        onLoadTransactions=${onLoadStatementTransactions}
       />
       <${ConfirmLogoutSheet}
         open=${logoutSheetOpen}

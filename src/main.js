@@ -5611,6 +5611,48 @@ function App() {
     }
   }
 
+  /* Ekspor bulanan mengambil ulang transaksi pada rentang yang dipilih. Array
+     utama aplikasi bisa terkena batas baris respons Supabase setelah akun
+     dipakai lama; query per bulan dan pagination menjaga PDF tetap lengkap
+     tanpa membuat waktu buka aplikasi makin berat. */
+  async function loadStatementTransactions(monthKey) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(monthKey || ""))) {
+      throw new Error("Bulan laporan tidak valid.");
+    }
+
+    const localRows = orderTransactions(transactions).filter(
+      (transaction) =>
+        transaction?.occurred_at &&
+        getMonthKey(transaction.occurred_at) === monthKey,
+    );
+    if (mode === "demo" || !supabaseReady || !user?.id) return localRows;
+
+    const { year, month } = getMonthParts(monthKey);
+    const start = new Date(year, month - 1, 1);
+    const end = new Date(year, month, 1);
+    const pageSize = 1000;
+    const rows = [];
+
+    for (let offset = 0; ; offset += pageSize) {
+      const { data, error } = await supabase
+        .from("transactions")
+        .select("*")
+        .eq("user_id", user.id)
+        .gte("occurred_at", start.toISOString())
+        .lt("occurred_at", end.toISOString())
+        .order("occurred_at", { ascending: true })
+        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(offset, offset + pageSize - 1);
+      if (error) throw error;
+      const page = data || [];
+      rows.push(...page);
+      if (page.length < pageSize) break;
+    }
+
+    return orderTransactions(normalizeTransactions(rows));
+  }
+
   function applyBalanceVisibility(nextVisible) {
     writeBalanceVisiblePreference(nextVisible);
     const nextHideBalances = !nextVisible;
@@ -5932,6 +5974,10 @@ function App() {
                         user=${user}
                         profile=${profile}
                         profilePhoto=${profilePhoto}
+                        transactions=${transactions}
+                        assetAccounts=${assetAccounts}
+                        baseCurrency=${walletBaseCurrency}
+                        onLoadStatementTransactions=${loadStatementTransactions}
                         theme=${theme}
                         onThemeChange=${handleThemeChange}
                         balanceVisible=${balanceVisible}

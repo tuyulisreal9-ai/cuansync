@@ -246,7 +246,7 @@ export function QuickEntrySheet({
         role="dialog"
         aria-modal="true"
         aria-label="Catat transaksi"
-        className=${`cs-sheet-panel ${closing ? "dc-sheet-down" : "dc-sheet-up"} absolute inset-x-0 bottom-0 flex max-h-[92svh] flex-col gap-4 overflow-y-auto px-5 pb-6 pt-3 lg:relative lg:inset-auto lg:grid lg:max-h-[calc(100dvh-2rem)] lg:w-full lg:max-w-[720px] lg:grid-cols-2 lg:content-start lg:gap-x-5 lg:gap-y-3 lg:px-[26px] lg:pb-[26px] lg:pt-6`}
+        className=${`cs-sheet-panel ${closing ? "dc-sheet-down" : "dc-sheet-up"} absolute inset-x-0 bottom-0 flex max-h-[92svh] flex-col gap-4 overflow-y-auto px-5 pb-6 pt-3 lg:relative lg:inset-auto lg:grid lg:max-h-[calc(100dvh-2rem)] lg:w-full lg:max-w-[860px] lg:grid-cols-[300px_minmax(0,1fr)] lg:content-start lg:gap-x-5 lg:gap-y-3 lg:px-[26px] lg:pb-[26px] lg:pt-6`}
       >
         <span
           className="mx-auto block h-1 w-[42px] shrink-0 rounded-full lg:hidden"
@@ -331,7 +331,7 @@ export function QuickEntrySheet({
                     ${categoryHint}
                   </span>
                 </div>
-                <div className="dc-scroll-x flex gap-2 overflow-x-auto pb-0.5">
+                <div className="dc-scroll-x flex gap-2 overflow-x-auto pb-0.5 lg:flex-wrap lg:overflow-x-visible lg:pb-0">
                   ${categories.map((item) =>
                     chip(item.label, item.value === category, () =>
                       setCategory(item.value),
@@ -393,7 +393,7 @@ export function QuickEntrySheet({
                 >
                   ${isExpense ? "Dari dompet mana?" : "Masuk ke dompet mana?"}
                 </span>
-                <div className="dc-scroll-x flex gap-2 overflow-x-auto pb-0.5">
+                <div className="dc-scroll-x flex gap-2 overflow-x-auto pb-0.5 lg:flex-wrap lg:overflow-x-visible lg:pb-0">
                   ${/* Kode mata uang ditempel pada dompet valas supaya jelas
                         bahwa nominal yang diketik mengikuti mata uang dompet
                         itu, bukan mata uang dasar. */ null}

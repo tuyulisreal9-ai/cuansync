@@ -61,8 +61,10 @@ test("desktop memakai dua kolom supaya muat di jendela pendek", async () => {
 
   // Ditumpuk satu kolom, isinya 812px dan terpotong di jendela setengah layar.
   assert.match(sheet, /lg:grid\b/);
-  assert.match(sheet, /lg:grid-cols-2/);
-  assert.match(sheet, /lg:max-w-\[720px\]/);
+  // Kolom keypad dipatok, sisanya untuk kategori dan dompet yang butuh
+  // ruang jauh lebih lebar supaya chip-nya cukup dua baris.
+  assert.match(sheet, /lg:grid-cols-\[300px_minmax\(0,1fr\)\]/);
+  assert.match(sheet, /lg:max-w-\[860px\]/);
   assert.match(sheet, /lg:max-h-\[calc\(100dvh-2rem\)\]/);
 
   // Nominal dan keypad di kolom kiri, sisanya satu sel di kolom kanan.
@@ -81,4 +83,20 @@ test("bentuk ponsel tidak ikut berubah", async () => {
   // Wadah kolom kanan harus netral di ponsel: kolom biasa dengan jarak sama
   // seperti blok lainnya, supaya urutan dan spasinya tidak bergeser.
   assert.match(sheet, /className="flex flex-col gap-4 lg:col-start-2/);
+});
+
+test("chip kategori dan dompet membungkus ke bawah di desktop", async () => {
+  const sheet = await source(SHEET);
+
+  // Roda mouse hanya menggulir ke bawah. Deret yang digulir ke samping
+  // menyembunyikan sebagian besar kategori dan menyulitkan pengguna desktop,
+  // jadi di sana chip-nya membungkus dan memakai ruang kosong yang ada.
+  const deret = sheet.match(/className="dc-scroll-x[^"]*"/g) || [];
+  assert.equal(deret.length, 2, "harus ada dua deret chip: kategori dan dompet");
+  deret.forEach((kelas) => {
+    // Di ponsel tetap digulir ke samping, karena di layar sentuh itu wajar.
+    assert.match(kelas, /overflow-x-auto/, kelas);
+    assert.match(kelas, /lg:flex-wrap/, kelas);
+    assert.match(kelas, /lg:overflow-x-visible/, kelas);
+  });
 });
