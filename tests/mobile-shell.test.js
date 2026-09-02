@@ -252,3 +252,31 @@ test("desktop memakai sidebar 264px, topbar menempel, dan grid beranda", () => {
   assert.match(styles, /@media \(hover: hover\) and \(pointer: fine\)/);
   assert.match(styles, /--cs-sidebar-bg/);
 });
+
+test("pemilih mata uang tetap terlihat saat keyboard ponsel naik", () => {
+  const combobox = source("src/components/shared/CurrencyCombobox.js");
+
+  // Tinggi dan posisi panel mengikuti visualViewport. innerHeight tidak
+  // berubah saat keyboard naik, jadi memakainya membuat daftar tertutup.
+  assert.match(combobox, /window\.visualViewport/);
+  assert.match(combobox, /vv\.addEventListener\("resize", sync\)/);
+  assert.match(combobox, /viewport\.offsetTop/);
+  assert.match(combobox, /viewport\.height/);
+
+  // Panel dirender lewat portal. Sheet induknya memakai backdrop-filter, dan
+  // itu membuat containing block bagi turunan position: fixed sekaligus
+  // memotong isinya, sehingga panel salah posisi dan terpotong.
+  assert.match(combobox, /import \{ createPortal \} from "react-dom"/);
+  assert.match(combobox, /createPortal\(picker, document\.body\)/);
+
+  // Karena panel keluar dari pohon rootRef, klik di dalamnya harus tetap
+  // dianggap klik di dalam supaya daftar tidak menutup sendiri.
+  assert.match(combobox, /panelRef\.current\?\.contains\(event\.target\)/);
+
+  // Di desktop bentuknya tetap dropdown yang menempel pada tombol.
+  assert.match(combobox, /isDesktop \? picker : createPortal/);
+  assert.match(combobox, /\(min-width: 1024px\)/);
+
+  // Palet lama tidak boleh kembali.
+  assert.doesNotMatch(combobox, /slate-\d|emerald-\d/);
+});
