@@ -244,7 +244,7 @@ test("desktop memakai sidebar 264px, topbar menempel, dan grid beranda", () => {
   // Beranda menempatkan tiap kartu sendiri, bukan mengalirkannya auto-fit.
   // Dengan auto-fit, baris pintasan setinggi 88px menempati satu sel selebar
   // setengah layar dan menyisakan lubang di sebelah panel saldo.
-  assert.match(home, /grid-template-columns:minmax\(0,1\.15fr\)_minmax\(0,1fr\)/);
+  assert.match(home, /grid-template-columns:minmax\(0,1fr\)_400px/);
 
   // Kolom konten memakai lebar maksimum dan padding desktop.
   assert.match(shell, /lg:max-w-\[1400px\]/);
@@ -294,13 +294,25 @@ test("beranda desktop tidak menggandakan aksi topbar", async () => {
   assert.match(header, /cs-topbar-action/);
   assert.match(home, /className="grid grid-cols-3 gap-2 lg:hidden"/);
 
-  // Aktivitas mengisi tinggi kolom, bukan mengambang dengan ruang kosong.
-  assert.match(home, /className="lg:self-stretch"/);
-  assert.match(home, /dc-card dc-stagger overflow-hidden lg:flex-1/);
+  // Kolom kanan desktop mengisi ruang yang dulu kosong: jalan pintas,
+  // kondisi keuangan, dan ringkasan dompet.
+  assert.match(home, /<aside className="hidden lg:flex lg:flex-col lg:gap-6">/);
+  assert.match(home, /<\$\{QuickLinksCard\}/);
+  assert.match(home, /<\$\{FinancialHealthCard\}/);
+  assert.match(home, /<\$\{WalletsCard\}/);
 
-  // Saldo dan jatah dibungkus satu wadah, bukan dua sel grid terpisah.
+  // Kolom utama dibungkus satu wadah, bukan beberapa sel grid terpisah.
   // Sebagai sel terpisah, barisnya ikut meregang mengikuti kolom kanan dan
-  // jarak antara keduanya melar dari 24px jadi 68px.
+  // jarak antar kartu melar dari 24px jadi 68px.
   assert.match(home, /<div className="flex flex-col gap-4 lg:gap-6">/);
   assert.doesNotMatch(home, /lg:row-span-2/);
+
+  // Kartu kanan hanya diberi data yang benar benar ada. Angka karangan pada
+  // layar keuangan lebih berbahaya daripada kalimat yang lebih pendek.
+  assert.match(home, /summary\?\.cashFlow\?\.savingsRatio/);
+  assert.match(home, /summary\?\.budget\?\.attentionCount/);
+  assert.match(home, /summary\?\.scoring\?\.score/);
+
+  // Nominal dompet di kartu kanan ikut sakelar privasi.
+  assert.match(home, /useMaskedCurrency/);
 });
