@@ -119,19 +119,22 @@ export function DesktopNavigation({
       className="cs-desktop-sidebar sticky top-0 hidden h-screen w-[264px] flex-none flex-col gap-7 border-r px-5 pb-6 pt-7 lg:flex"
       style=${{ borderColor: "var(--cs-line)" }}
     >
-      <div className="flex items-center gap-2.5 px-2">
-        <span
-          className="flex h-8 w-8 items-center justify-center rounded-[11px]"
-          style=${{ background: "var(--cs-acc)" }}
-        >
-          <${WalletCards}
-            aria-hidden="true"
-            className="h-[18px] w-[18px]"
-            style=${{ color: "var(--cs-on-acc)" }}
-            strokeWidth=${1.9}
-          />
-        </span>
-        <span className="text-[15px] font-bold tracking-[0.4px]">CUANSYNC</span>
+      ${/* Logo aplikasi yang sebenarnya, bukan ikon dompet umum. Berkasnya
+            sudah membawa kotak membulat gelapnya sendiri, jadi tidak diberi
+            latar tambahan dan tampil sama di mode terang maupun gelap seperti
+            ikon aplikasi pada umumnya. Dipotong dan diperkecil ke 96px dari
+            logo-app.png yang 1254px, supaya tidak memuat 1,1MB untuk lencana
+            selebar 38px. */ null}
+      <div className="flex items-center gap-3 px-2">
+        <img
+          src="/branding/logo-mark-96.png"
+          alt=""
+          aria-hidden="true"
+          width="38"
+          height="38"
+          className="h-[38px] w-[38px] shrink-0 rounded-[12px]"
+        />
+        <span className="text-[16.5px] font-bold tracking-[0.3px]">CUANSYNC</span>
       </div>
 
       <nav className="flex flex-col gap-1">
@@ -144,18 +147,18 @@ export function DesktopNavigation({
               type="button"
               aria-current=${active ? "page" : undefined}
               onClick=${() => onChange(item.key)}
-              className="cs-sidebar-item dc-press dc-press-96 flex min-h-[46px] items-center gap-3 rounded-[14px] px-3.5 text-left"
+              className="cs-sidebar-item dc-press dc-press-96 flex min-h-[48px] items-center gap-3 rounded-[14px] px-3.5 text-left"
               style=${active
                 ? { background: "var(--cs-sel-bg)", color: "var(--cs-sel-fg)" }
                 : { background: "transparent", color: "var(--cs-body)" }}
             >
               <${Icon}
                 aria-hidden="true"
-                className="h-[19px] w-[19px] shrink-0"
-                strokeWidth=${1.75}
+                className="h-[20px] w-[20px] shrink-0"
+                strokeWidth=${1.8}
               />
               <span
-                className=${`flex-1 text-sm ${active ? "font-bold" : "font-medium"}`}
+                className=${`flex-1 text-[15px] ${active ? "font-bold" : "font-medium"}`}
               >
                 ${item.label}
               </span>
@@ -169,15 +172,15 @@ export function DesktopNavigation({
       <button
         type="button"
         onClick=${onToggleTheme}
-        className="cs-sidebar-item dc-press dc-press-96 flex min-h-[46px] items-center gap-3 rounded-[14px] px-3.5 text-left"
+        className="cs-sidebar-item dc-press dc-press-96 flex min-h-[48px] items-center gap-3 rounded-[14px] px-3.5 text-left"
         style=${{ color: "var(--cs-body)" }}
       >
         <${ThemeIcon}
           aria-hidden="true"
-          className="h-[18px] w-[18px] shrink-0"
-          strokeWidth=${1.75}
+          className="h-[20px] w-[20px] shrink-0"
+          strokeWidth=${1.8}
         />
-        <span className="flex-1 text-[13.5px] font-medium">
+        <span className="flex-1 text-[15px] font-medium">
           ${isDark ? "Gelap" : "Terang"}
         </span>
       </button>
@@ -200,9 +203,9 @@ export function DesktopNavigation({
             : userInitials}
         </span>
         <span className="flex min-w-0 flex-1 flex-col gap-px">
-          <span className="truncate text-[13.5px] font-bold">${userName}</span>
+          <span className="truncate text-[14.5px] font-bold">${userName}</span>
           <span
-            className="truncate text-[11.5px]"
+            className="truncate text-[12px]"
             style=${{ color: "var(--cs-mut)" }}
           >
             ${userEmail}

@@ -21,6 +21,14 @@ import {
   normalizeCurrencyCode,
   normalizeNumericInput,
 } from "../../lib/currency.js";
+import {
+  buildBudgetPaceSentence,
+  getBudgetPaceTone,
+} from "../../domain/budgetPace.js";
+import {
+  UNCATEGORIZED_KEY,
+  buildSpendingBreakdown,
+} from "../../domain/spendingBreakdown.js";
 import { FormActionDock } from "../shared/FormActionDock.js";
 import { SheetShell } from "../shared/SheetShell.js";
 
@@ -216,6 +224,7 @@ function BudgetRateSheet({
 
 function BudgetSection({
   metrics,
+  paceByCategory,
   currency,
   activeCurrencies,
   globalRateSnapshot,
@@ -552,6 +561,15 @@ function BudgetSection({
                   ? "var(--cs-warn)"
                   : "var(--cs-acc)";
               const open = openMenuId === budget.id;
+              /* Angka "terpakai / batas" tidak menjawab apakah ritmenya aman.
+                 getBudgetPace sudah menghitung jawabannya, tinggal ditampilkan. */
+              const pace = paceByCategory?.get(budget.categoryKey);
+              const ritme = buildBudgetPaceSentence(pace, baseCurrency);
+              const ritmeWarna = {
+                danger: "var(--cs-danger)",
+                warn: "var(--cs-warn)",
+                mut: "var(--cs-mut)",
+              }[getBudgetPaceTone(pace?.paceStatus)];
               // Catatan dihitung dari data nyata, bukan teks contoh di desain.
               const note = over
                 ? `Sudah lewat ${formatCurrency(Math.abs(remaining), baseCurrency)}. Sisanya terpaksa diambil dari jatah lain.`
@@ -588,6 +606,25 @@ function BudgetSection({
                   <span className="dc-track h-2">
                     <span style=${{ width: `${barWidth}%`, background: barColor }}></span>
                   </span>
+
+                  ${/* Hanya di desktop. Di ponsel barisnya sudah padat dan
+                        keterangan yang sama tetap tersedia saat baris dibuka. */ null}
+                  ${ritme?.label
+                    ? html`
+                        <span className="hidden items-center gap-1.5 text-[11.5px] lg:flex">
+                          <span
+                            className="h-1.5 w-1.5 shrink-0 rounded-full"
+                            style=${{ background: ritmeWarna }}
+                          ></span>
+                          <span style=${{ color: ritmeWarna }}>${ritme.label}</span>
+                          ${ritme.detail
+                            ? html`<span style=${{ color: "var(--cs-mut)" }}
+                                >· ${ritme.detail}</span
+                              >`
+                            : null}
+                        </span>
+                      `
+                    : null}
 
                   ${open
                     ? html`
@@ -683,8 +720,129 @@ function BudgetSection({
   `;
 }
 
+/* Ke mana uangmu pergi. Menutup titik buta halaman ini: BudgetSection hanya
+   membaca budgetInsights, jadi belanja di kategori yang belum punya jatah
+   tidak terlihat sama sekali. Angkanya dihitung dengan fungsi yang sama
+   dengan baris jatah, supaya kategori yang sama tidak tampil dua nilai. */
+function SpendingBreakdownCard({ breakdown, currency, onOpenCategory }) {
+  if (!breakdown?.hasData) {
+    return html`
+      <section className="dc-card flex flex-col gap-3 p-[18px]">
+        <span className="text-[15px] font-bold">Ke mana uangmu pergi</span>
+        <span
+          className="text-[12.5px] leading-[1.5]"
+          style=${{ color: "var(--cs-mut)" }}
+        >
+          Belum ada pengeluaran bulan ini.
+        </span>
+      </section>
+    `;
+  }
+
+  const tanpaJatah = breakdown.unbudgeted;
+  /* Dirakit di sini, bukan dipecah beberapa baris di dalam template. htm
+     memakan pergantian barisnya dan hasilnya menempel jadi "ada di2". */
+  const catatanTanpaJatah = `${Math.round(tanpaJatah.share * 100)}% pengeluaranmu (${formatCurrency(
+    tanpaJatah.amount,
+    currency,
+  )}) ada di ${tanpaJatah.count} kategori yang belum punya jatah, jadi tidak ikut terhitung di daftar atas.`;
+
+  return html`
+    <section className="dc-card flex flex-col gap-3.5 p-[18px]">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[15px] font-bold">Ke mana uangmu pergi</span>
+        <span
+          className="dc-num shrink-0 text-[12.5px]"
+          style=${{ color: "var(--cs-mut)" }}
+        >
+          ${formatCurrency(breakdown.total, currency)}
+        </span>
+      </div>
+
+      ${/* Satu batang bertumpuk memberi gambaran porsi lebih cepat daripada
+            membaca tujuh persentase satu per satu. */ null}
+      <span className="flex h-2.5 w-full overflow-hidden rounded-full" style=${{ background: "var(--cs-track)" }}>
+        ${breakdown.rows.map(
+          (row) => html`
+            <span
+              key=${row.key}
+              style=${{
+                width: `${row.share * 100}%`,
+                background: row.hasBudget ? "var(--cs-acc)" : "var(--cs-warn)",
+              }}
+            ></span>
+          `,
+        )}
+      </span>
+
+      <div className="flex flex-col">
+        ${breakdown.rows.map(
+          (row) => html`
+            <button
+              key=${row.key}
+              type="button"
+              onClick=${() => onOpenCategory?.(row)}
+              aria-label=${`Lihat transaksi ${row.label}`}
+              className="dc-press flex min-h-[34px] items-center gap-2.5 rounded-[10px] px-1 text-left"
+            >
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style=${{
+                  background: row.hasBudget ? "var(--cs-acc)" : "var(--cs-warn)",
+                }}
+              ></span>
+              <span className="min-w-0 flex-1 truncate text-[12.5px]">
+                ${row.label}
+              </span>
+              ${row.hasBudget
+                ? null
+                : html`<span
+                    className="shrink-0 text-[10.5px]"
+                    style=${{ color: "var(--cs-warn)" }}
+                    >tanpa jatah</span
+                  >`}
+              <span
+                className="dc-num shrink-0 text-[12px]"
+                style=${{ color: "var(--cs-mut)" }}
+              >
+                ${Math.round(row.share * 100)}%
+              </span>
+              <span className="dc-num w-[92px] shrink-0 text-right text-[12.5px]">
+                ${formatCurrency(row.amount, currency)}
+              </span>
+            </button>
+          `,
+        )}
+      </div>
+
+      ${breakdown.rest.count > 0
+        ? html`
+            <span
+              className="px-1 text-[11.5px]"
+              style=${{ color: "var(--cs-mut)" }}
+            >
+              ${`dan ${breakdown.rest.count} kategori lain ${formatCurrency(breakdown.rest.amount, currency)}`}
+            </span>
+          `
+        : null}
+
+      ${tanpaJatah.amount > 0
+        ? html`
+            <span
+              className="rounded-[12px] px-3 py-2.5 text-[12px] leading-[1.5]"
+              style=${{ background: "var(--cs-seg)", color: "var(--cs-body)" }}
+            >
+              ${catatanTanpaJatah}
+            </span>
+          `
+        : null}
+    </section>
+  `;
+}
+
 export function BudgetWorkspacePage({
   metrics,
+  controlSummary,
   transactions = [],
   activeCurrencies = [],
   baseCurrency,
@@ -697,6 +855,22 @@ export function BudgetWorkspacePage({
   onOpenCategoryHistory,
 }) {
   const budgetCurrency = normalizeCurrencyCode(baseCurrency);
+  /* controlSummary.budget.categories memakai penyaring mata uang yang sama
+     persis dengan daftar di halaman ini, jadi tiap baris pasti ketemu
+     pasangannya. Dipetakan lewat categoryKey supaya urutannya tidak jadi
+     asumsi. */
+  const breakdown = buildSpendingBreakdown({
+    transactions,
+    budgetInsights: metrics.budgetInsights || [],
+    baseCurrency: budgetCurrency,
+    monthKey: metrics.currentMonthKey,
+  });
+  const paceByCategory = new Map(
+    (controlSummary?.budget?.categories || []).map((category) => [
+      category.categoryKey,
+      category,
+    ]),
+  );
 
   const limitTotal = Number(metrics.budgetLimitTotal || 0);
   const spentTotal = Number(metrics.budgetSpentTotal || 0);
@@ -719,7 +893,14 @@ export function BudgetWorkspacePage({
   }, [focusCategoryKey]);
 
   return html`
-    <div className="mx-auto grid max-w-md gap-4 pb-[calc(7rem+env(safe-area-inset-bottom))] lg:pb-6">
+    ${/* max-w-md adalah lebar ponsel. Tanpa penyesuaian lg, halaman ini
+          terkunci 448px di layar 1748px, memakai 30% ruang yang ada.
+          Di desktop lebarnya dilepas dan isinya dibagi dua kolom. */ null}
+    <div className="mx-auto grid max-w-md gap-4 pb-[calc(7rem+env(safe-area-inset-bottom))] lg:max-w-none lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-6 lg:pb-6">
+      ${/* Panel sisa dan daftar kategori dibungkus satu sel. Sebagai dua sel
+            terpisah, baris grid ikut meregang mengikuti kolom kanan dan jarak
+            antar keduanya melar. */ null}
+      <div className="flex flex-col gap-4 lg:gap-6">
       <section className="dc-panel flex flex-col gap-3.5 p-[22px]">
         <div className="flex items-center justify-between gap-3">
           <span className="text-[13px] text-[#9c968b]">
@@ -746,6 +927,7 @@ export function BudgetWorkspacePage({
 
       <${BudgetSection}
         metrics=${metrics}
+        paceByCategory=${paceByCategory}
         currency=${budgetCurrency}
         activeCurrencies=${activeCurrencies}
         globalRateSnapshot=${globalRateSnapshot}
@@ -758,7 +940,25 @@ export function BudgetWorkspacePage({
         daysLeftInMonth=${daysLeft}
         onOpenCategoryHistory=${onOpenCategoryHistory}
       />
+      </div>
 
+
+      ${/* Kolom kanan desktop, dibungkus satu sel supaya kedua kartunya tetap
+            bertumpuk di sana. Tanpa wadah, penempatan otomatis melempar kartu
+            kedua kembali ke kolom kiri baris berikutnya. Di ponsel wadah ini
+            hanya kolom biasa dengan jarak yang sama, jadi urutannya tetap. */ null}
+      <div className="flex flex-col gap-4 lg:gap-6">
+      ${/* Riwayat menyaring berdasarkan kunci kategori. Baris tanpa kategori
+            tidak punya kunci yang bisa disaring, jadi tidak diarahkan ke mana
+            mana. */ null}
+      <${SpendingBreakdownCard}
+        breakdown=${breakdown}
+        currency=${budgetCurrency}
+        onOpenCategory=${(row) =>
+          row.key === UNCATEGORIZED_KEY
+            ? undefined
+            : onOpenCategoryHistory?.({ categoryKey: row.key })}
+      />
 
       ${onNavigate
         ? html`
@@ -810,6 +1010,7 @@ export function BudgetWorkspacePage({
             </button>
           `
         : null}
+      </div>
     </div>
   `;
 }
