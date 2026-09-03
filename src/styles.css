@@ -615,6 +615,19 @@ textarea {
   padding-bottom: calc(92px + env(safe-area-inset-bottom));
 }
 
+/* PWA yang dipasang ke Layar Utama berjalan tanpa bilah peramban, dan
+   apple-mobile-web-app-status-bar-style black-translucent membuat halaman
+   memanjang sampai ke belakang poni. Padding atas selama ini hanya ditulis
+   untuk html.is-native-app, sehingga di PWA bagian atas konten tertutup.
+
+   Dibatasi sampai di bawah lg karena dari lg ke atas app-shell memang sengaja
+   tanpa padding, dan PWA desktop tidak punya inset untuk dikompensasi. */
+@media (max-width: 1023.98px) {
+  html.is-standalone .app-shell {
+    padding-top: calc(0.5rem + env(safe-area-inset-top));
+  }
+}
+
 .cs-background-grid {
   background-image:
     linear-gradient(rgba(100, 116, 139, 0.035) 1px, transparent 1px),

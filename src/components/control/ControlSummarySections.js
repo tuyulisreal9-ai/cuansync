@@ -3,18 +3,10 @@ import htm from "htm";
 import {
   AlertTriangle,
   ArrowRight,
-  Check,
-  Circle,
   ChevronRight,
   Gauge,
   Landmark,
-  Lightbulb,
-  Sparkles,
 } from "lucide-react";
-import {
-  buildControlCoach,
-  getControlReadiness,
-} from "../../domain/controlGuidance.js";
 import {
   CONTROL_MUTED,
   CONTROL_PANEL,
@@ -23,128 +15,6 @@ import {
 } from "./ControlPrimitives.js";
 
 const html = htm.bind(React.createElement);
-
-function getCoachTone(tone) {
-  const tones = {
-    safe: {
-      shell:
-        "border-emerald-400/25 bg-[radial-gradient(circle_at_top_right,rgba(16,185,129,0.2),transparent_45%),linear-gradient(145deg,rgba(6,78,59,0.96),rgba(6,25,35,0.98))]",
-      badge: "bg-emerald-300/20 text-emerald-200",
-      icon: "bg-emerald-300 text-emerald-950",
-    },
-    warning: {
-      shell:
-        "border-amber-300/25 bg-[radial-gradient(circle_at_top_right,rgba(251,191,36,0.2),transparent_45%),linear-gradient(145deg,rgba(69,38,8,0.96),rgba(8,23,35,0.98))]",
-      badge: "bg-amber-300/20 text-amber-200",
-      icon: "bg-amber-300 text-amber-950",
-    },
-    danger: {
-      shell:
-        "border-rose-300/25 bg-[radial-gradient(circle_at_top_right,rgba(251,113,133,0.2),transparent_45%),linear-gradient(145deg,rgba(76,5,25,0.96),rgba(8,23,35,0.98))]",
-      badge: "bg-rose-300/20 text-rose-200",
-      icon: "bg-rose-300 text-rose-950",
-    },
-    progress: {
-      shell:
-        "border-cyan-300/25 bg-[radial-gradient(circle_at_top_right,rgba(34,211,238,0.22),transparent_45%),linear-gradient(145deg,rgba(8,47,73,0.98),rgba(6,25,35,0.98))]",
-      badge: "bg-cyan-300/20 text-cyan-200",
-      icon: "bg-cyan-300 text-cyan-950",
-    },
-  };
-  return tones[tone] || tones.progress;
-}
-
-export function ControlCoachCard({
-  summary,
-  onOpenBudget,
-  onNavigate,
-  onAddIncome,
-}) {
-  const coach = buildControlCoach(summary);
-  const readiness = getControlReadiness(summary);
-  const tone = getCoachTone(coach.tone);
-
-  function handleAction() {
-    if (coach.actionTarget === "budget") {
-      onOpenBudget(coach.categoryKey);
-      return;
-    }
-    if (coach.actionTarget === "goal") {
-      onOpenBudget("__goals__");
-      return;
-    }
-    if (coach.actionTarget === "income") {
-      onAddIncome();
-      return;
-    }
-    onNavigate(coach.actionTarget || "history");
-  }
-
-  return html`
-    <section className=${`overflow-hidden rounded-2xl border p-4 text-white shadow-[0_18px_45px_rgba(2,8,23,0.18)] ${tone.shell}`}>
-      <div className="flex items-center justify-between gap-3">
-        <span className=${`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.12em] ${tone.badge}`}>
-          <${Sparkles} aria-hidden="true" className="h-3 w-3" />
-          ${coach.eyebrow}
-        </span>
-        <span className="text-[10px] font-bold text-white/60">
-          ${readiness.readyCount}/${readiness.totalCount} fondasi siap
-        </span>
-      </div>
-
-      <h2 className="mt-4 max-w-sm text-xl font-black leading-tight">
-        ${coach.title}
-      </h2>
-      <p className="mt-2 text-[11px] leading-5 text-white/70">
-        ${coach.body}
-      </p>
-
-      <div className="mt-4 grid grid-cols-3 gap-1.5">
-        ${readiness.items.map(
-          (item) => html`
-            <div
-              key=${item.key}
-              className=${`flex min-w-0 items-center gap-1.5 rounded-lg border px-2 py-2 text-[9px] font-extrabold ${
-                item.ready
-                  ? "border-white/10 bg-white/10 text-white"
-                  : "border-white/10 bg-black/10 text-white/50"
-              }`}
-            >
-              ${item.ready
-                ? html`<${Check} aria-hidden="true" className="h-3 w-3 shrink-0" />`
-                : html`<${Circle} aria-hidden="true" className="h-2.5 w-2.5 shrink-0" />`}
-              <span className="truncate">${item.label}</span>
-            </div>
-          `,
-        )}
-      </div>
-
-      <div className="mt-4 flex items-start gap-2 rounded-xl border border-white/10 bg-black/10 p-3">
-        <${Lightbulb}
-          aria-hidden="true"
-          className="mt-0.5 h-4 w-4 shrink-0 text-amber-200"
-        />
-        <div className="min-w-0 flex-1">
-          <p className="text-[9px] font-black uppercase tracking-[0.1em] text-white/50">
-            Kenapa ini penting
-          </p>
-          <p className="mt-1 text-[10px] leading-4 text-white/70">
-            ${coach.why}
-          </p>
-        </div>
-      </div>
-
-      <button
-        type="button"
-        onClick=${handleAction}
-        className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-white px-4 text-xs font-black text-slate-950 transition hover:bg-slate-100"
-      >
-        ${coach.actionLabel}
-        <${ArrowRight} aria-hidden="true" className="h-4 w-4" />
-      </button>
-    </section>
-  `;
-}
 
 export function SafeToSpendCard({ summary, visible }) {
   const { safeToSpend, baseCurrency } = summary;

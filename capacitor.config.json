@@ -6,7 +6,8 @@
   "server": {
     "androidScheme": "https",
     "hostname": "localhost",
-    "cleartext": false
+    "cleartext": false,
+    "iosScheme": "https"
   },
   "android": {
     "backgroundColor": "#080d0c",
@@ -24,12 +25,17 @@
       "androidScaleType": "CENTER_CROP",
       "showSpinner": false,
       "splashFullScreen": true,
-      "splashImmersive": true
+      "splashImmersive": true,
+      "iosSpinnerStyle": "small"
     },
     "StatusBar": {
       "style": "DARK",
       "backgroundColor": "#080d0c",
       "overlaysWebView": false
     }
+  },
+  "ios": {
+    "backgroundColor": "#080d0c",
+    "contentInset": "never"
   }
 }

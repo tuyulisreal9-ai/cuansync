@@ -1,8 +1,14 @@
-const CACHE_NAME = "cuansync-shell-v2";
+/* Nama cache dinaikkan setiap isi APP_SHELL berubah. Manifest ikut
+   di-precache, jadi tanpa penggantian nama, pemasangan lama akan terus
+   menyajikan manifest versi sebelumnya: warna dan daftar ikon yang baru tidak
+   pernah sampai ke pengguna yang sudah memasang. Handler activate menghapus
+   semua cache yang namanya bukan yang ini. */
+const CACHE_NAME = "cuansync-shell-v3";
 const APP_SHELL = [
   "/",
   "/manifest.webmanifest",
   "/icons/icon-96.webp",
+  "/icons/apple-touch-icon-180.png",
 ];
 
 self.addEventListener("install", (event) => {

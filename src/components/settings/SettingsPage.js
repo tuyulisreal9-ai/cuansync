@@ -17,6 +17,15 @@ import {
   cropProfileImage,
   readProfileImage,
 } from "../../lib/profileImage.js";
+import {
+  INSTALL_STATE,
+  detectInstallPlatform,
+  getInstallGuide,
+  getInstallState,
+  promptInstall,
+  subscribeInstallPrompt,
+} from "../../lib/installApp.js";
+import { isNativeMobileApp, isStandaloneWebApp } from "../../lib/mobile.js";
 import { MonthlyStatementExportSheet } from "./MonthlyStatementExportSheet.js";
 
 const html = htm.bind(React.createElement);
@@ -134,6 +143,63 @@ function SettingsRow({
 /* Desain memakai judul seksi 15px/700 dengan padding 0 2px, lalu kartu
    radius 24. Gaya lama memakai kapital kecil 11px bertracking lebar yang
    tidak ada di artifact. */
+/* Pemasangan aplikasi dari Pengaturan.
+
+   Tombolnya satu, tetapi perilakunya berbeda karena iOS tidak punya API
+   pemasangan sama sekali. Di Android tombol ini benar benar memanggil dialog
+   pemasangan peramban; di iPhone yang bisa dilakukan hanyalah menunjukkan
+   langkahnya, karena menu Tambahkan ke Layar Utama hanya ada di Safari dan
+   tidak dapat dipicu dari halaman. */
+function InstallAppSheet({ open, onClose, platform }) {
+  const panduan = getInstallGuide(platform);
+
+  return html`
+    <${SheetShell}
+      open=${open}
+      onClose=${onClose}
+      title=${panduan.judul}
+      helper=${panduan.catatan}
+      labelledBy="install-app-title"
+    >
+      <ol className="flex flex-col gap-2.5">
+        ${panduan.langkah.map(
+          (langkah, index) => html`
+            <li
+              key=${langkah}
+              className="flex gap-3 rounded-[14px] border p-3"
+              style=${{
+                background: "var(--cs-card)",
+                borderColor: "var(--cs-line)",
+              }}
+            >
+              <span
+                className="dc-num flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10.5px] font-bold"
+                style=${{ background: "var(--cs-chip)", color: "var(--cs-body)" }}
+              >
+                ${index + 1}
+              </span>
+              <span
+                className="min-w-0 flex-1 text-[13px] leading-[1.5]"
+                style=${{ color: "var(--cs-body)" }}
+              >
+                ${langkah}
+              </span>
+            </li>
+          `,
+        )}
+      </ol>
+
+      <p
+        className="mt-3.5 px-0.5 text-[11.5px] leading-[1.5]"
+        style=${{ color: "var(--cs-faint)" }}
+      >
+        Setelah terpasang, CUANSYNC terbuka layar penuh tanpa bilah peramban dan
+        muncul di daftar aplikasi seperti aplikasi lain.
+      </p>
+    <//>
+  `;
+}
+
 function SettingsSection({ title, children }) {
   return html`
     <section className="flex w-full min-w-0 max-w-full flex-col gap-2.5">
@@ -676,6 +742,49 @@ export function SettingsPage({
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const [statementSheetOpen, setStatementSheetOpen] = useState(false);
   const [logoutSheetOpen, setLogoutSheetOpen] = useState(false);
+  const [installSheetOpen, setInstallSheetOpen] = useState(false);
+
+  /* beforeinstallprompt ditembakkan sekali dan bisa datang sebelum halaman ini
+     dibuka, jadi installApp.js mencegatnya saat modul dimuat. Di sini kita
+     hanya ikut mendengar perubahannya supaya barisnya berganti sendiri ketika
+     tawaran pemasangan muncul atau habis dipakai. */
+  const [installState, setInstallState] = useState(() =>
+    getInstallState({
+      standalone: isStandaloneWebApp(),
+      nativeApp: isNativeMobileApp(),
+    }),
+  );
+
+  useEffect(() => {
+    const perbarui = () =>
+      setInstallState(
+        getInstallState({
+          standalone: isStandaloneWebApp(),
+          nativeApp: isNativeMobileApp(),
+        }),
+      );
+    perbarui();
+    return subscribeInstallPrompt(perbarui);
+  }, []);
+
+  const installPlatform = detectInstallPlatform({
+    userAgent: typeof navigator === "undefined" ? "" : navigator.userAgent,
+    platform: typeof navigator === "undefined" ? "" : navigator.platform,
+    maxTouchPoints:
+      typeof navigator === "undefined" ? 0 : navigator.maxTouchPoints,
+  });
+
+  async function handleInstall() {
+    /* Di iOS tidak ada yang bisa dipanggil, jadi langsung ke panduan. Di
+       Android prompt() harus dipanggil dari sentuhan pengguna, dan itulah
+       yang terjadi di sini. */
+    if (installState === INSTALL_STATE.SIAP) {
+      const hasil = await promptInstall();
+      if (hasil === "accepted") return;
+      if (hasil === "dismissed") return;
+    }
+    setInstallSheetOpen(true);
+  }
 
   return html`
     <div className="settings-page mx-auto grid w-full min-w-0 max-w-2xl gap-4 overflow-x-clip pb-[calc(110px+env(safe-area-inset-bottom))] md:pb-6">
@@ -713,6 +822,34 @@ export function SettingsPage({
         />
       <//>
 
+      ${/* Satu baris, tiga keadaan. Di iOS tidak ada API pemasangan sama
+            sekali, jadi barisnya membuka panduan; di Android ia benar benar
+            memanggil dialog pemasangan peramban. Kalau sudah terpasang, tidak
+            ada lagi yang perlu ditawarkan. */ null}
+      <${SettingsSection} title="Aplikasi">
+        <${SettingsRow}
+          label=${installState === INSTALL_STATE.TERPASANG
+            ? "Aplikasi sudah terpasang"
+            : "Pasang aplikasi"}
+          helper=${installState === INSTALL_STATE.TERPASANG
+            ? "Berjalan layar penuh"
+            : installState === INSTALL_STATE.SIAP
+              ? "Tanpa lewat toko aplikasi"
+              : installPlatform.ios
+                ? "Lihat caranya lewat Safari"
+                : "Lihat caranya di peramban ini"}
+          value=${installState === INSTALL_STATE.TERPASANG
+            ? "Terpasang"
+            : installState === INSTALL_STATE.SIAP
+              ? "Pasang"
+              : "Caranya"}
+          disabled=${installState === INSTALL_STATE.TERPASANG}
+          onClick=${installState === INSTALL_STATE.TERPASANG
+            ? null
+            : handleInstall}
+        />
+      <//>
+
       <${SettingsSection} title="Data & laporan">
         <${SettingsRow}
           label="Laporan transaksi bulanan"
@@ -741,6 +878,12 @@ export function SettingsPage({
           <span>></span>
         </button>
       </section>
+
+      <${InstallAppSheet}
+        open=${installSheetOpen}
+        onClose=${() => setInstallSheetOpen(false)}
+        platform=${installPlatform}
+      />
 
       <${ProfileDetailSheet}
         open=${profileSheetOpen}
