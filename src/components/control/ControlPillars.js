@@ -207,7 +207,11 @@ function FoundationCard({
           </strong>
         </div>
 
-        <p className=${`mt-3 text-[11px] leading-5 ${CONTROL_MUTED}`}>
+        ${/* Penjelasan "kenapa pilar ini ada" berguna saat pertama membaca,
+              tetapi empat paragraf sekaligus menambah 240px di layar ponsel
+              yang halamannya sudah panjang. Angka dan statusnya tetap ada;
+              yang disembunyikan hanya prosanya. */ null}
+        <p className=${`mt-3 hidden text-[11px] leading-5 lg:block ${CONTROL_MUTED}`}>
           ${benefit}
         </p>
 

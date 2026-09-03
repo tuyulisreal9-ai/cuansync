@@ -18,7 +18,17 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="CUANSYNC" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.webp" />
+    <!--
+      apple-touch-icon wajib PNG. Sebelumnya berkasnya WebP, format yang tidak
+      didukung iOS untuk keperluan ini, sehingga ikon di Layar Utama iPhone
+      jatuh ke cuplikan halaman alih-alih logo. Empat ukuran disediakan karena
+      iOS memilih yang paling mendekati kerapatan layarnya: 180 untuk iPhone
+      @3x, 120 untuk @2x, 167 dan 152 untuk iPad.
+    -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png" />
+    <link rel="apple-touch-icon" sizes="167x167" href="/icons/apple-touch-icon-167.png" />
+    <link rel="apple-touch-icon" sizes="152x152" href="/icons/apple-touch-icon-152.png" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/icons/apple-touch-icon-120.png" />
     <!-- Favicon CUANSYNC -->
     <link rel="icon" type="image/webp" href="/icons/icon-48.webp" sizes="48x48" />
     <!-- DM Sans untuk teks, DM Mono khusus angka nominal -->
