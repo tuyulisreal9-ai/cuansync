@@ -158,6 +158,6 @@ test("kartu rincian ada di kolom kanan bersama Kondisi keuanganmu", async () => 
 
   // Kedua kolom dibungkus. Tanpa wadah, penempatan otomatis melempar kartu
   // kedua kembali ke kolom kiri baris berikutnya, selebar penuh.
-  const wadah = page.match(/<div className="flex flex-col gap-4 lg:gap-6">/g) || [];
+  const wadah = page.match(/<div className="flex min-w-0 flex-col gap-4 lg:gap-6">/g) || [];
   assert.equal(wadah.length, 2, "kolom kiri dan kanan sama sama dibungkus");
 });

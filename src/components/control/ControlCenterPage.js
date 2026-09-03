@@ -237,7 +237,7 @@ export function ControlCenterPage({
           dua kolom, masing masing dibungkus satu sel supaya penempatan
           otomatis tidak melempar kartu kembali ke kolom sebelah. */ null}
     <div className="mx-auto grid w-full max-w-md gap-3 pb-[calc(7rem+env(safe-area-inset-bottom))] lg:max-w-none lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:gap-6 lg:pb-6">
-      <div className="flex flex-col gap-3 lg:gap-6">
+      <div className="flex min-w-0 flex-col gap-3 lg:gap-6">
         ${/* Halaman ini membuka dengan skor yang sering berbunyi "—" beserta
               istilah teknis seperti "Komitmen Rutin & Remittance". Tanpa satu
               kalimat yang menyebut halaman ini untuk apa, pembaca sampai di
@@ -278,7 +278,7 @@ export function ControlCenterPage({
             ketinggian yang mirip. Urutannya di ponsel tidak berubah: wadah
             kanan menumpuk tepat di bawah wadah kiri, jadi pilar tetap berada
             setelah Sisa aman seperti sebelumnya. */ null}
-      <div className="flex flex-col gap-3 lg:gap-6">
+      <div className="flex min-w-0 flex-col gap-3 lg:gap-6">
         <${ControlPillars}
           summary=${summary}
           visible=${visible}

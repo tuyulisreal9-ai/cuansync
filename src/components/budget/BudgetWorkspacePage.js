@@ -900,7 +900,7 @@ export function BudgetWorkspacePage({
       ${/* Panel sisa dan daftar kategori dibungkus satu sel. Sebagai dua sel
             terpisah, baris grid ikut meregang mengikuti kolom kanan dan jarak
             antar keduanya melar. */ null}
-      <div className="flex flex-col gap-4 lg:gap-6">
+      <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
       <section className="dc-panel flex flex-col gap-3.5 p-[22px]">
         <div className="flex items-center justify-between gap-3">
           <span className="text-[13px] text-[#9c968b]">
@@ -947,7 +947,7 @@ export function BudgetWorkspacePage({
             bertumpuk di sana. Tanpa wadah, penempatan otomatis melempar kartu
             kedua kembali ke kolom kiri baris berikutnya. Di ponsel wadah ini
             hanya kolom biasa dengan jarak yang sama, jadi urutannya tetap. */ null}
-      <div className="flex flex-col gap-4 lg:gap-6">
+      <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
       ${/* Riwayat menyaring berdasarkan kunci kategori. Baris tanpa kategori
             tidak punya kunci yang bisa disaring, jadi tidak diarahkan ke mana
             mana. */ null}
