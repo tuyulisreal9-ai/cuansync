@@ -445,6 +445,42 @@ function downloadPdfInBrowser(doc, filename) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/* iOS Safari mengabaikan atribut download pada tautan, jadi jalur unduhan di
+   atas tidak menghasilkan berkas di iPhone. Di PWA yang dipasang ke Layar
+   Utama, membuka blob malah bisa melempar pengguna keluar dari aplikasi.
+   Web Share dengan berkas didukung Safari iOS dan membuka lembar berbagi
+   sistem, sehingga laporan bisa disimpan ke Files atau dikirim.
+
+   Mengembalikan false berarti pemanggil harus jatuh ke unduhan biasa. */
+async function sharePdfViaWebShare(doc, filename) {
+  if (typeof navigator === "undefined") return false;
+  if (typeof navigator.share !== "function") return false;
+  if (typeof navigator.canShare !== "function") return false;
+  if (typeof File !== "function") return false;
+
+  const berkas = new File([doc.output("blob")], filename, {
+    type: "application/pdf",
+  });
+  if (!navigator.canShare({ files: [berkas] })) return false;
+
+  try {
+    await navigator.share({
+      files: [berkas],
+      title: filename.replace(/.pdf$/i, ""),
+      text: "Laporan riwayat transaksi bulanan dari CUANSYNC.",
+    });
+    return true;
+  } catch (error) {
+    /* Pengguna menutup lembar berbagi. Itu keputusan pengguna, bukan
+       kegagalan, jadi jangan diulang lagi sebagai unduhan. */
+    if (error?.name === "AbortError") return true;
+    /* Safari menolak share yang dipanggil terlalu jauh dari sentuhan
+       pengguna. Dalam hal itu unduhan biasa masih lebih berguna daripada
+       tidak terjadi apa apa. */
+    return false;
+  }
+}
+
 async function sharePdfInNativeApp(doc, filename) {
   const [{ Filesystem, Directory }, { Share }] = await Promise.all([
     import("@capacitor/filesystem"),
@@ -482,6 +518,9 @@ export async function exportMonthlyStatementPdf(statement) {
   if (isNativeMobileApp()) {
     await sharePdfInNativeApp(doc, filename);
     return { filename, method: "share" };
+  }
+  if (await sharePdfViaWebShare(doc, filename)) {
+    return { filename, method: "web-share" };
   }
   downloadPdfInBrowser(doc, filename);
   return { filename, method: "download" };

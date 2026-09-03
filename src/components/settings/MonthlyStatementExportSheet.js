@@ -174,8 +174,13 @@ export function MonthlyStatementExportSheet({
     setErrorMessage("");
     try {
       const result = await exportMonthlyStatementPdf(statement);
+      /* "share" datang dari aplikasi native, "web-share" dari lembar berbagi
+         peramban yang dipakai iOS. Keduanya membuka lembar berbagi, bukan
+         mengunduh, jadi pesannya tidak boleh mengaku sudah mengunduh. */
+      const lewatBerbagi =
+        result.method === "share" || result.method === "web-share";
       setMessage(
-        result.method === "share"
+        lewatBerbagi
           ? "PDF siap disimpan atau dibagikan."
           : `${result.filename} berhasil diunduh.`,
       );

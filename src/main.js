@@ -156,6 +156,7 @@ import {
   minimizeNativeApp,
   nativeAuthStorage,
   openNativeAuthBrowser,
+  syncThemeColorMeta,
   updateNativeStatusBar,
 } from "./lib/mobile.js";
 
@@ -2572,6 +2573,10 @@ function App() {
     document.documentElement.classList.toggle("dark", resolvedTheme === "dark");
     writeAppStorage("theme", normalizeThemeMode(theme));
     updateNativeStatusBar(resolvedTheme === "dark").catch(() => {});
+    /* Padanan status bar untuk peramban dan PWA: tag theme-color di index.html
+       hanya mengikuti prefers-color-scheme sistem, sedangkan tema di sini bisa
+       dipilih manual. */
+    syncThemeColorMeta(resolvedTheme === "dark");
   }, [theme, systemPrefersDark]);
 
   useEffect(() => {
