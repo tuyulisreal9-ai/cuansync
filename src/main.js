@@ -6272,11 +6272,16 @@ function App() {
             kiri, lalu kolom utama yang mengisi sisanya. Di bawah lg susunannya
             tetap satu kolom seperti sebelumnya. */ null}
       <div className="cs-workspace relative z-10 lg:flex lg:items-stretch">
+        ${/* onToggleTheme memanggil handleThemeChange, bukan setTheme langsung.
+              setTheme hanya mengubah state layar: profil dan salinan server
+              tetap memuat tema lama, lalu pemulihan sesi saat tab difokuskan
+              kembali mengembalikan tampilan seperti semula. */ null}
         <${DesktopNavigation}
           activeTab=${activeTab}
           onChange=${navigateAppTab}
           onSettings=${() => navigateAppTab("settings")}
-          onToggleTheme=${() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+          onToggleTheme=${() =>
+            handleThemeChange(resolvedTheme === "dark" ? "light" : "dark")}
           isDark=${resolvedTheme === "dark"}
           userName=${userDisplayName}
           userEmail=${user?.email || "Demo Lokal"}

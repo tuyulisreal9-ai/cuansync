@@ -54,3 +54,19 @@ test("perubahan sidebar tidak menyentuh navigasi ponsel", () => {
   assert.doesNotMatch(mobile, /logo-mark-96/);
   assert.doesNotMatch(mobile, /text-\[16\.5px\]/);
 });
+
+test("tombol tema sidebar ikut menyimpan, bukan hanya mengubah tampilan", async () => {
+  const main = await readFile(new URL("../src/main.js", import.meta.url), "utf8");
+  const penugasan = main.match(/onToggleTheme=\$\{[\s\S]*?\n\s*isDark=/);
+  assert.ok(penugasan, "prop onToggleTheme sidebar tidak ditemukan");
+
+  // setTheme hanya mengubah state layar. Tanpa handleThemeChange, profil dan
+  // salinan server tetap memuat tema lama, lalu pemulihan sesi saat tab
+  // difokuskan kembali membatalkan pilihan pengguna.
+  assert.match(penugasan[0], /handleThemeChange\(/);
+  assert.doesNotMatch(
+    penugasan[0],
+    /\bsetTheme\(/,
+    "sidebar tidak boleh memanggil setTheme langsung",
+  );
+});
