@@ -753,12 +753,15 @@ function AssetAccountsPanel({ metrics, onAddAccount, onDeleteAccount, baseCurren
 export function WealthGoalsPage({
   metrics,
   transactions = [],
+  accountReconciliations = [],
   loading,
   activeCurrencies,
   baseCurrency = DEFAULT_BASE_CURRENCY,
   onCreateAssetAccount,
   onDeleteAssetAccount,
   onSetPrimaryAccount,
+  onCreateAccountReconciliation,
+  onRecordMissingTransaction,
   onCreateGoal,
   onUpdateGoal,
   onDeleteGoal,
@@ -821,11 +824,14 @@ export function WealthGoalsPage({
             <${WalletAccountsPage}
               metrics=${metrics}
               transactions=${transactions}
+              accountReconciliations=${accountReconciliations}
               loading=${loading}
               onCreateWallet=${openAssetForm}
               onCreateGoal=${openGoalForm}
               onDeleteAccount=${onDeleteAssetAccount}
               onSetPrimaryAccount=${onSetPrimaryAccount}
+              onCreateAccountReconciliation=${onCreateAccountReconciliation}
+              onRecordMissingTransaction=${onRecordMissingTransaction}
               onDeleteGoal=${onDeleteGoal}
               onContributeGoal=${onContribute}
               onUseGoal=${onUseGoal}

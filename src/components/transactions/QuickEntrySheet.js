@@ -27,6 +27,18 @@ function pickDefaultAccount(accounts, currency) {
   return pool.find((account) => account.isPrimary || account.is_primary) || pool[0] || null;
 }
 
+/* Keypad menyimpan angkanya sebagai untaian mentah, jadi nominal awal dari
+   pemanggil harus diubah ke bentuk yang sama. Nol di belakang koma dibuang
+   supaya yang terbaca "50" dan bukan "50,00". */
+function toKeypadDigits(amount, fractionDigits) {
+  const value = Number(amount);
+  if (!Number.isFinite(value) || value <= 0) return "";
+  if (fractionDigits <= 0) return String(Math.round(value));
+  const fixed = value.toFixed(fractionDigits);
+  if (!fixed.includes(".")) return fixed;
+  return fixed.replace(/0+$/, "").replace(/\.$/, "");
+}
+
 /* Catat cepat: satu layar untuk pemasukan dan pengeluaran sederhana. Transfer,
    tukar mata uang, tanggal mundur, dan pemilihan dompet non-utama tetap
    dikerjakan form lengkap lewat tautan "Atur detail". */
@@ -40,6 +52,7 @@ export function QuickEntrySheet({
   baseCurrency = DEFAULT_BASE_CURRENCY,
   initialEntryType = "expense",
   initialAccountId = "",
+  initialAmount = 0,
   requestKey = 0,
   loading = false,
 }) {
@@ -58,12 +71,22 @@ export function QuickEntrySheet({
     const requestedAccount = accounts.find(
       (item) => item.id === initialAccountId,
     );
+    const startingAccount =
+      requestedAccount || pickDefaultAccount(accounts, baseCode);
     setEntryType(requestedEntryType);
-    setDigits("");
-    setCategory(categories[0]?.value || "");
-    setAccountId(
-      requestedAccount?.id || pickDefaultAccount(accounts, baseCode)?.id || "",
+    /* Pecahannya mengikuti dompet yang dipakai saat sheet dibuka, bukan mata
+       uang dasar, supaya nominal awal dari Cocokkan Saldo tidak kehilangan
+       sennya pada dompet valas. */
+    setDigits(
+      toKeypadDigits(
+        initialAmount,
+        getCurrencyMeta(
+          normalizeCurrencyCode(startingAccount?.currency || baseCode),
+        ).fractionDigits ?? 2,
+      ),
     );
+    setCategory(categories[0]?.value || "");
+    setAccountId(startingAccount?.id || "");
     setNote("");
     setNoteOpen(false);
   }, [open, requestKey]);
