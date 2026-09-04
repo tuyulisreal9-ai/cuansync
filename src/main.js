@@ -6141,6 +6141,7 @@ function App() {
                   loading=${loading}
                   activeCurrencies=${dashboardActiveCurrencies}
                   assetAccounts=${assetAccounts}
+                  goalFundingAccounts=${goalFundingAccounts}
                   baseCurrency=${walletBaseCurrency}
                   emptyMessage="Belum ada transaksi."
                   emptyHint="Mulai dari satu transaksi kecil. Setelah itu, CUANSYNC bisa menampilkan riwayat dan laporan yang lebih berguna."

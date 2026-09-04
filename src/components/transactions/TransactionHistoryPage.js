@@ -44,6 +44,7 @@ export function TransactionHistoryPage({
   loading = false,
   activeCurrencies = [],
   assetAccounts = [],
+  goalFundingAccounts = [],
   baseCurrency = DEFAULT_BASE_CURRENCY,
   title = "Aktivitas Terakhir",
   description = "",
@@ -456,6 +457,7 @@ export function TransactionHistoryPage({
         activeCurrencies=${activeCurrencies}
         baseCurrency=${baseCurrency}
         assetAccounts=${assetAccounts}
+        goalFundingAccounts=${goalFundingAccounts}
       />
     </div>
   `;
