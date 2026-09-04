@@ -5,12 +5,16 @@ import {
   ArrowUpRight,
   Banknote,
   Building2,
+  CheckCircle2,
+  ChevronRight,
+  CircleAlert,
   Eye,
   EyeOff,
   Info,
   MoreHorizontal,
   Palette,
   Plus,
+  Scale,
   ShieldCheck,
   Star,
   Target,
@@ -22,6 +26,7 @@ import {
   getGoalActivityEffect,
   getGoalFundingAccountOptions,
 } from "../../domain/goals.js";
+import { getLatestAccountReconciliation } from "../../domain/reconciliations.js";
 import {
   DEFAULT_BASE_CURRENCY,
   formatNumericInput,
@@ -36,6 +41,7 @@ import {
 } from "../../lib/balanceVisibility.js";
 import { formatShortDateTime } from "../../lib/dates.js";
 import { SheetShell } from "../shared/SheetShell.js";
+import { AccountReconciliationForm } from "./AccountReconciliationForm.js";
 
 const html = htm.bind(React.createElement);
 
@@ -127,6 +133,7 @@ function AccountCard({
   onSelect,
   onManage,
   accent,
+  latestReconciliation,
 }) {
   const money = useMaskedCurrency();
   const Icon = getAccountIcon(account.account_type);
@@ -179,6 +186,30 @@ function AccountCard({
                   aria-hidden="true"
                   className="h-3 w-3 shrink-0"
                   style=${{ color: "var(--cs-warn)", fill: "var(--cs-warn)" }}
+                />`
+              : null}
+            ${/* Hanya hasil pengecekan yang ditampilkan di kartu. Dompet yang
+                  belum pernah dicocokkan sengaja tidak diberi tanda, sebab
+                  tanda pada setiap kartu justru menutupi mana yang benar
+                  benar perlu diperiksa. Keterangannya tetap ada di rincian. */ null}
+            ${latestReconciliation
+              ? html`<${latestReconciliation.status === "matched"
+                  ? CheckCircle2
+                  : CircleAlert}
+                  className="h-3 w-3 shrink-0"
+                  style=${{
+                    color:
+                      latestReconciliation.status === "matched"
+                        ? "var(--cs-pos)"
+                        : "var(--cs-warn)",
+                  }}
+                  aria-label=${latestReconciliation.status === "matched"
+                    ? `Saldo cocok saat dicek ${formatShortDateTime(
+                        latestReconciliation.checked_at,
+                      )}`
+                    : `Ada selisih saat dicek ${formatShortDateTime(
+                        latestReconciliation.checked_at,
+                      )}`}
                 />`
               : null}
           </span>
@@ -395,9 +426,11 @@ function AccountDetail({
   account,
   goals,
   accent,
+  latestReconciliation,
   onSetAccent,
   onSetPrimary,
   onDelete,
+  onReconcile,
 }) {
   const money = useMaskedCurrency();
   const Icon = getAccountIcon(account.account_type);
@@ -405,6 +438,13 @@ function AccountDetail({
   const linkedGoals = goals.filter((goal) =>
     goal.accountBreakdown?.some((item) => item.accountId === account.id),
   );
+  const reconciliationMatched = latestReconciliation?.status === "matched";
+  const reconciliationStatus = latestReconciliation
+    ? reconciliationMatched
+      ? `Cocok · ${formatShortDateTime(latestReconciliation.checked_at)}`
+      : `Ada selisih · ${formatShortDateTime(latestReconciliation.checked_at)}`
+    : "Belum pernah dicocokkan";
+  const canReconcile = ["bank", "cash", "ewallet"].includes(account.account_type);
 
   return html`
     <div className="grid gap-4">
@@ -503,6 +543,56 @@ function AccountDetail({
             `
           : null}
       </div>
+
+      ${canReconcile
+        ? html`
+            <button
+              type="button"
+              onClick=${onReconcile}
+              className="dc-tile dc-press dc-press-96 flex min-h-[62px] w-full items-center gap-3 px-3.5 py-3 text-left"
+              aria-label=${`Cocokkan saldo ${account.name}`}
+            >
+              <span className="dc-chip flex h-10 w-10 shrink-0 items-center justify-center">
+                <${Scale}
+                  aria-hidden="true"
+                  className="h-[18px] w-[18px]"
+                  style=${{ color: "var(--cs-body)" }}
+                  strokeWidth=${1.8}
+                />
+              </span>
+              <span className="min-w-0 flex-1">
+                <strong className="block text-[13.5px]">Cocokkan saldo</strong>
+                <span
+                  className="mt-0.5 block truncate text-[11.5px]"
+                  style=${{
+                    color: latestReconciliation
+                      ? reconciliationMatched
+                        ? "var(--cs-pos)"
+                        : "var(--cs-warn)"
+                      : "var(--cs-mut)",
+                  }}
+                >
+                  ${reconciliationStatus}
+                </span>
+              </span>
+              ${latestReconciliation
+                ? html`<${reconciliationMatched ? CheckCircle2 : CircleAlert}
+                    aria-hidden="true"
+                    className="h-[18px] w-[18px] shrink-0"
+                    style=${{
+                      color: reconciliationMatched
+                        ? "var(--cs-pos)"
+                        : "var(--cs-warn)",
+                    }}
+                  />`
+                : html`<${ChevronRight}
+                    aria-hidden="true"
+                    className="h-[18px] w-[18px] shrink-0"
+                    style=${{ color: "var(--cs-faint)" }}
+                  />`}
+            </button>
+          `
+        : null}
 
       <section className="flex flex-col gap-2.5">
         <div className="flex items-baseline justify-between gap-3 px-0.5">
@@ -969,12 +1059,16 @@ function GoalDetail({
 
 export function WalletAccountsPage({
   metrics,
+  accountReconciliations = [],
+  transactions = [],
   baseCurrency = DEFAULT_BASE_CURRENCY,
   loading = false,
   onCreateWallet,
   onCreateGoal,
   onDeleteAccount,
   onSetPrimaryAccount,
+  onCreateAccountReconciliation,
+  onRecordMissingTransaction,
   onDeleteGoal,
   onContributeGoal,
   onUseGoal,
@@ -1022,6 +1116,9 @@ export function WalletAccountsPage({
     : null;
   const detailGoal = detail?.type === "goal"
     ? goals.find((goal) => goal.id === detail.id)
+    : null;
+  const reconciliationAccount = detail?.type === "reconciliation"
+    ? accounts.find((account) => account.id === detail.id)
     : null;
   const allocatedBase = Number(
     metrics.goalAllocationSummaries?.[normalizedBaseCurrency]?.allocatedAmount || 0,
@@ -1148,6 +1245,10 @@ export function WalletAccountsPage({
                       baseCurrency=${normalizedBaseCurrency}
                       selected=${!selectedGoal && account.id === selectedAccount?.id}
                       accent=${getWalletColor(accountColors, account, index)}
+                      latestReconciliation=${getLatestAccountReconciliation(
+                        accountReconciliations,
+                        account.id,
+                      )}
                       onSelect=${() => selectAccount(account)}
                       onManage=${() => manageAccount(account)}
                     />
@@ -1175,15 +1276,21 @@ export function WalletAccountsPage({
 
 
       <${SheetShell}
-        open=${Boolean(detailAccount || detailGoal)}
-        title=${detailGoal?.name || detailAccount?.name || "Rincian Dompet"}
-        helper=${detailGoal
+        open=${Boolean(detailAccount || detailGoal || reconciliationAccount)}
+        title=${reconciliationAccount
+          ? "Cocokkan saldo"
+          : detailGoal?.name || detailAccount?.name || "Rincian Dompet"}
+        helper=${reconciliationAccount
+          ? `${reconciliationAccount.name} · ${reconciliationAccount.currency}`
+          : detailGoal
           ? "Lihat progres tabungan dan asal dana yang dialokasikan."
           : detailAccount
             ? "Saldo aktual tetap berada pada sumber dana ini."
             : ""}
         onClose=${() => setDetail(null)}
-        labelledBy="wallet-pocket-detail-title"
+        labelledBy=${reconciliationAccount
+          ? "wallet-reconciliation-sheet-title"
+          : "wallet-pocket-detail-title"}
       >
         ${detailAccount
           ? html`
@@ -1195,9 +1302,15 @@ export function WalletAccountsPage({
                   detailAccount,
                   accounts.findIndex((account) => account.id === detailAccount.id),
                 )}
+                latestReconciliation=${getLatestAccountReconciliation(
+                  accountReconciliations,
+                  detailAccount.id,
+                )}
                 onSetAccent=${(colorId) => handleSetAccountColor(detailAccount.id, colorId)}
                 onSetPrimary=${onSetPrimaryAccount}
                 onDelete=${onDeleteAccount}
+                onReconcile=${() =>
+                  setDetail({ type: "reconciliation", id: detailAccount.id })}
               />
             `
           : null}
@@ -1224,6 +1337,25 @@ export function WalletAccountsPage({
                   <${GoalActivity} goal=${detailGoal} />
                 </div>
               <//>
+            `
+          : null}
+        ${reconciliationAccount
+          ? html`
+              <${AccountReconciliationForm}
+                key=${reconciliationAccount.id}
+                account=${reconciliationAccount}
+                reconciliations=${accountReconciliations.filter(
+                  (item) => item.account_id === reconciliationAccount.id,
+                )}
+                transactions=${transactions}
+                loading=${loading}
+                onSubmit=${onCreateAccountReconciliation}
+                onSuccess=${() => setDetail(null)}
+                onRecordMissingTransaction=${(request) => {
+                  setDetail(null);
+                  onRecordMissingTransaction?.(request);
+                }}
+              />
             `
           : null}
       <//>

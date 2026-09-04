@@ -83,6 +83,11 @@ import {
   syncGoalActivityForTransaction,
   validateGoalActivity,
 } from "./domain/goals.js";
+import {
+  buildAccountReconciliationRecord,
+  normalizeAccountReconciliation,
+  normalizeAccountReconciliations,
+} from "./domain/reconciliations.js";
 import { getLatestReportRateUntil } from "./domain/reports.js";
 import {
   computeCurrencyBalances,
@@ -176,6 +181,7 @@ const STORAGE_KEYS = {
   demoGoals: "monefy-demo-goals",
   demoGoalActivities: "cuansync-demo-goal-activities",
   demoAssetAccounts: "cuansync-demo-asset-accounts",
+  demoAccountReconciliations: "cuansync-demo-account-reconciliations",
   profilePhotos: "monefy-profile-photos",
   profile: "cuansync-profile",
   balanceVisible: "monefy-balance-visible",
@@ -193,6 +199,7 @@ const LEGACY_STORAGE_KEYS = {
   demoGoals: "kas-poipet-demo-goals",
   demoGoalActivities: "kas-poipet-demo-goal-activities",
   demoAssetAccounts: "kas-poipet-demo-asset-accounts",
+  demoAccountReconciliations: "kas-poipet-demo-account-reconciliations",
   profilePhotos: "kas-poipet-profile-photos",
   profile: "kas-poipet-profile",
   balanceVisible: "kas-poipet-balance-visible",
@@ -2493,6 +2500,7 @@ function App() {
   const [goalActivities, setGoalActivities] = useState([]);
   const [goalFundingAccounts, setGoalFundingAccounts] = useState([]);
   const [assetAccounts, setAssetAccounts] = useState([]);
+  const [accountReconciliations, setAccountReconciliations] = useState([]);
   const [accountPreferences, setAccountPreferences] = useState([]);
   const [profilePhotos, setProfilePhotos] = useState(() =>
     readAppStorage("profilePhotos", {}),
@@ -2531,6 +2539,7 @@ function App() {
   const [quickEntryOpen, setQuickEntryOpen] = useState(false);
   const [quickEntryRequestKey, setQuickEntryRequestKey] = useState(0);
   const [quickEntryInitialAccountId, setQuickEntryInitialAccountId] = useState("");
+  const [quickEntryInitialAmount, setQuickEntryInitialAmount] = useState(0);
   const [pendingNativeAction, setPendingNativeAction] = useState(null);
   const handledNativeAuthUrlsRef = useRef(new Set());
   const lastNativeActionRef = useRef({ url: "", handledAt: 0 });
@@ -2920,6 +2929,7 @@ function App() {
       setGoals([]);
       setGoalActivities([]);
       setAssetAccounts([]);
+      setAccountReconciliations([]);
       setProfile(null);
       setCurrencySettings(null);
       setRuntimeCurrencySettings(null);
@@ -2974,6 +2984,11 @@ function App() {
             })),
           ),
         );
+        setAccountReconciliations(
+          normalizeAccountReconciliations(
+            readAppStorage("demoAccountReconciliations", []),
+          ),
+        );
         setProfile(localProfile);
         setTheme(localProfile.theme_mode);
         setBalanceVisible(!localProfile.hide_balances);
@@ -2997,6 +3012,7 @@ function App() {
         goalActivityResult,
         goalFundingResult,
         assetAccountResult,
+        accountReconciliationResult,
         accountPreferenceResult,
         settingsResult,
         profileResult,
@@ -3034,6 +3050,12 @@ function App() {
           .select("*")
           .eq("user_id", user.id)
           .order("created_at", { ascending: true }),
+        supabase
+          .from("account_reconciliations")
+          .select("*")
+          .eq("user_id", user.id)
+          .order("checked_at", { ascending: false })
+          .limit(100),
         supabase
           .from("account_preferences")
           .select("*")
@@ -3158,6 +3180,23 @@ function App() {
               is_primary: primaryIds.has(account.id),
             })),
           ),
+        );
+      }
+
+      if (accountReconciliationResult.error) {
+        setAccountReconciliations([]);
+        const reconciliationTableMissing =
+          accountReconciliationResult.error.code === "42P01" ||
+          accountReconciliationResult.error.code === "PGRST205";
+        if (!reconciliationTableMissing) {
+          notices.push({
+            tone: "error",
+            text: accountReconciliationResult.error.message,
+          });
+        }
+      } else {
+        setAccountReconciliations(
+          normalizeAccountReconciliations(accountReconciliationResult.data || []),
         );
       }
 
@@ -3473,6 +3512,120 @@ function App() {
     }
 
     setAssetAccounts(applyAccountPrimaryPreferences(plan.nextAccounts));
+  }
+
+  async function handleCreateAccountReconciliation(payload) {
+    try {
+      setLoading(true);
+      setMessage("");
+      setToast(null);
+
+      const account = assetAccounts.find(
+        (item) => item.id === payload.accountId,
+      );
+      if (!account) {
+        throw new Error("Dompet yang ingin dicocokkan tidak ditemukan.");
+      }
+
+      const record = buildAccountReconciliationRecord({
+        id: crypto.randomUUID(),
+        userId: user.id,
+        account,
+        bankBalance: payload.bankBalance,
+        checkedAt: payload.checkedAt,
+        note: payload.note,
+      });
+      let savedRecord = record;
+
+      if (mode === "demo") {
+        const next = normalizeAccountReconciliations([
+          record,
+          ...accountReconciliations,
+        ]);
+        writeAppStorage("demoAccountReconciliations", next);
+        setAccountReconciliations(next);
+      } else {
+        const { data, error } = await supabase
+          .rpc("record_account_reconciliation", {
+            p_account_id: account.id,
+            p_bank_balance: record.bank_balance,
+            p_note: record.note || null,
+          });
+        if (error) {
+          const tableMissing =
+            error.code === "42P01" ||
+            error.code === "PGRST202" ||
+            error.code === "PGRST205";
+          if (tableMissing) {
+            throw new Error(
+              "Fitur Cocokkan Saldo belum aktif di database. Jalankan migrasi rekonsiliasi terbaru.",
+            );
+          }
+          throw error;
+        }
+        const savedRow = Array.isArray(data) ? data[0] : data;
+        if (!savedRow) {
+          throw new Error("Pengecekan saldo tidak mengembalikan hasil.");
+        }
+        savedRecord = normalizeAccountReconciliation(savedRow);
+        setAccountReconciliations((current) =>
+          normalizeAccountReconciliations([
+            savedRecord,
+            ...current,
+          ]),
+        );
+      }
+
+      const matched = savedRecord.status === "matched";
+      setMessage(
+        matched
+          ? `Saldo ${account.name} cocok dan pengecekan telah disimpan.`
+          : `Selisih saldo ${account.name} telah disimpan untuk diperiksa.`,
+      );
+      setMessageTone(matched ? "success" : "info");
+      setToast({
+        message: matched ? "Saldo cocok." : "Pengecekan saldo disimpan.",
+        tone: matched ? "success" : "info",
+      });
+      return true;
+    } catch (error) {
+      setMessage(error.message || "Gagal menyimpan pengecekan saldo.");
+      setMessageTone("error");
+      setToast({
+        message: error.message || "Gagal menyimpan pengecekan saldo.",
+        tone: "warning",
+      });
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* Dipanggil dari Cocokkan Saldo ketika saldo berbeda. Nominalnya hanya
+     mengisi formulir; penyimpanan tetap menunggu pengguna menekan Simpan,
+     sehingga selisih tidak pernah berubah menjadi transaksi secara diam diam. */
+  function handleRecordMissingTransaction(request) {
+    const account = spendableAssetAccounts.find(
+      (item) => item.id === request?.accountId,
+    );
+    if (!account) {
+      setToast({
+        message: "Dompet untuk transaksi ini tidak tersedia.",
+        tone: "warning",
+      });
+      return;
+    }
+
+    const entryType = request?.entryType === "income" ? "income" : "expense";
+    const amount = Number(request?.amount || 0);
+    dismissTransactionFabHint();
+    setTransactionEntryType(entryType);
+    setQuickEntryInitialAccountId(account.id);
+    setQuickEntryInitialAmount(amount > 0 ? amount : 0);
+    setQuickEntryRequestKey((current) => current + 1);
+    setQuickEntryOpen(true);
+    setMenuOpen(false);
+    setQuickActionOpen(false);
   }
 
   async function handleCreateTransaction(payload) {
@@ -5445,6 +5598,9 @@ function App() {
       setPendingNativeAction(null);
       setTransactionEntryType(pendingNativeAction.entryType);
       setQuickEntryInitialAccountId(initialAccount?.id || "");
+      /* Widget tidak pernah membawa nominal. Tanpa penyetelan ulang ini,
+         nominal selisih dari Cocokkan Saldo akan tertinggal di keypad. */
+      setQuickEntryInitialAmount(0);
       setQuickEntryRequestKey((current) => current + 1);
       setTransactionFabHintDismissed(true);
       writeAppStorage("transactionFabHintDismissed", true);
@@ -5962,6 +6118,7 @@ function App() {
     dismissTransactionFabHint();
     setTransactionEntryType(requestedEntryType);
     setQuickEntryInitialAccountId(preferredAccountId || "");
+    setQuickEntryInitialAmount(0);
     setQuickEntryRequestKey((current) => current + 1);
     setQuickEntryOpen(true);
   }
@@ -6229,12 +6386,15 @@ function App() {
                       <${WealthGoalsPage}
                         metrics=${metrics}
                         transactions=${transactions}
+                        accountReconciliations=${accountReconciliations}
                         loading=${loading}
                         activeCurrencies=${dashboardActiveCurrencies}
                         baseCurrency=${walletBaseCurrency}
                         onCreateAssetAccount=${handleCreateAssetAccount}
                         onDeleteAssetAccount=${handleDeleteAssetAccount}
                         onSetPrimaryAccount=${handleSetPrimaryAccount}
+                        onCreateAccountReconciliation=${handleCreateAccountReconciliation}
+                        onRecordMissingTransaction=${handleRecordMissingTransaction}
                         onCreateGoal=${handleCreateGoal}
                         onUpdateGoal=${handleUpdateGoal}
                         onDeleteGoal=${handleDeleteGoal}
@@ -6449,6 +6609,7 @@ function App() {
         baseCurrency=${walletBaseCurrency}
         initialEntryType=${transactionEntryType}
         initialAccountId=${quickEntryInitialAccountId}
+        initialAmount=${quickEntryInitialAmount}
         requestKey=${quickEntryRequestKey}
         onOpenFullForm=${(entryType) => openTransactionForm(entryType)}
       />
