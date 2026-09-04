@@ -200,6 +200,133 @@ function InstallAppSheet({ open, onClose, platform }) {
   `;
 }
 
+function NativeWidgetSheet({ open, onClose, onRequestWidget }) {
+  const [requestingKind, setRequestingKind] = useState("");
+  const [status, setStatus] = useState(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setRequestingKind("");
+    setStatus(null);
+  }, [open]);
+
+  async function handleRequest(kind) {
+    setRequestingKind(kind);
+    setStatus(null);
+    try {
+      const result = await onRequestWidget(kind);
+      if (result?.requested) {
+        setStatus({
+          tone: "success",
+          text: "Permintaan dibuka. Konfirmasi Tambahkan di layar utama.",
+        });
+      } else {
+        setStatus({
+          tone: "info",
+          text: "Launcher ini belum mendukung pemasangan otomatis. Tekan lama layar utama, lalu pilih Widget > CUANSYNC.",
+        });
+      }
+    } catch (error) {
+      setStatus({
+        tone: "error",
+        text:
+          error?.message ||
+          "Widget belum dapat dipasang. Coba lagi dari menu Widget di layar utama.",
+      });
+    } finally {
+      setRequestingKind("");
+    }
+  }
+
+  const options = [
+    {
+      kind: "quick",
+      size: "2 × 2",
+      title: "Catat cepat",
+      helper: "Pengeluaran dan pemasukan dalam satu ketukan.",
+      preview: html`
+        <div className="grid grid-cols-2 gap-1.5">
+          <span className="rounded-xl bg-rose-500/12 px-2 py-2 text-center text-[10px] font-black text-rose-500">↗ Keluar</span>
+          <span className="rounded-xl bg-emerald-500/12 px-2 py-2 text-center text-[10px] font-black text-emerald-500">↙ Masuk</span>
+        </div>
+      `,
+    },
+    {
+      kind: "summary",
+      size: "4 × 2",
+      title: "Ringkasan & catat",
+      helper: "Aktivitas hari ini dan tiga jalan cepat.",
+      preview: html`
+        <div className="flex items-end justify-between gap-3">
+          <span>
+            <span className="block text-[9px] font-bold uppercase tracking-[0.12em]" style=${{ color: "var(--cs-mut)" }}>Hari ini</span>
+            <span className="mt-1 block text-xs font-black" style=${{ color: "var(--cs-ink)" }}>••••••</span>
+          </span>
+          <span className="text-[10px] font-black" style=${{ color: "var(--cs-link)" }}>Catat +</span>
+        </div>
+      `,
+    },
+  ];
+
+  return html`
+    <${SheetShell}
+      open=${open}
+      onClose=${onClose}
+      title="Widget layar utama"
+      helper="Pilih tampilan yang paling pas. Nominal selalu mengikuti pengaturan Sembunyikan saldo."
+      labelledBy="native-widget-sheet-title"
+    >
+      <div className="grid gap-3">
+        ${options.map(
+          (option) => html`
+            <button
+              key=${option.kind}
+              type="button"
+              disabled=${Boolean(requestingKind)}
+              onClick=${() => handleRequest(option.kind)}
+              className="dc-card dc-press grid min-h-[112px] w-full grid-cols-[1fr_6.75rem] items-center gap-3 p-3.5 text-left disabled:opacity-60"
+            >
+              <span className="min-w-0">
+                <span className="mb-1 flex items-center gap-2">
+                  <span className="truncate text-sm font-black" style=${{ color: "var(--cs-ink)" }}>${option.title}</span>
+                  <span className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-black" style=${{ background: "var(--cs-chip)", color: "var(--cs-body)" }}>${option.size}</span>
+                </span>
+                <span className="block text-[11.5px] leading-[1.45]" style=${{ color: "var(--cs-mut)" }}>${option.helper}</span>
+                <span className="mt-2 block text-[10.5px] font-black" style=${{ color: "var(--cs-link)" }}>
+                  ${requestingKind === option.kind ? "Membuka…" : "Tambahkan"}
+                </span>
+              </span>
+              <span className="rounded-[18px] border p-2.5" style=${{ background: "var(--cs-bg)", borderColor: "var(--cs-line)" }}>
+                ${option.preview}
+              </span>
+            </button>
+          `,
+        )}
+        ${status
+          ? html`
+              <p
+                role="status"
+                className="rounded-2xl border px-3.5 py-3 text-[11.5px] font-semibold leading-[1.5]"
+                style=${{
+                  color:
+                    status.tone === "error"
+                      ? "var(--cs-danger)"
+                      : status.tone === "success"
+                        ? "var(--cs-acc)"
+                        : "var(--cs-body)",
+                  borderColor: "var(--cs-line)",
+                  background: "var(--cs-bg)",
+                }}
+              >
+                ${status.text}
+              </p>
+            `
+          : null}
+      </div>
+    <//>
+  `;
+}
+
 function SettingsSection({ title, children }) {
   return html`
     <section className="flex w-full min-w-0 max-w-full flex-col gap-2.5">
@@ -738,11 +865,14 @@ export function SettingsPage({
   onToggleBalanceVisibility,
   onSaveProfile,
   onSignOut,
+  nativeWidgetAvailable = false,
+  onRequestNativeWidget = null,
 }) {
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
   const [statementSheetOpen, setStatementSheetOpen] = useState(false);
   const [logoutSheetOpen, setLogoutSheetOpen] = useState(false);
   const [installSheetOpen, setInstallSheetOpen] = useState(false);
+  const [widgetSheetOpen, setWidgetSheetOpen] = useState(false);
 
   /* beforeinstallprompt ditembakkan sekali dan bisa datang sebelum halaman ini
      dibuka, jadi installApp.js mencegatnya saat modul dimuat. Di sini kita
@@ -848,6 +978,16 @@ export function SettingsPage({
             ? null
             : handleInstall}
         />
+        ${nativeWidgetAvailable && onRequestNativeWidget
+          ? html`
+              <${SettingsRow}
+                label="Widget layar utama"
+                helper="Catat lebih cepat tanpa membuka menu"
+                value="2 pilihan"
+                onClick=${() => setWidgetSheetOpen(true)}
+              />
+            `
+          : null}
       <//>
 
       <${SettingsSection} title="Data & laporan">
@@ -883,6 +1023,11 @@ export function SettingsPage({
         open=${installSheetOpen}
         onClose=${() => setInstallSheetOpen(false)}
         platform=${installPlatform}
+      />
+      <${NativeWidgetSheet}
+        open=${widgetSheetOpen}
+        onClose=${() => setWidgetSheetOpen(false)}
+        onRequestWidget=${(kind) => onRequestNativeWidget?.({ kind })}
       />
 
       <${ProfileDetailSheet}

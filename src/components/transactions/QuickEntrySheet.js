@@ -38,6 +38,9 @@ export function QuickEntrySheet({
   accounts = [],
   categories = [],
   baseCurrency = DEFAULT_BASE_CURRENCY,
+  initialEntryType = "expense",
+  initialAccountId = "",
+  requestKey = 0,
   loading = false,
 }) {
   const baseCode = normalizeCurrencyCode(baseCurrency);
@@ -51,13 +54,19 @@ export function QuickEntrySheet({
 
   useEffect(() => {
     if (!open) return;
-    setEntryType("expense");
+    const requestedEntryType = initialEntryType === "income" ? "income" : "expense";
+    const requestedAccount = accounts.find(
+      (item) => item.id === initialAccountId,
+    );
+    setEntryType(requestedEntryType);
     setDigits("");
     setCategory(categories[0]?.value || "");
-    setAccountId(pickDefaultAccount(accounts, baseCode)?.id || "");
+    setAccountId(
+      requestedAccount?.id || pickDefaultAccount(accounts, baseCode)?.id || "",
+    );
     setNote("");
     setNoteOpen(false);
-  }, [open]);
+  }, [open, requestKey]);
 
 
   const amount = Number(normalizeNumericInput(digits) || 0);
