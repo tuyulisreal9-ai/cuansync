@@ -619,7 +619,7 @@ export function HomeDashboardPage({
           68px. Di bawah lg wadah ini hanya kolom biasa dengan jarak yang sama
           seperti sebelumnya, jadi tampilan ponsel tidak bergeser. */ null}
     <div className="cs-home-dashboard flex w-full min-w-0 max-w-full flex-col gap-4 lg:grid lg:items-start lg:gap-6 lg:[grid-template-columns:minmax(0,1fr)_400px]">
-      <div className="flex flex-col gap-4 lg:gap-6">
+      <div className="flex min-w-0 flex-col gap-4 lg:gap-6">
         <${BalancePanel}
           total=${total}
           income=${Number(metrics.monthlyIncomeIdr || 0)}
@@ -671,7 +671,7 @@ export function HomeDashboardPage({
 
       ${/* Kolom kanan hanya untuk desktop. Di ponsel isinya sudah terwakili:
             jalan pintas oleh baris tile, dompet oleh tab Dompet. */ null}
-      <aside className="hidden lg:flex lg:flex-col lg:gap-6">
+      <aside className="hidden min-w-0 lg:flex lg:flex-col lg:gap-6">
         <${QuickLinksCard}
           canTransfer=${canTransfer}
           canExchange=${canExchange}

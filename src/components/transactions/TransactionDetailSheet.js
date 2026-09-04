@@ -124,6 +124,7 @@ function TransactionEditForm({
   onCancel,
   loading = false,
   assetAccounts = [],
+  goalFundingAccounts = [],
 }) {
   const [exchangeAutoTarget, setExchangeAutoTarget] = useState("to_amount");
   const flow = form.type || getTransactionFlow(transaction);
@@ -148,41 +149,48 @@ function TransactionEditForm({
   const fromAmount = Number(normalizeNumericInput(settledEditForm.from_amount));
   const toAmount = Number(normalizeNumericInput(settledEditForm.to_amount));
   const rateValidation = validateExchangeRate(form.locked_rate);
-  const originalEntryAccountId = isIncome
-    ? transaction.destination_account_id
-    : transaction.source_account_id;
-  const allEntryAccountOptions = getSelectableAssetAccounts(
+
+  /* Dompet dapat dipindah saat mengubah transaksi. Jalur simpannya memang
+     sudah menanganinya sejak lama: sisi klien membalik mutasi dompet lama lalu
+     menerapkan mutasi dompet baru, dan update_transaction_atomic di server
+     mengunci keempat akun yang terlibat sebelum menghitung ulang saldo. Yang
+     tersisa hanyalah daftar pilihan ini, yang dulu dipersempit menjadi dompet
+     asal saja. */
+  const selectableEntryAccounts = getSelectableAssetAccounts(
     assetAccounts,
     transactionCurrency,
   );
-  const entryAccountOptions = originalEntryAccountId &&
-    allEntryAccountOptions.some((account) => account.id === originalEntryAccountId)
-    ? allEntryAccountOptions.filter((account) => account.id === originalEntryAccountId)
-    : allEntryAccountOptions;
-  const allSourceAccountOptions = getSelectableAssetAccounts(
+
+  /* Pengeluaran yang memakai dana target hanya boleh keluar dari dompet yang
+     mendanai target itu; record_transaction_atomic menolak sisanya dengan
+     "Target tidak terhubung ke akun sumber transaksi". Aturannya disalin ke
+     sini supaya penolakan terjadi sebelum pengguna menekan Simpan, bukan
+     sesudahnya. */
+  const goalTargetId = isExpense ? transaction.target_id || "" : "";
+  const goalFundingAccountIds = new Set(
+    goalTargetId
+      ? goalFundingAccounts
+          .filter(
+            (funding) =>
+              funding.goal_id === goalTargetId &&
+              normalizeCurrencyCode(funding.currency) === transactionCurrency,
+          )
+          .map((funding) => funding.account_id)
+      : [],
+  );
+  const entryAccountOptions = goalTargetId
+    ? selectableEntryAccounts.filter((account) =>
+        goalFundingAccountIds.has(account.id),
+      )
+    : selectableEntryAccounts;
+  const sourceAccountOptions = getSelectableAssetAccounts(
     assetAccounts,
     form.from_currency,
   );
-  const sourceAccountOptions = transaction.source_account_id &&
-    allSourceAccountOptions.some(
-      (account) => account.id === transaction.source_account_id,
-    )
-    ? allSourceAccountOptions.filter(
-        (account) => account.id === transaction.source_account_id,
-      )
-    : allSourceAccountOptions;
-  const allDestinationAccountOptions = getSelectableAssetAccounts(
+  const destinationAccountOptions = getSelectableAssetAccounts(
     assetAccounts,
     form.to_currency,
   ).filter((account) => account.id !== form.source_account_id);
-  const destinationAccountOptions = transaction.destination_account_id &&
-    allDestinationAccountOptions.some(
-      (account) => account.id === transaction.destination_account_id,
-    )
-    ? allDestinationAccountOptions.filter(
-        (account) => account.id === transaction.destination_account_id,
-      )
-    : allDestinationAccountOptions;
   const entryAccountId = isIncome
     ? form.destination_account_id
     : form.source_account_id;
@@ -438,10 +446,19 @@ function TransactionEditForm({
               ${!entryAccountOptions.length
                 ? html`
                     <span className="block text-xs font-bold text-amber-600 dark:text-amber-300">
-                      Belum ada dompet ${transactionCurrency}. Tambahkan dompet sebelum memperbarui transaksi ini.
+                      ${goalTargetId
+                        ? `Belum ada dompet ${transactionCurrency} yang mendanai target transaksi ini. Hubungkan dompet ke target tersebut lebih dulu.`
+                        : `Belum ada dompet ${transactionCurrency}. Tambahkan dompet sebelum memperbarui transaksi ini.`}
                     </span>
                   `
-                : null}
+                : goalTargetId
+                  ? html`
+                      <span className="block text-xs leading-5 text-slate-500 dark:text-slate-400">
+                        Pengeluaran ini memakai dana target, jadi dompetnya
+                        terbatas pada dompet yang mendanai target tersebut.
+                      </span>
+                    `
+                  : null}
             </label>
 
             <label key="edit-entry-amount" className="block space-y-2">
@@ -576,17 +593,27 @@ export function TransactionDetailSheet({
   activeCurrencies = [],
   baseCurrency = DEFAULT_BASE_CURRENCY,
   assetAccounts = [],
+  goalFundingAccounts = [],
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const { closing, requestClose } = useSheetClose(onClose, Boolean(transaction));
 
+  /* Sengaja hanya bergantung pada transaksinya. onClose adalah fungsi anonim
+     yang identitasnya berubah setiap induknya dirender ulang, jadi ikut
+     menyertakannya membuat efek ini berjalan lagi di tengah pengubahan dan
+     menutup form edit. Isian pengguna hilang persis ketika paling dibutuhkan:
+     saat penyimpanan ditolak dan pesan galat memicu render baru. */
   useEffect(() => {
-    if (!transaction) return undefined;
+    if (!transaction) return;
     setIsEditing(false);
     setConfirmingDelete(false);
     setEditForm(getTransactionEditForm(transaction));
+  }, [transaction]);
+
+  useEffect(() => {
+    if (!transaction) return undefined;
     function handleKeyDown(event) {
       if (event.key === "Escape") onClose();
     }
@@ -736,6 +763,7 @@ export function TransactionDetailSheet({
                 }}
                 loading=${loading}
                 assetAccounts=${assetAccounts}
+                goalFundingAccounts=${goalFundingAccounts}
               />
             `
           : html`

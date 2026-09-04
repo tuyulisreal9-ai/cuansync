@@ -296,7 +296,7 @@ test("beranda desktop tidak menggandakan aksi topbar", async () => {
 
   // Kolom kanan desktop mengisi ruang yang dulu kosong: jalan pintas,
   // kondisi keuangan, dan ringkasan dompet.
-  assert.match(home, /<aside className="hidden lg:flex lg:flex-col lg:gap-6">/);
+  assert.match(home, /<aside className="hidden min-w-0 lg:flex lg:flex-col lg:gap-6">/);
   assert.match(home, /<\$\{QuickLinksCard\}/);
   assert.match(home, /<\$\{FinancialHealthCard\}/);
   assert.match(home, /<\$\{WalletsCard\}/);
@@ -304,7 +304,7 @@ test("beranda desktop tidak menggandakan aksi topbar", async () => {
   // Kolom utama dibungkus satu wadah, bukan beberapa sel grid terpisah.
   // Sebagai sel terpisah, barisnya ikut meregang mengikuti kolom kanan dan
   // jarak antar kartu melar dari 24px jadi 68px.
-  assert.match(home, /<div className="flex flex-col gap-4 lg:gap-6">/);
+  assert.match(home, /<div className="flex min-w-0 flex-col gap-4 lg:gap-6">/);
   assert.doesNotMatch(home, /lg:row-span-2/);
 
   // Kartu kanan hanya diberi data yang benar benar ada. Angka karangan pada

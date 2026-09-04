@@ -15,4 +15,22 @@
     <color name="colorPrimary">#211F1B</color>
     <color name="colorPrimaryDark">#080D0C</color>
     <color name="colorAccent">#211F1B</color>
+
+    <!-- Palet widget sengaja tetap gelap agar identitas dan keterbacaan
+         konsisten di atas wallpaper terang maupun gelap. -->
+    <color name="cs_widget_background">#101A17</color>
+    <color name="cs_widget_surface">#0D1613</color>
+    <color name="cs_widget_border">#263832</color>
+    <color name="cs_widget_text">#EEF4F1</color>
+    <color name="cs_widget_text_muted">#9BAAA5</color>
+    <color name="cs_widget_text_faint">#72837D</color>
+    <color name="cs_widget_expense_background">#2A181A</color>
+    <color name="cs_widget_expense_border">#623039</color>
+    <color name="cs_widget_expense_text">#FF9FA8</color>
+    <color name="cs_widget_income_background">#123027</color>
+    <color name="cs_widget_income_border">#28644F</color>
+    <color name="cs_widget_income_text">#7AE6BE</color>
+    <color name="cs_widget_transfer_background">#142630</color>
+    <color name="cs_widget_transfer_border">#2A586F</color>
+    <color name="cs_widget_transfer_text">#8DD8F8</color>
 </resources>

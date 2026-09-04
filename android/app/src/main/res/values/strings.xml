@@ -4,4 +4,32 @@
     <string name="title_activity_main">CUANSYNC</string>
     <string name="package_name">com.cuansync.app</string>
     <string name="custom_url_scheme">com.cuansync.app</string>
+
+    <string name="widget_brand">CUANSYNC</string>
+    <string name="widget_logo_description">Logo CUANSYNC</string>
+    <string name="widget_quick_name">CUANSYNC · Catat Cepat</string>
+    <string name="widget_quick_description">Catat pengeluaran atau pemasukan langsung dari layar utama.</string>
+    <string name="widget_summary_name">CUANSYNC · Ringkasan Harian</string>
+    <string name="widget_summary_description">Lihat ringkasan hari ini dan buka pencatatan cepat.</string>
+    <string name="widget_quick_subtitle">Catat cepat</string>
+    <string name="widget_expense">Keluar</string>
+    <string name="widget_income">Masuk</string>
+    <string name="widget_transfer">Transfer</string>
+    <string name="widget_today">PENGELUARAN HARI INI</string>
+    <string name="widget_primary_wallet">Dompet utama</string>
+    <string name="widget_signed_out_short">Buka untuk mulai</string>
+    <string name="widget_private_label">AMAN &amp; PRIVAT</string>
+    <string name="widget_signed_out_prompt">Buka CUANSYNC untuk mulai</string>
+    <string name="widget_signed_out_detail">Masuk lalu pilih dompet utama</string>
+    <string name="widget_stale_badge">PERLU DIPERBARUI</string>
+    <string name="widget_stale_prompt">Perbarui ringkasan hari ini</string>
+    <string name="widget_stale_detail">Buka CUANSYNC agar data tetap akurat</string>
+    <string name="widget_hidden_amount">••••••</string>
+    <string name="widget_zero_amount">Belum ada pengeluaran</string>
+    <string name="widget_transaction_updated">%1$s · %2$s</string>
+
+    <plurals name="widget_transaction_count">
+        <item quantity="one">%d transaksi hari ini</item>
+        <item quantity="other">%d transaksi hari ini</item>
+    </plurals>
 </resources>

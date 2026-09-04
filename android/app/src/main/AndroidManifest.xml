@@ -30,7 +30,54 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="com.cuansync.app" android:host="auth" android:pathPrefix="/callback" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.cuansync.app" android:host="quick-entry" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.cuansync.app" android:host="movement" />
+            </intent-filter>
         </activity>
+
+        <receiver
+            android:name=".widget.CuansyncQuickWidgetProvider"
+            android:enabled="true"
+            android:exported="false"
+            android:label="@string/widget_quick_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <!-- Tanpa ini widget tidak pernah digambar ulang saat tengah
+                     malam, sehingga ringkasan kemarin bertahan sebagai data
+                     hari ini sampai pengguna membuka aplikasi. -->
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/cuansync_quick_widget_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.CuansyncSummaryWidgetProvider"
+            android:enabled="true"
+            android:exported="false"
+            android:label="@string/widget_summary_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.intent.action.DATE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/cuansync_summary_widget_info" />
+        </receiver>
 
         <provider
             android:name="androidx.core.content.FileProvider"

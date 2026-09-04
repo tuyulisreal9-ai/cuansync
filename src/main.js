@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import htm from "htm";
 import { createClient } from "@supabase/supabase-js";
@@ -159,6 +159,12 @@ import {
   syncThemeColorMeta,
   updateNativeStatusBar,
 } from "./lib/mobile.js";
+import { parseNativeAppRoute } from "./lib/nativeAppRoute.js";
+import {
+  isNativeWidgetAvailable,
+  requestPinNativeWidget,
+  updateNativeWidgetSnapshot,
+} from "./lib/nativeWidgets.js";
 
 const html = htm.bind(React.createElement);
 
@@ -2476,6 +2482,7 @@ function App() {
       : false,
   );
   const [user, setUser] = useState(null);
+  const [hydratedUserId, setHydratedUserId] = useState(null);
   const [profile, setProfile] = useState(null);
   const [mode, setMode] = useState("loading");
   const [authRecoveryError, setAuthRecoveryError] = useState("");
@@ -2522,6 +2529,11 @@ function App() {
   const [budgetFocusCategoryKey, setBudgetFocusCategoryKey] = useState(null);
   const [historyFocusCategory, setHistoryFocusCategory] = useState("");
   const [quickEntryOpen, setQuickEntryOpen] = useState(false);
+  const [quickEntryRequestKey, setQuickEntryRequestKey] = useState(0);
+  const [quickEntryInitialAccountId, setQuickEntryInitialAccountId] = useState("");
+  const [pendingNativeAction, setPendingNativeAction] = useState(null);
+  const handledNativeAuthUrlsRef = useRef(new Set());
+  const lastNativeActionRef = useRef({ url: "", handledAt: 0 });
   const [transactionFabHintDismissed, setTransactionFabHintDismissed] = useState(() =>
     Boolean(readAppStorage("transactionFabHintDismissed", false)),
   );
@@ -2580,17 +2592,33 @@ function App() {
   }, [theme, systemPrefersDark]);
 
   useEffect(() => {
-    if (!supabaseReady || !isNativeMobileApp()) return undefined;
+    if (!isNativeMobileApp()) return undefined;
     let active = true;
     let listenerHandle = null;
-    const processedCallbacks = new Set();
 
-    const handleNativeAuthCallback = async (url) => {
-      if (!url || processedCallbacks.has(url)) return;
+    const handleNativeUrl = async (url) => {
+      const route = parseNativeAppRoute(url);
+      if (!route) return;
+
+      if (route.kind !== "auth-callback") {
+        /* Beberapa perangkat mengirim URL peluncuran lalu appUrlOpen untuk
+           ketukan yang sama. Redam hanya duplikat yang sangat berdekatan;
+           URL widget memang sengaja identik pada setiap ketukan berikutnya. */
+        const now = Date.now();
+        const previous = lastNativeActionRef.current;
+        if (previous.url === url && now - previous.handledAt < 750) return;
+        lastNativeActionRef.current = { url, handledAt: now };
+        if (active) {
+          setPendingNativeAction({ ...route, requestedAt: now });
+        }
+        return;
+      }
+
+      if (!supabaseReady || handledNativeAuthUrlsRef.current.has(url)) return;
       try {
         const callback = getAuthCallbackFromUrl(url);
         if (!callback) return;
-        processedCallbacks.add(url);
+        handledNativeAuthUrlsRef.current.add(url);
         const { error } = callback.type === "pkce"
           ? await supabase.auth.exchangeCodeForSession(callback.code)
           : await supabase.auth.setSession(callback.session);
@@ -2608,17 +2636,17 @@ function App() {
       }
     };
 
-    addNativeUrlListener(handleNativeAuthCallback).then((handle) => {
+    addNativeUrlListener(handleNativeUrl).then((handle) => {
       if (!active) {
         handle?.remove();
         return;
       }
       listenerHandle = handle;
       getNativeLaunchUrl()
-        .then(handleNativeAuthCallback)
+        .then(handleNativeUrl)
         .catch((error) => {
           if (!active) return;
-          setMessage(error.message || "Callback login saat aplikasi dibuka tidak dapat diperiksa.");
+          setMessage(error.message || "Aksi saat aplikasi dibuka tidak dapat diperiksa.");
           setMessageTone("error");
         });
     });
@@ -2886,6 +2914,7 @@ function App() {
 
   useEffect(() => {
     if (!user) {
+      setHydratedUserId(null);
       setTransactions([]);
       setBudgets([]);
       setGoals([]);
@@ -2897,6 +2926,7 @@ function App() {
       return;
     }
 
+    setHydratedUserId(null);
     let cancelled = false;
 
     async function loadDashboardData() {
@@ -2949,6 +2979,7 @@ function App() {
         setBalanceVisible(!localProfile.hide_balances);
         setCurrencySettings(localSettings);
         setRuntimeCurrencySettings(localSettings);
+        if (!cancelled) setHydratedUserId(user.id);
         return;
       }
 
@@ -3270,6 +3301,7 @@ function App() {
       }
 
       setLoading(false);
+      if (!cancelled) setHydratedUserId(user.id);
     }
 
     loadDashboardData();
@@ -5356,6 +5388,191 @@ function App() {
     return { synced: true, modern: false };
   }
 
+  useEffect(() => {
+    if (
+      !pendingNativeAction ||
+      !user ||
+      hydratedUserId !== user.id ||
+      !currencySettings
+    ) {
+      return;
+    }
+
+    const availableAccounts = normalizeAssetAccounts(assetAccounts).filter(
+      isSpendableAssetAccount,
+    );
+    const moveToWalletSetup = (messageText) => {
+      setPendingNativeAction(null);
+      setToast({ message: messageText, tone: "warning" });
+      setAssetFormRequest((current) => current + 1);
+      setActiveTab("investment");
+      setMenuOpen(false);
+      setQuickActionOpen(false);
+      setQuickEntryOpen(false);
+    };
+
+    if (pendingNativeAction.kind === "quick-entry") {
+      if (!availableAccounts.length) {
+        moveToWalletSetup(
+          "Tambahkan dompet terlebih dahulu sebelum mencatat transaksi.",
+        );
+        return;
+      }
+
+      const preferredAccountId = accountPreferences.find(
+        (preference) =>
+          preference.flow_type === pendingNativeAction.entryType &&
+          availableAccounts.some(
+            (account) => account.id === preference.account_id,
+          ),
+      )?.account_id;
+      const dailyCurrency = normalizeCurrencyCode(
+        currencySettings.dailyCurrency || currencySettings.baseCurrency,
+      );
+      const initialAccount =
+        availableAccounts.find((account) => account.id === preferredAccountId) ||
+        availableAccounts.find(
+          (account) =>
+            account.is_primary &&
+            normalizeCurrencyCode(account.currency) === dailyCurrency,
+        ) ||
+        availableAccounts.find(
+          (account) => normalizeCurrencyCode(account.currency) === dailyCurrency,
+        ) ||
+        availableAccounts.find((account) => account.is_primary) ||
+        availableAccounts[0];
+
+      setPendingNativeAction(null);
+      setTransactionEntryType(pendingNativeAction.entryType);
+      setQuickEntryInitialAccountId(initialAccount?.id || "");
+      setQuickEntryRequestKey((current) => current + 1);
+      setTransactionFabHintDismissed(true);
+      writeAppStorage("transactionFabHintDismissed", true);
+      setQuickEntryOpen(true);
+      setMenuOpen(false);
+      setQuickActionOpen(false);
+      return;
+    }
+
+    if (pendingNativeAction.kind === "movement") {
+      const canOpenMovement = availableAccounts.some((account, index) =>
+        availableAccounts.slice(index + 1).some((candidate) =>
+          pendingNativeAction.movementType === "transfer"
+            ? normalizeCurrencyCode(candidate.currency) ===
+              normalizeCurrencyCode(account.currency)
+            : normalizeCurrencyCode(candidate.currency) !==
+              normalizeCurrencyCode(account.currency),
+        ),
+      );
+      if (!canOpenMovement) {
+        moveToWalletSetup(
+          pendingNativeAction.movementType === "transfer"
+            ? "Transfer membutuhkan dua dompet dengan mata uang yang sama."
+            : "Tukar valas membutuhkan dua dompet dengan mata uang berbeda.",
+        );
+        return;
+      }
+
+      setPendingNativeAction(null);
+      setMovementInitialMode(pendingNativeAction.movementType);
+      setTransactionEntryType("exchange");
+      setTransactionFabHintDismissed(true);
+      writeAppStorage("transactionFabHintDismissed", true);
+      setActiveTab("movement");
+      setMenuOpen(false);
+      setQuickActionOpen(false);
+      setQuickEntryOpen(false);
+    }
+  }, [
+    pendingNativeAction,
+    user,
+    hydratedUserId,
+    currencySettings,
+    assetAccounts,
+    accountPreferences,
+  ]);
+
+  useEffect(() => {
+    if (!isNativeWidgetAvailable()) return;
+
+    const dayKey = getLocalDayKey(new Date());
+    if (!user) {
+      if (mode === "loading") return;
+      updateNativeWidgetSnapshot({
+        dayKey,
+        updatedAt: Date.now(),
+        primaryWalletName: "",
+        todayCount: 0,
+        todayExpenseFormatted: "",
+        hideAmounts: true,
+        isSignedIn: false,
+      }).catch(() => {});
+      return;
+    }
+    if (hydratedUserId !== user.id || !currencySettings) return;
+
+    const availableAccounts = normalizeAssetAccounts(assetAccounts).filter(
+      isSpendableAssetAccount,
+    );
+    const dailyCurrency = normalizeCurrencyCode(
+      currencySettings.dailyCurrency || currencySettings.baseCurrency,
+    );
+    const primaryAccount =
+      availableAccounts.find(
+        (account) =>
+          account.is_primary &&
+          normalizeCurrencyCode(account.currency) === dailyCurrency,
+      ) ||
+      availableAccounts.find(
+        (account) => normalizeCurrencyCode(account.currency) === dailyCurrency,
+      ) ||
+      availableAccounts.find((account) => account.is_primary) ||
+      availableAccounts[0];
+    const todayTransactions = transactions.filter(
+      (transaction) => getLocalDayKey(transaction.occurred_at) === dayKey,
+    );
+    const todayExpenses = todayTransactions.filter(
+      (transaction) => getTransactionFlow(transaction) === "expense",
+    );
+    const expenseValuations = todayExpenses.map((transaction) => ({
+      amount: getTransactionAmountValue(transaction),
+      baseValue: Math.max(
+        Number(resolveTransactionBaseValue(transaction)) || 0,
+        0,
+      ),
+    }));
+    const hasIncompleteValuation = expenseValuations.some(
+      ({ amount, baseValue }) => amount > 0 && baseValue <= 0,
+    );
+    const todayExpense = expenseValuations.reduce(
+      (total, item) => total + item.baseValue,
+      0,
+    );
+    const baseCurrency = normalizeCurrencyCode(
+      currencySettings.baseCurrency || DEFAULT_BASE_CURRENCY,
+    );
+
+    updateNativeWidgetSnapshot({
+      dayKey,
+      updatedAt: Date.now(),
+      primaryWalletName: primaryAccount?.name || "Belum ada dompet",
+      todayCount: todayTransactions.length,
+      todayExpenseFormatted: hasIncompleteValuation
+        ? "Lihat di aplikasi"
+        : formatCurrency(todayExpense, baseCurrency),
+      hideAmounts: !balanceVisible,
+      isSignedIn: true,
+    }).catch(() => {});
+  }, [
+    mode,
+    user,
+    hydratedUserId,
+    currencySettings,
+    assetAccounts,
+    transactions,
+    balanceVisible,
+  ]);
+
   function handleThemeChange(value) {
     const nextTheme = normalizeThemeMode(value);
     setTheme(nextTheme);
@@ -5734,7 +5951,18 @@ function App() {
       openAssetFormFromQuickAction();
       return;
     }
+    const requestedEntryType = "expense";
+    const preferredAccountId = accountPreferences.find(
+      (preference) =>
+        preference.flow_type === requestedEntryType &&
+        spendableAssetAccounts.some(
+          (account) => account.id === preference.account_id,
+        ),
+    )?.account_id;
     dismissTransactionFabHint();
+    setTransactionEntryType(requestedEntryType);
+    setQuickEntryInitialAccountId(preferredAccountId || "");
+    setQuickEntryRequestKey((current) => current + 1);
     setQuickEntryOpen(true);
   }
 
@@ -5913,6 +6141,7 @@ function App() {
                   loading=${loading}
                   activeCurrencies=${dashboardActiveCurrencies}
                   assetAccounts=${assetAccounts}
+                  goalFundingAccounts=${goalFundingAccounts}
                   baseCurrency=${walletBaseCurrency}
                   emptyMessage="Belum ada transaksi."
                   emptyHint="Mulai dari satu transaksi kecil. Setelah itu, CUANSYNC bisa menampilkan riwayat dan laporan yang lebih berguna."
@@ -5988,6 +6217,8 @@ function App() {
                         onThemeChange=${handleThemeChange}
                         balanceVisible=${balanceVisible}
                         onToggleBalanceVisibility=${handleSetHideBalances}
+                        nativeWidgetAvailable=${isNativeWidgetAvailable()}
+                        onRequestNativeWidget=${requestPinNativeWidget}
                         onSaveProfile=${handleSaveProfile}
                         onSignOut=${handleSignOut}
                       />
@@ -6042,11 +6273,16 @@ function App() {
             kiri, lalu kolom utama yang mengisi sisanya. Di bawah lg susunannya
             tetap satu kolom seperti sebelumnya. */ null}
       <div className="cs-workspace relative z-10 lg:flex lg:items-stretch">
+        ${/* onToggleTheme memanggil handleThemeChange, bukan setTheme langsung.
+              setTheme hanya mengubah state layar: profil dan salinan server
+              tetap memuat tema lama, lalu pemulihan sesi saat tab difokuskan
+              kembali mengembalikan tampilan seperti semula. */ null}
         <${DesktopNavigation}
           activeTab=${activeTab}
           onChange=${navigateAppTab}
           onSettings=${() => navigateAppTab("settings")}
-          onToggleTheme=${() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+          onToggleTheme=${() =>
+            handleThemeChange(resolvedTheme === "dark" ? "light" : "dark")}
           isDark=${resolvedTheme === "dark"}
           userName=${userDisplayName}
           userEmail=${user?.email || "Demo Lokal"}
@@ -6211,6 +6447,9 @@ function App() {
         accounts=${spendableAssetAccounts}
         categories=${CATEGORY_OPTIONS}
         baseCurrency=${walletBaseCurrency}
+        initialEntryType=${transactionEntryType}
+        initialAccountId=${quickEntryInitialAccountId}
+        requestKey=${quickEntryRequestKey}
         onOpenFullForm=${(entryType) => openTransactionForm(entryType)}
       />
     </main>
