@@ -14,6 +14,9 @@ import { formatCurrency } from "../lib/currency.js";
    ketimbang warna mentah. */
 export const PACE_TONES = {
   over: "danger",
+  // Jatah yang tepat habis sudah tidak menyisakan apa pun untuk sisa bulan,
+  // jadi nadanya sama seriusnya dengan yang sudah terlampaui.
+  limit_reached: "danger",
   projected_over: "danger",
   too_fast: "warn",
   near_limit: "warn",
@@ -44,6 +47,19 @@ export function buildBudgetPaceSentence(pace, baseCurrency) {
 
   if (pace.paceStatus === "over") {
     return { label, detail: `lewat ${uang(sisa)}` };
+  }
+
+  /* "sisa Rp 0" hanya mengulang labelnya. Yang belum diketahui pembaca adalah
+     berapa lama lagi ia harus bertahan tanpa sisa, dan itu yang disampaikan. */
+  if (pace.paceStatus === "limit_reached") {
+    const sisaHari = Math.max(Number(pace.remainingDays || 0), 0);
+    return {
+      label,
+      detail:
+        sisaHari > 0
+          ? `tidak ada sisa untuk ${sisaHari} hari lagi`
+          : "tepat habis di akhir bulan",
+    };
   }
 
   if (pace.paceStatus === "projected_over") {
