@@ -5,6 +5,7 @@ import {
   buildBudgetPaceSentence,
   getBudgetPaceTone,
 } from "../src/domain/budgetPace.js";
+import { getBudgetPace } from "../src/domain/control.js";
 import { formatCurrency } from "../src/lib/currency.js";
 
 /* Intl menyisipkan spasi tak-putus setelah "Rp", jadi ekspektasi dirakit
@@ -99,6 +100,8 @@ test("pace yang tidak ada menghasilkan null, bukan kalimat kosong", () => {
 
 test("nada mengikuti tingkat keseriusannya", () => {
   assert.equal(getBudgetPaceTone("over"), "danger");
+  // Jatah yang tepat habis sama seriusnya dengan yang sudah terlampaui.
+  assert.equal(getBudgetPaceTone("limit_reached"), "danger");
   assert.equal(getBudgetPaceTone("projected_over"), "danger");
   assert.equal(getBudgetPaceTone("too_fast"), "warn");
   assert.equal(getBudgetPaceTone("near_limit"), "warn");
@@ -160,4 +163,123 @@ test("kartu rincian ada di kolom kanan bersama Kondisi keuanganmu", async () => 
   // kedua kembali ke kolom kiri baris berikutnya, selebar penuh.
   const wadah = page.match(/<div className="flex min-w-0 flex-col gap-4 lg:gap-6">/g) || [];
   assert.equal(wadah.length, 2, "kolom kiri dan kanan sama sama dibungkus");
+});
+
+test("jatah yang tepat habis tidak disebut mendekati batas", () => {
+  const monthMeta = {
+    daysInMonth: 30,
+    elapsedDays: 4,
+    remainingDays: 26,
+    monthProgress: 4 / 30,
+  };
+
+  /* Sewa dibayar sekali di awal bulan: satu transaksi, jadi ritmenya belum
+     terukur dan cabang perkiraan maupun terlalu cepat dilewati. Sebelumnya
+     pemakaian 100% jatuh ke near_limit dan tertulis "Mendekati batas · sisa
+     Rp 0", padahal uangnya sudah tidak bersisa sama sekali. */
+  const pace = getBudgetPace(
+    {
+      limitAmount: 3_000_000,
+      spentAmount: 3_000_000,
+      remainingAmount: 0,
+      transactionCount: 1,
+    },
+    monthMeta,
+  );
+
+  assert.equal(pace.paceStatus, "limit_reached");
+  assert.equal(pace.statusLabel, "Jatah habis");
+  assert.equal(getBudgetPaceTone(pace.paceStatus), "danger");
+
+  const hasil = kalimat(pace);
+  assert.equal(hasil.detail, "tidak ada sisa untuk 26 hari lagi");
+  assert.doesNotMatch(hasil.label, /Mendekati/);
+
+  // Lebih mendesak daripada perkiraan melewati batas: yang satu sudah terjadi.
+  const perkiraan = getBudgetPace(
+    {
+      limitAmount: 4_000_000,
+      spentAmount: 1_099_203,
+      remainingAmount: 2_900_797,
+      transactionCount: 6,
+    },
+    monthMeta,
+  );
+  assert.equal(perkiraan.paceStatus, "projected_over");
+  assert.ok(pace.attentionRank < perkiraan.attentionRank);
+});
+
+test("batas yang benar benar terlampaui tetap dibedakan", () => {
+  const monthMeta = {
+    daysInMonth: 30,
+    elapsedDays: 4,
+    remainingDays: 26,
+    monthProgress: 4 / 30,
+  };
+
+  const lewat = getBudgetPace(
+    {
+      limitAmount: 2_000_000,
+      spentAmount: 2_288_011,
+      remainingAmount: -288_011,
+      transactionCount: 3,
+    },
+    monthMeta,
+  );
+  assert.equal(lewat.paceStatus, "over");
+  assert.equal(
+    buildBudgetPaceSentence(lewat, "IDR").detail,
+    `lewat ${rp(288_011)}`,
+  );
+
+  // Di bawah seratus persen tetap "mendekati", bukan "habis".
+  const hampir = getBudgetPace(
+    {
+      limitAmount: 1_000_000,
+      spentAmount: 900_000,
+      remainingAmount: 100_000,
+      transactionCount: 1,
+    },
+    monthMeta,
+  );
+  assert.equal(hampir.paceStatus, "near_limit");
+});
+
+test("jatah habis tetap dihitung sebagai peringatan pada skor", async () => {
+  const { buildBudgetControlSummary } = await import("../src/domain/control.js");
+  const ringkas = (spent) =>
+    buildBudgetControlSummary({
+      metrics: {
+        budgetInsights: [
+          {
+            id: "b1",
+            categoryKey: "universal:Tempat Tinggal",
+            currency: "IDR",
+            baseCurrency: "IDR",
+            limitAmount: 3_000_000,
+            spentAmount: spent,
+            remainingAmount: 3_000_000 - spent,
+            transactionCount: 1,
+          },
+        ],
+      },
+      transactions: [],
+      baseCurrency: "IDR",
+      currentDate: new Date("2026-09-04T12:00:00"),
+    }).budget;
+
+  /* Sebelum ada keadaan limit_reached, pemakaian 100% masuk near_limit dan
+     ikut warningCount. Kalau keadaan baru ini luput dari ketiga penghitung,
+     skor Kondisi keuangan justru naik ketika sebuah jatah habis. */
+  const hampir = ringkas(2_700_000);
+  const habis = ringkas(3_000_000);
+  const lewat = ringkas(3_300_000);
+
+  assert.equal(habis.warningCount, hampir.warningCount);
+  assert.equal(habis.overCount, 0);
+  assert.equal(habis.projectedOverCount, 0);
+
+  // Yang benar benar terlampaui tetap naik ke penghitung yang lebih berat.
+  assert.equal(lewat.overCount, 1);
+  assert.equal(lewat.warningCount, 0);
 });

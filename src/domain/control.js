@@ -216,7 +216,7 @@ function getHistoricalFlowTotals(
   return totals;
 }
 
-function getBudgetPace(budget, monthMeta) {
+export function getBudgetPace(budget, monthMeta) {
   const limit = Number(budget.limitAmount || 0);
   const spent = Number(budget.spentAmount || 0);
   const usage = limit > 0 ? spent / limit : 0;
@@ -240,21 +240,30 @@ function getBudgetPace(budget, monthMeta) {
     paceStatus = "over";
     statusLabel = "Melewati batas";
     attentionRank = 1;
+  } else if (usage >= 1 || Number(budget.remainingAmount || 0) <= 0) {
+    /* Tepat di batas bukan "mendekati": uangnya sudah habis, hanya belum
+       terlampaui. Tanpa keadaan tersendiri, pemakaian 100% jatuh ke near_limit
+       dan tertulis "Mendekati batas · sisa Rp 0", yang saling bertentangan.
+       Batas ini juga lebih mendesak daripada perkiraan melewati batas, karena
+       yang satu sudah terjadi sedangkan yang lain baru ramalan. */
+    paceStatus = "limit_reached";
+    statusLabel = "Jatah habis";
+    attentionRank = 2;
   } else if (projectedSpending != null && projectedSpending > limit) {
     paceStatus = "projected_over";
     statusLabel = "Diperkirakan melewati batas";
-    attentionRank = 2;
+    attentionRank = 3;
   } else if (
     enoughData &&
     usage > monthMeta.monthProgress + FAST_PACE_MARGIN
   ) {
     paceStatus = "too_fast";
     statusLabel = "Pemakaian terlalu cepat";
-    attentionRank = 3;
+    attentionRank = 4;
   } else if (usage >= NEAR_LIMIT_USAGE) {
     paceStatus = "near_limit";
     statusLabel = "Mendekati batas";
-    attentionRank = 4;
+    attentionRank = 5;
   }
 
   const dailyAverage =
@@ -287,6 +296,7 @@ function getBudgetPace(budget, monthMeta) {
     attentionRank,
     daysUntilLimit,
     daysEarly,
+    remainingDays: monthMeta.remainingDays,
     impact,
   };
 }
@@ -327,10 +337,15 @@ function buildBudgetSummary(metrics, baseCurrency, monthMeta) {
     safeCount: categories.filter(
       (category) => category.attentionRank === 99,
     ).length,
+    /* limit_reached sebelumnya termasuk near_limit, jadi tetap dihitung di
+       sini. Memisahkannya dari ketiga penghitung akan membuat skor justru
+       naik ketika sebuah jatah habis, dan penilaian ulang bobot bukan bagian
+       dari perbaikan label ini. */
     warningCount: categories.filter(
       (category) =>
         category.paceStatus === "too_fast" ||
-        category.paceStatus === "near_limit",
+        category.paceStatus === "near_limit" ||
+        category.paceStatus === "limit_reached",
     ).length,
     projectedOverCount: categories.filter(
       (category) => category.paceStatus === "projected_over",

@@ -103,7 +103,7 @@ function GoalTracker({ goals, accounts = [], onDelete, onContribute }) {
                         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
                           ${goal.deadline
                             ? `Tenggat ${formatDateTime(`${goal.deadline}T00:00:00`)}`.replace(
-                                ", 00.00",
+                                ", 00:00",
                                 "",
                               )
                             : "Tanpa tenggat tetap"}

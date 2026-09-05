@@ -636,7 +636,7 @@ export function TargetPlanningSection({
                     <p className="text-right text-slate-600 dark:text-slate-400">
                       ${goal.deadline
                         ? `Target ${formatDateTime(`${goal.deadline}T00:00:00`).replace(
-                            ", 00.00",
+                            ", 00:00",
                             "",
                           )}`
                         : "Tanpa deadline"}
@@ -902,7 +902,7 @@ export function TargetPlanningSection({
                     ${selectedDetailGoal.deadline
                       ? `Batas waktu ${formatDateTime(
                           `${selectedDetailGoal.deadline}T00:00:00`,
-                        ).replace(", 00.00", "")}.`
+                        ).replace(", 00:00", "")}.`
                       : "Target ini tidak memiliki deadline."}
                     ${selectedDetailGoal.recommendationAmount > 0
                       ? ` Rekomendasi ${formatCurrency(

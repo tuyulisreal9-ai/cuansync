@@ -51,3 +51,69 @@ test("baris aktivitas desktop menyebut kategori, dompet, dan kapan", async () =>
   assert.match(home, /<span className="lg:hidden">/);
   assert.match(home, /<span className="hidden lg:inline">\$\{konteks\}<\/span>/);
 });
+
+test("jam tidak boleh terbaca sebagai tahun", async () => {
+  const { formatDateTime, formatShortDateTime, formatShortTime } = await import(
+    "../src/lib/dates.js"
+  );
+  const sore = "2026-09-04T20:17:00";
+
+  /* Locale Indonesia memisahkan jam dengan titik, sehingga "04 Sep, 20.17"
+     terbaca sebagai tanggal bertahun 2017. Titik dua tidak pernah muncul pada
+     penulisan tahun, jadi bentuk itulah yang dipakai di semua tampilan jam. */
+  assert.equal(formatShortDateTime(sore), "04 Sep, 20:17");
+  assert.equal(formatShortTime(sore), "20:17");
+  assert.match(formatDateTime(sore), /20:17$/);
+
+  for (const hasil of [
+    formatShortDateTime(sore),
+    formatShortTime(sore),
+    formatDateTime(sore),
+  ]) {
+    assert.doesNotMatch(
+      hasil,
+      /\d\.\d/,
+      `jam masih memakai titik dan mudah dikira tahun: ${hasil}`,
+    );
+  }
+
+  // Tanggal tak valid tidak boleh bocor sebagai "Invalid Date" ke layar.
+  assert.equal(formatShortDateTime("bukan tanggal"), "");
+  assert.equal(formatShortTime(undefined), "");
+  assert.equal(formatDateTime("bukan tanggal"), "");
+});
+
+test("tenggat tanpa jam tetap membuang tengah malam", async () => {
+  const { formatDateTime } = await import("../src/lib/dates.js");
+  const [wealth, planning] = await Promise.all([
+    readFile(
+      new URL("../src/components/assets/WealthGoalsPage.js", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL(
+        "../src/components/budget/TargetPlanningSection.js",
+        import.meta.url,
+      ),
+      "utf8",
+    ),
+  ]);
+
+  /* Ketiga pemanggil membuang jam tengah malam lewat pencocokan untaian.
+     Kalau pemisah jam berubah tanpa memperbarui untaian ini, tenggat akan
+     muncul sebagai "31 Des 2026, 00:00". */
+  const sumber = wealth + planning;
+  const untaianPembuang = (sumber.match(/", 00:00"/g) || []).length;
+  assert.equal(untaianPembuang, 3, "ketiga pemanggil harus diperbarui");
+  assert.doesNotMatch(sumber, /", 00\.00"/, "masih ada untaian pemisah lama");
+
+  // Yang dibuang harus sama persis dengan yang dihasilkan formatter.
+  assert.ok(
+    formatDateTime("2026-12-31T00:00:00").endsWith(", 00:00"),
+    "bentuk tengah malam tidak lagi cocok dengan untaian pembuangnya",
+  );
+  assert.equal(
+    `Tenggat ${formatDateTime("2026-12-31T00:00:00")}`.replace(", 00:00", ""),
+    "Tenggat 31 Des 2026",
+  );
+});

@@ -1,6 +1,5 @@
-const dateTimeFormatter = new Intl.DateTimeFormat("id-ID", {
+const mediumDateFormatter = new Intl.DateTimeFormat("id-ID", {
   dateStyle: "medium",
-  timeStyle: "short",
 });
 
 const dayFormatter = new Intl.DateTimeFormat("id-ID", {
@@ -25,13 +24,21 @@ const shortDateFormatter = new Intl.DateTimeFormat("id-ID", {
   month: "short",
 });
 
-const shortTimeFormatter = new Intl.DateTimeFormat("id-ID", {
-  hour: "2-digit",
-  minute: "2-digit",
-});
+/* Pemisah jam pada locale Indonesia adalah titik, sehingga "04 Sep, 20.17"
+   terbaca sebagai tanggal bertahun 2017 dan bukan pukul 20.17. Jamnya karena
+   itu dirakit sendiri memakai titik dua, tanda yang tidak pernah muncul pada
+   penulisan tahun. Seluruh tampilan jam memakai fungsi ini supaya bentuknya
+   sama di mana pun. */
+function formatClock(date) {
+  const jam = String(date.getHours()).padStart(2, "0");
+  const menit = String(date.getMinutes()).padStart(2, "0");
+  return `${jam}:${menit}`;
+}
 
 export function formatDateTime(value) {
-  return dateTimeFormatter.format(new Date(value));
+  const waktu = new Date(value);
+  if (Number.isNaN(waktu.getTime())) return "";
+  return `${mediumDateFormatter.format(waktu)}, ${formatClock(waktu)}`;
 }
 
 export function formatDay(value) {
@@ -48,16 +55,15 @@ export function formatLongDate(value) {
 }
 
 export function formatShortTime(value) {
-  return shortTimeFormatter.format(new Date(value));
+  const waktu = new Date(value);
+  if (Number.isNaN(waktu.getTime())) return "";
+  return formatClock(waktu);
 }
 
 export function formatShortDateTime(value) {
-  return new Intl.DateTimeFormat("id-ID", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+  const waktu = new Date(value);
+  if (Number.isNaN(waktu.getTime())) return "";
+  return `${dayFormatter.format(waktu)}, ${formatClock(waktu)}`;
 }
 
 /* Waktu relatif untuk baris aktivitas: "2 jam lalu" jauh lebih cepat dibaca
