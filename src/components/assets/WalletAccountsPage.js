@@ -1120,9 +1120,9 @@ export function WalletAccountsPage({
   const reconciliationAccount = detail?.type === "reconciliation"
     ? accounts.find((account) => account.id === detail.id)
     : null;
-  const allocatedBase = Number(
-    metrics.goalAllocationSummaries?.[normalizedBaseCurrency]?.allocatedAmount || 0,
-  );
+  /* Ketiganya berasal dari satu sumber valuasi yang sama, sehingga total
+     selalu sama dengan bisa dipakai ditambah disisihkan. Sebelumnya angka
+     tengah memakai sumber lain dan bisa bertentangan dengan tetangganya. */
   const totalActualBase = Number(metrics.assetAccountTotalValueIdr || 0);
   const spendableBase = Number(metrics.availableBalanceIdr ?? totalActualBase);
   const reservedBase = Math.max(totalActualBase - spendableBase, 0);
@@ -1220,8 +1220,14 @@ export function WalletAccountsPage({
           </div>
           <div className="dc-panel-tile flex flex-1 flex-col gap-[3px] px-3.5 py-3">
             <span className="text-[11px] text-[#9c968b]">Disisihkan</span>
+            ${/* reservedBase saja, tanpa jatuh ke allocatedBase. Keduanya
+                  dinilai dengan cara berbeda, dan cadangan itulah yang selama
+                  ini menutupi bahwa "Bisa dipakai" tidak pernah dikurangi:
+                  tile ini menampilkan angka yang benar dari sumber lain
+                  sementara tetangganya salah. Ketiganya kini satu sumber, jadi
+                  total, bisa dipakai, dan disisihkan selalu berjumlah tepat. */ null}
             <span className="text-[15px] font-bold text-[color:var(--cs-pos)]">
-              ${money(reservedBase || allocatedBase, normalizedBaseCurrency)}
+              ${money(reservedBase, normalizedBaseCurrency)}
             </span>
           </div>
         </div>

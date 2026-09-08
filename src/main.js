@@ -966,6 +966,11 @@ function computeMetrics(
     currentMonthKey,
     currentMonthLabel: formatMonthKey(currentMonthKey),
     balanceIdr: availableBalanceIdr,
+    /* Nama yang sama dengan isinya. Halaman Dompet membaca
+       metrics.availableBalanceIdr, dan selama ini nilainya undefined sehingga
+       diam diam jatuh ke total: "Bisa dipakai" tampil sama persis dengan
+       seluruh uang, padahal sebagian sudah disisihkan ke tabungan. */
+    availableBalanceIdr,
     balanceIdrBase,
     allocatedToGoalsIdr,
     balanceThb,
