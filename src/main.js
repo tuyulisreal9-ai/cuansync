@@ -5712,6 +5712,15 @@ function App() {
       dayKey,
       updatedAt: Date.now(),
       primaryWalletName: primaryAccount?.name || "Belum ada dompet",
+      /* Catat kilat menulis transaksi tanpa membuka WebView, jadi ia perlu
+         tahu dompet mana dan mata uang apa. Pengenal dompet milik pengguna
+         sendiri, tersimpan di penyimpanan privat aplikasi; token dan transaksi
+         mentah tetap tidak pernah ikut. */
+      primaryWalletId: primaryAccount?.id || "",
+      primaryWalletCurrency: primaryAccount
+        ? normalizeCurrencyCode(primaryAccount.currency)
+        : "",
+      baseCurrency,
       todayCount: todayTransactions.length,
       todayExpenseFormatted: hasIncompleteValuation
         ? "Lihat di aplikasi"

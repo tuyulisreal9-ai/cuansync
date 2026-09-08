@@ -28,6 +28,19 @@
     <string name="widget_zero_amount">Belum ada pengeluaran</string>
     <string name="widget_transaction_updated">%1$s · %2$s</string>
 
+    <string name="quick_expense_title">Catat pengeluaran</string>
+    <string name="quick_wallet_placeholder">Dompet utama</string>
+    <string name="quick_hint_category">Masuk ke Makan Harian · bisa diubah di aplikasi</string>
+    <string name="quick_save">Simpan</string>
+    <string name="quick_saving">Menyimpan…</string>
+    <string name="quick_saved">Tercatat.</string>
+    <string name="quick_default_description">Makan</string>
+    <string name="quick_not_ready">Buka CUANSYNC dan masuk dulu, lalu pilih dompet utama.</string>
+    <string name="quick_open_app">Buka CUANSYNC</string>
+    <string name="quick_queued_offline">Belum ada koneksi. Tersimpan dan akan dikirim otomatis.</string>
+    <string name="quick_queued_session">Sesi perlu disegarkan. Tersimpan dan akan dikirim saat aplikasi dibuka.</string>
+    <string name="widget_record">Catat</string>
+
     <plurals name="widget_transaction_count">
         <item quantity="one">%d transaksi hari ini</item>
         <item quantity="other">%d transaksi hari ini</item>

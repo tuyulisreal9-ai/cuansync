@@ -8,15 +8,18 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.Locale;
 
-final class CuansyncWidgetSnapshot {
-    final boolean hasSnapshot;
-    final boolean isSignedIn;
-    final boolean isFreshToday;
-    final boolean hideAmounts;
-    final String primaryWalletName;
-    final String todayExpenseFormatted;
-    final int todayCount;
-    final long updatedAt;
+public final class CuansyncWidgetSnapshot {
+    public final boolean hasSnapshot;
+    public final boolean isSignedIn;
+    public final boolean isFreshToday;
+    public final boolean hideAmounts;
+    public final String primaryWalletName;
+    public final String primaryWalletId;
+    public final String primaryWalletCurrency;
+    public final String baseCurrency;
+    public final String todayExpenseFormatted;
+    public final int todayCount;
+    public final long updatedAt;
 
     private CuansyncWidgetSnapshot(
         boolean hasSnapshot,
@@ -24,6 +27,9 @@ final class CuansyncWidgetSnapshot {
         boolean isFreshToday,
         boolean hideAmounts,
         String primaryWalletName,
+        String primaryWalletId,
+        String primaryWalletCurrency,
+        String baseCurrency,
         String todayExpenseFormatted,
         int todayCount,
         long updatedAt
@@ -33,12 +39,25 @@ final class CuansyncWidgetSnapshot {
         this.isFreshToday = isFreshToday;
         this.hideAmounts = hideAmounts;
         this.primaryWalletName = primaryWalletName;
+        this.primaryWalletId = primaryWalletId;
+        this.primaryWalletCurrency = primaryWalletCurrency;
+        this.baseCurrency = baseCurrency;
         this.todayExpenseFormatted = todayExpenseFormatted;
         this.todayCount = todayCount;
         this.updatedAt = updatedAt;
     }
 
-    static CuansyncWidgetSnapshot read(Context context) {
+    /* Catat kilat hanya mungkin kalau pengguna masih masuk dan dompet
+       tujuannya diketahui. Kesegaran hari tidak diperiksa di sini: dompet
+       utama tidak berubah karena hari berganti. */
+    public boolean bisaCatatKilat() {
+        return hasSnapshot
+            && isSignedIn
+            && !primaryWalletId.isEmpty()
+            && !primaryWalletCurrency.isEmpty();
+    }
+
+    public static CuansyncWidgetSnapshot read(Context context) {
         SharedPreferences preferences = context.getSharedPreferences(
             CuansyncWidgetContract.PREFS_NAME,
             Context.MODE_PRIVATE
@@ -63,6 +82,9 @@ final class CuansyncWidgetSnapshot {
             isFreshToday,
             preferences.getBoolean(CuansyncWidgetContract.KEY_HIDE_AMOUNTS, true),
             preferences.getString(CuansyncWidgetContract.KEY_PRIMARY_WALLET, ""),
+            preferences.getString(CuansyncWidgetContract.KEY_PRIMARY_WALLET_ID, ""),
+            preferences.getString(CuansyncWidgetContract.KEY_PRIMARY_WALLET_CURRENCY, ""),
+            preferences.getString(CuansyncWidgetContract.KEY_BASE_CURRENCY, "IDR"),
             preferences.getString(CuansyncWidgetContract.KEY_TODAY_EXPENSE, ""),
             Math.max(0, preferences.getInt(CuansyncWidgetContract.KEY_TODAY_COUNT, 0)),
             Math.max(0L, preferences.getLong(CuansyncWidgetContract.KEY_UPDATED_AT, 0L))

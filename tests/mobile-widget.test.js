@@ -376,6 +376,14 @@ test("tinggi widget mengikuti ukuran font pengguna", () => {
       // Gambar boleh berukuran tetap karena tidak ikut skala font; teks tidak.
       // Tinggi dp mati membuat nominal terpotong saat ukuran font diperbesar.
       if (tag === "ImageView") continue;
+      // 0dp berpasangan dengan layout_weight bukan tinggi mati: angkanya justru
+      // menyerahkan tinggi sepenuhnya kepada bobot.
+      if (
+        fixedHeight?.[1] === "0" &&
+        /android:layout_weight\s*=\s*"[^"]+"/.test(attributes)
+      ) {
+        continue;
+      }
       assert.equal(
         fixedHeight,
         null,
@@ -387,7 +395,10 @@ test("tinggi widget mengikuti ukuran font pengguna", () => {
     const actionButtons = elements.filter(([, , attributes]) =>
       /@drawable\/cuansync_widget_action_/.test(attributes),
     );
-    assert.ok(actionButtons.length >= 2, `${path} harus punya tombol aksi`);
+    /* Jumlahnya berbeda per widget dan memang boleh berubah: Catat Cepat
+       sengaja tinggal satu tombol, Ringkasan punya tiga. Yang dijaga di sini
+       bukan jumlahnya, melainkan bahwa setiap tombol punya lantai tinggi. */
+    assert.ok(actionButtons.length >= 1, `${path} harus punya tombol aksi`);
     for (const [, tag, attributes] of actionButtons) {
       assert.match(
         attributes,

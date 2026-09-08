@@ -84,20 +84,10 @@ public final class CuansyncWidgetUpdater {
         );
         views.setOnClickPendingIntent(
             R.id.widget_quick_expense,
-            CuansyncWidgetIntents.quickEntry(
+            CuansyncWidgetIntents.quickExpense(
                 context,
                 CuansyncWidgetContract.KIND_QUICK,
-                appWidgetId,
-                "expense"
-            )
-        );
-        views.setOnClickPendingIntent(
-            R.id.widget_quick_income,
-            CuansyncWidgetIntents.quickEntry(
-                context,
-                CuansyncWidgetContract.KIND_QUICK,
-                appWidgetId,
-                "income"
+                appWidgetId
             )
         );
         manager.updateAppWidget(appWidgetId, views);
@@ -166,11 +156,10 @@ public final class CuansyncWidgetUpdater {
         );
         views.setOnClickPendingIntent(
             R.id.widget_summary_expense,
-            CuansyncWidgetIntents.quickEntry(
+            CuansyncWidgetIntents.quickExpense(
                 context,
                 CuansyncWidgetContract.KIND_SUMMARY,
-                appWidgetId,
-                "expense"
+                appWidgetId
             )
         );
         views.setOnClickPendingIntent(
