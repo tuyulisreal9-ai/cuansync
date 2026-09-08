@@ -184,6 +184,7 @@ export function TransactionForm({
   initialTargetId = "",
   initialExpenseCurrency = "",
   initialMovementMode = "exchange",
+  initialAmount = 0,
   workspace = false,
   onRequestAddWallet,
 }) {
@@ -213,7 +214,12 @@ export function TransactionForm({
     occurred_at: toInputDateTime(),
     description: "",
     category: DEFAULT_CATEGORY,
-    amount: "",
+    /* Nominal yang sudah diketik di Catat cepat dibawa masuk. Tanpa ini,
+       berpindah ke form lengkap berarti mengetik ulang dari nol. */
+    amount:
+      Number(initialAmount) > 0
+        ? formatNumericInput(String(initialAmount))
+        : "",
     from_currency: normalizeCurrencyCode(baseCurrencySetting),
     to_currency: "THB",
     from_amount: "",

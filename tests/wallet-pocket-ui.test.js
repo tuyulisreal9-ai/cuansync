@@ -213,5 +213,15 @@ test("catat uang memakai sheet keypad seperti desain", async () => {
   // Form lengkap tidak boleh hilang: tetap dapat dibuka dari dalam sheet untuk
   // tanggal, dompet non-utama, transfer, dan tukar mata uang.
   assert.match(sheet, /onOpenFullForm/);
-  assert.match(main, /onOpenFullForm=\$\{\(entryType\) => openTransactionForm\(entryType\)\}/);
+  /* Nominal yang sudah diketik wajib ikut ke form lengkap. Versi sebelumnya
+     hanya menerima entryType sehingga angkanya terbuang di perjalanan, dan
+     pengguna harus mengetik ulang dari nol — terasa seperti mencatat dua kali. */
+  assert.match(main, /onOpenFullForm=\$\{\(entryType, amount\) =>/);
+  assert.match(main, /openTransactionForm\(entryType, null, amount\)/);
+  assert.match(sheet, /onOpenFullForm\?\.\(entryType, amount\)/);
+
+  // Tanggal diatur di dalam sheet, bukan dengan pindah ke form lain.
+  assert.match(sheet, /type="date"/);
+  assert.match(sheet, /buildOccurredAt\(occurredDate\)/);
+  assert.doesNotMatch(sheet, /Atur detail/);
 });

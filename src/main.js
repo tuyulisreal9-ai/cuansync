@@ -6132,7 +6132,7 @@ function App() {
     setQuickEntryOpen(true);
   }
 
-  function openTransactionForm(entryType = "expense", target = null) {
+  function openTransactionForm(entryType = "expense", target = null, amount = 0) {
     if (!spendableAssetAccounts.length) {
       setToast({
         message: "Tambahkan dompet terlebih dahulu sebelum mencatat transaksi.",
@@ -6149,6 +6149,7 @@ function App() {
     setTransactionTargetDraft({
       id: target?.id || "",
       currency: target?.currency || "",
+      amount: Number(amount) > 0 ? Number(amount) : 0,
     });
     setActiveTab("add");
     setMenuOpen(false);
@@ -6292,6 +6293,7 @@ function App() {
                 initialEntryType=${transactionEntryType}
                 initialTargetId=${transactionTargetDraft.id}
                 initialExpenseCurrency=${transactionTargetDraft.currency}
+                initialAmount=${transactionTargetDraft.amount}
                 onClose=${closeTransactionForm}
                 onRequestAddWallet=${openAssetFormFromQuickAction}
               />
@@ -6620,7 +6622,11 @@ function App() {
         initialAccountId=${quickEntryInitialAccountId}
         initialAmount=${quickEntryInitialAmount}
         requestKey=${quickEntryRequestKey}
-        onOpenFullForm=${(entryType) => openTransactionForm(entryType)}
+        ${/* Nominal yang sudah diketik ikut dibawa. Tanpa ini, pindah ke form
+              lengkap berarti mengetik ulang dari nol, dan itulah yang membuat
+              alurnya terasa seperti mencatat dua kali. */ null}
+        onOpenFullForm=${(entryType, amount) =>
+          openTransactionForm(entryType, null, amount)}
       />
     </main>
     <//>
