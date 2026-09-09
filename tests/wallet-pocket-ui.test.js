@@ -213,5 +213,44 @@ test("catat uang memakai sheet keypad seperti desain", async () => {
   // Form lengkap tidak boleh hilang: tetap dapat dibuka dari dalam sheet untuk
   // tanggal, dompet non-utama, transfer, dan tukar mata uang.
   assert.match(sheet, /onOpenFullForm/);
-  assert.match(main, /onOpenFullForm=\$\{\(entryType\) => openTransactionForm\(entryType\)\}/);
+  /* Nominal yang sudah diketik wajib ikut ke form lengkap. Versi sebelumnya
+     hanya menerima entryType sehingga angkanya terbuang di perjalanan, dan
+     pengguna harus mengetik ulang dari nol — terasa seperti mencatat dua kali. */
+  assert.match(main, /onOpenFullForm=\$\{\(entryType, amount\) =>/);
+  assert.match(main, /openTransactionForm\(entryType, null, amount\)/);
+  assert.match(sheet, /onOpenFullForm\?\.\(entryType, amount\)/);
+
+  // Tanggal diatur di dalam sheet, bukan dengan pindah ke form lain.
+  assert.match(sheet, /type="date"/);
+  assert.match(sheet, /buildOccurredAt\(occurredDate\)/);
+  assert.doesNotMatch(sheet, /Atur detail/);
+});
+
+test("bisa dipakai tidak lagi sama dengan seluruh uang", async () => {
+  const main = await readFile(
+    new URL("../src/main.js", import.meta.url),
+    "utf8",
+  );
+  const page = await readFile(
+    new URL("../src/components/assets/WalletAccountsPage.js", import.meta.url),
+    "utf8",
+  );
+
+  /* Halaman Dompet membaca metrics.availableBalanceIdr, tetapi metrics hanya
+     mengekspornya sebagai balanceIdr. Nilainya undefined, jatuh ke total lewat
+     ??, dan "Bisa dipakai" tampil sama persis dengan seluruh uang walau
+     sebagian sudah disisihkan ke tabungan. */
+  assert.match(page, /metrics\.availableBalanceIdr \?\? totalActualBase/);
+  assert.match(
+    main,
+    /^\s*availableBalanceIdr,\s*$/m,
+    "metrics harus mengekspor availableBalanceIdr",
+  );
+
+  /* Ketiga angka wajib satu sumber. Cadangan ke allocatedBase dulu menampilkan
+     angka benar di tile Disisihkan sementara tetangganya salah, sehingga
+     pertentangannya tidak terlihat sebagai bug. */
+  assert.match(page, /const reservedBase = Math\.max\(totalActualBase - spendableBase, 0\)/);
+  assert.doesNotMatch(page, /reservedBase \|\| allocatedBase/);
+  assert.doesNotMatch(page, /const allocatedBase =/);
 });

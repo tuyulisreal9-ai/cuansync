@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import htm from "htm";
-import { StickyNote } from "lucide-react";
+import { CalendarDays, StickyNote } from "lucide-react";
 import { UNIVERSAL_BUDGET_GROUP } from "../../domain/budgets.js";
+import { getDateInputValue } from "../../lib/dates.js";
 import { useSheetClose } from "../../lib/sheetClose.js";
 import {
   buildKeypad,
@@ -39,9 +40,44 @@ function toKeypadDigits(amount, fractionDigits) {
   return fixed.replace(/0+$/, "").replace(/\.$/, "");
 }
 
-/* Catat cepat: satu layar untuk pemasukan dan pengeluaran sederhana. Transfer,
-   tukar mata uang, tanggal mundur, dan pemilihan dompet non-utama tetap
-   dikerjakan form lengkap lewat tautan "Atur detail". */
+/* Tanggal yang dipilih digabung dengan jam saat ini.
+
+   Memakai tengah malam akan menaruh transaksi kemarin di urutan paling awal
+   hari itu, padahal pengguna hanya lupa mencatat. Jam sekarang membuat
+   urutannya wajar, dan tanggal hari ini tetap memakai waktu sebenarnya. */
+function buildOccurredAt(dateValue) {
+  const sekarang = new Date();
+  if (!dateValue) return sekarang.toISOString();
+
+  const [tahun, bulan, tanggal] = String(dateValue).split("-").map(Number);
+  if (!tahun || !bulan || !tanggal) return sekarang.toISOString();
+
+  const dipilih = new Date(
+    tahun,
+    bulan - 1,
+    tanggal,
+    sekarang.getHours(),
+    sekarang.getMinutes(),
+    sekarang.getSeconds(),
+  );
+  // Penjaga terakhir: tanggal di masa depan ditolak saat menyimpan.
+  return (dipilih.getTime() > sekarang.getTime() ? sekarang : dipilih).toISOString();
+}
+
+function describeDate(dateValue, todayValue) {
+  if (!dateValue || dateValue === todayValue) return "Hari ini";
+  const [tahun, bulan, tanggal] = String(dateValue).split("-").map(Number);
+  if (!tahun || !bulan || !tanggal) return "Hari ini";
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(tahun, bulan - 1, tanggal));
+}
+
+/* Catat cepat: satu layar untuk pemasukan dan pengeluaran sederhana. Tanggal
+   mundur diatur langsung di sini; hanya tukar mata uang yang tetap butuh form
+   lengkap, karena itu jenis transaksi yang berbeda. */
 export function QuickEntrySheet({
   open,
   onClose,
@@ -63,6 +99,9 @@ export function QuickEntrySheet({
   const [accountId, setAccountId] = useState("");
   const [note, setNote] = useState("");
   const [noteOpen, setNoteOpen] = useState(false);
+  const [occurredDate, setOccurredDate] = useState(() =>
+    getDateInputValue(new Date()),
+  );
   const { closing, requestClose } = useSheetClose(onClose, open);
 
   useEffect(() => {
@@ -89,6 +128,7 @@ export function QuickEntrySheet({
     setAccountId(startingAccount?.id || "");
     setNote("");
     setNoteOpen(false);
+    setOccurredDate(getDateInputValue(new Date()));
   }, [open, requestKey]);
 
 
@@ -189,7 +229,7 @@ export function QuickEntrySheet({
     if (!hasAmount || !account) return;
     const payload = {
       type: entryType,
-      occurred_at: new Date().toISOString(),
+      occurred_at: buildOccurredAt(occurredDate),
       description:
         note.trim() ||
         (isExpense
@@ -374,6 +414,47 @@ export function QuickEntrySheet({
             `
           : null}
 
+        ${/* Tanggal diatur di sini, bukan dengan melempar pengguna ke form
+              lain. Sebelumnya satu satunya cara mengubah tanggal adalah pergi
+              ke form lengkap, dan nominal yang sudah diketik ikut hilang di
+              perjalanan. */ null}
+        <label className="flex min-h-11 items-center gap-[11px] px-0.5">
+          <${CalendarDays}
+            aria-hidden="true"
+            className="h-[17px] w-[17px] shrink-0"
+            style=${{ color: "var(--cs-mut)" }}
+            strokeWidth=${1.75}
+          />
+          <span
+            className="flex-1 truncate text-[13.5px]"
+            style=${{ color: "var(--cs-body)" }}
+          >
+            ${describeDate(occurredDate, getDateInputValue(new Date()))}
+          </span>
+          <span className="relative flex items-center">
+            <span
+              className="pointer-events-none text-xs font-bold"
+              style=${{ color: "var(--cs-link)" }}
+            >
+              Ubah
+            </span>
+            ${/* Kolom tanggal asli ditumpuk transparan di atas label supaya
+                  pemilih tanggal bawaan sistem yang muncul, bukan kalender
+                  buatan sendiri yang harus diuji di tiap peramban. */ null}
+            <input
+              type="date"
+              value=${occurredDate}
+              max=${getDateInputValue(new Date())}
+              onChange=${(event) =>
+                setOccurredDate(
+                  event.target.value || getDateInputValue(new Date()),
+                )}
+              aria-label="Tanggal transaksi"
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            />
+          </span>
+        </label>
+
         <div className="flex flex-col gap-1.5">
           <button
             type="button"
@@ -481,16 +562,19 @@ export function QuickEntrySheet({
                 : "Isi jumlahnya dulu"}
         </button>
 
+        ${/* Tinggal tukar mata uang yang butuh form lengkap, karena itu jenis
+              transaksi lain dengan dua dompet dan kurs. Nominal yang sudah
+              diketik ikut dibawa supaya tidak ada pencatatan dua kali. */ null}
         <button
           type="button"
           onClick=${() => {
             onClose();
-            onOpenFullForm?.(entryType, digits);
+            onOpenFullForm?.(entryType, amount);
           }}
           className="min-h-10 text-[13px] font-medium lg:col-span-2"
           style=${{ color: "var(--cs-link)" }}
         >
-          Atur detail — tanggal atau tukar mata uang
+          Butuh transfer atau tukar mata uang?
         </button>
       </div>
     </div>

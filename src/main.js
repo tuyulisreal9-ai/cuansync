@@ -966,6 +966,11 @@ function computeMetrics(
     currentMonthKey,
     currentMonthLabel: formatMonthKey(currentMonthKey),
     balanceIdr: availableBalanceIdr,
+    /* Nama yang sama dengan isinya. Halaman Dompet membaca
+       metrics.availableBalanceIdr, dan selama ini nilainya undefined sehingga
+       diam diam jatuh ke total: "Bisa dipakai" tampil sama persis dengan
+       seluruh uang, padahal sebagian sudah disisihkan ke tabungan. */
+    availableBalanceIdr,
     balanceIdrBase,
     allocatedToGoalsIdr,
     balanceThb,
@@ -5712,6 +5717,15 @@ function App() {
       dayKey,
       updatedAt: Date.now(),
       primaryWalletName: primaryAccount?.name || "Belum ada dompet",
+      /* Catat kilat menulis transaksi tanpa membuka WebView, jadi ia perlu
+         tahu dompet mana dan mata uang apa. Pengenal dompet milik pengguna
+         sendiri, tersimpan di penyimpanan privat aplikasi; token dan transaksi
+         mentah tetap tidak pernah ikut. */
+      primaryWalletId: primaryAccount?.id || "",
+      primaryWalletCurrency: primaryAccount
+        ? normalizeCurrencyCode(primaryAccount.currency)
+        : "",
+      baseCurrency,
       todayCount: todayTransactions.length,
       todayExpenseFormatted: hasIncompleteValuation
         ? "Lihat di aplikasi"
@@ -6123,7 +6137,7 @@ function App() {
     setQuickEntryOpen(true);
   }
 
-  function openTransactionForm(entryType = "expense", target = null) {
+  function openTransactionForm(entryType = "expense", target = null, amount = 0) {
     if (!spendableAssetAccounts.length) {
       setToast({
         message: "Tambahkan dompet terlebih dahulu sebelum mencatat transaksi.",
@@ -6140,6 +6154,7 @@ function App() {
     setTransactionTargetDraft({
       id: target?.id || "",
       currency: target?.currency || "",
+      amount: Number(amount) > 0 ? Number(amount) : 0,
     });
     setActiveTab("add");
     setMenuOpen(false);
@@ -6283,6 +6298,7 @@ function App() {
                 initialEntryType=${transactionEntryType}
                 initialTargetId=${transactionTargetDraft.id}
                 initialExpenseCurrency=${transactionTargetDraft.currency}
+                initialAmount=${transactionTargetDraft.amount}
                 onClose=${closeTransactionForm}
                 onRequestAddWallet=${openAssetFormFromQuickAction}
               />
@@ -6611,7 +6627,11 @@ function App() {
         initialAccountId=${quickEntryInitialAccountId}
         initialAmount=${quickEntryInitialAmount}
         requestKey=${quickEntryRequestKey}
-        onOpenFullForm=${(entryType) => openTransactionForm(entryType)}
+        ${/* Nominal yang sudah diketik ikut dibawa. Tanpa ini, pindah ke form
+              lengkap berarti mengetik ulang dari nol, dan itulah yang membuat
+              alurnya terasa seperti mencatat dua kali. */ null}
+        onOpenFullForm=${(entryType, amount) =>
+          openTransactionForm(entryType, null, amount)}
       />
     </main>
     <//>

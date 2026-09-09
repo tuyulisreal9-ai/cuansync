@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.net.Uri;
 
 import com.cuansync.app.MainActivity;
+import com.cuansync.app.quick.QuickExpenseActivity;
 
 final class CuansyncWidgetIntents {
     private static final int ACTION_OPEN = 1;
@@ -14,6 +15,28 @@ final class CuansyncWidgetIntents {
     private static final int ACTION_TRANSFER = 4;
 
     private CuansyncWidgetIntents() {}
+
+    /* Pengeluaran tidak lagi membuka aplikasi. Layar catat kilat adalah
+       Activity biasa tanpa WebView, jadi ia muncul seketika di atas layar
+       utama dan menyimpan sendiri. Pemasukan dan transfer tetap lewat aplikasi
+       karena keduanya menuntut pilihan yang tidak muat dalam satu ketukan. */
+    static PendingIntent quickExpense(
+        Context context,
+        String providerKind,
+        int appWidgetId
+    ) {
+        Intent intent = new Intent(context, QuickExpenseActivity.class)
+            .addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK |
+                Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            );
+        return activityPendingIntent(
+            context,
+            intent,
+            requestCode(providerKind, appWidgetId, ACTION_EXPENSE)
+        );
+    }
 
     static PendingIntent openApp(
         Context context,

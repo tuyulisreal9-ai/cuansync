@@ -56,6 +56,9 @@ public class CuansyncWidgetPlugin extends Plugin {
             call.getString("primaryWalletName"),
             MAX_WALLET_LENGTH
         );
+        String walletId = sanitizeUuid(call.getString("primaryWalletId"));
+        String walletCurrency = sanitizeCurrency(call.getString("primaryWalletCurrency"));
+        String baseCurrency = sanitizeCurrency(call.getString("baseCurrency"));
         String expense = sanitizeText(
             call.getString("todayExpenseFormatted"),
             MAX_AMOUNT_LENGTH
@@ -66,12 +69,23 @@ public class CuansyncWidgetPlugin extends Plugin {
         editor
             .putString(CuansyncWidgetContract.KEY_DAY_KEY, dayKey)
             .putString(CuansyncWidgetContract.KEY_PRIMARY_WALLET, walletName)
+            .putString(CuansyncWidgetContract.KEY_PRIMARY_WALLET_ID, walletId)
+            .putString(CuansyncWidgetContract.KEY_PRIMARY_WALLET_CURRENCY, walletCurrency)
+            .putString(CuansyncWidgetContract.KEY_BASE_CURRENCY, baseCurrency)
             .putInt(CuansyncWidgetContract.KEY_TODAY_COUNT, todayCount)
             .putString(CuansyncWidgetContract.KEY_TODAY_EXPENSE, expense)
             .putBoolean(CuansyncWidgetContract.KEY_HIDE_AMOUNTS, hideAmounts)
             .apply();
 
         CuansyncWidgetUpdater.refreshAll(getContext());
+        /* Kesempatan kedua bagi pengeluaran yang tertahan: aplikasi sedang
+           terbuka, sesinya baru saja disegarkan, dan jaringannya jelas ada.
+           Di utas terpisah supaya tidak menahan jembatan Capacitor. */
+        final android.content.Context konteks = getContext().getApplicationContext();
+        final String mataUangDasar = baseCurrency.isEmpty() ? "IDR" : baseCurrency;
+        new Thread(() ->
+            com.cuansync.app.quick.QuickExpenseSender.kirimAntrean(konteks, mataUangDasar)
+        ).start();
         resolveUpdated(call);
     }
 
@@ -147,6 +161,25 @@ public class CuansyncWidgetPlugin extends Plugin {
             .trim();
         if (sanitized.length() <= maxLength) return sanitized;
         return sanitized.substring(0, maxLength).trim();
+    }
+
+    /* Hanya bentuk UUID yang diterima. Nilai lain akan tetap ditolak server,
+       tetapi menyaringnya di sini membuat layar catat kilat tahu lebih awal
+       bahwa dompetnya belum siap, bukan gagal setelah pengguna mengetik. */
+    private static String sanitizeUuid(String value) {
+        if (value == null) return "";
+        String bersih = value.trim();
+        return bersih.matches(
+            "(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        )
+            ? bersih
+            : "";
+    }
+
+    private static String sanitizeCurrency(String value) {
+        if (value == null) return "";
+        String bersih = value.trim().toUpperCase(Locale.ROOT);
+        return bersih.matches("^[A-Z]{3}$") ? bersih : "";
     }
 
     private static int clampCount(Integer value) {

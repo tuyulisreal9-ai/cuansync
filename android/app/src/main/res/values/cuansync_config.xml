@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Catat kilat berjalan sebagai layar Android biasa, di luar WebView, jadi ia
+     tidak dapat membaca src/config.js. Nilainya disalin ke sini.
+
+     Kunci ini memang publik: sudah ada di dalam bundel web yang dikirim ke
+     setiap peramban, dan seluruh pengamanan bergantung pada RLS beserta fungsi
+     security definer, bukan pada kerahasiaannya.
+
+     Salinan berarti bisa melenceng, jadi ada test yang membandingkan keduanya
+     dan gagal kalau berbeda. -->
+<resources>
+    <string name="cuansync_supabase_url" translatable="false">https://kltwuquisrequgralzzh.supabase.co</string>
+    <string name="cuansync_supabase_anon_key" translatable="false">sb_publishable_wbMYibldMB_SFIl52ek3FA_V-lxWvCI</string>
+    <string name="cuansync_session_key" translatable="false">sb-kltwuquisrequgralzzh-auth-token</string>
+</resources>

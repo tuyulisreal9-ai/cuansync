@@ -44,6 +44,19 @@
             </intent-filter>
         </activity>
 
+        <!-- Catat kilat. Tidak diekspor: hanya widget milik aplikasi ini yang
+             boleh membukanya, sehingga tidak ada aplikasi lain yang dapat
+             memunculkan layar pencatatan atas nama pengguna. -->
+        <activity
+            android:name=".quick.QuickExpenseActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:noHistory="true"
+            android:label="@string/quick_expense_title"
+            android:theme="@style/CuansyncQuickTheme"
+            android:windowSoftInputMode="stateAlwaysHidden" />
+
         <receiver
             android:name=".widget.CuansyncQuickWidgetProvider"
             android:enabled="true"
