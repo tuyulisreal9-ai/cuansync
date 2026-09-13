@@ -34,7 +34,7 @@ function RecentTransactionPreviewRow({ transaction, fallbackRate = 0 }) {
         </span>
         <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400">
           <span className="truncate">
-            ${flow === "exchange" ? "Exchange" : categoryLabel}
+            ${flow === "exchange" ? "Tukar" : categoryLabel}
           </span>
           <span>${formatShortTime(transaction.occurred_at)}</span>
         </span>

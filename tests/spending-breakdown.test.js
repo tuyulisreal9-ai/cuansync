@@ -157,10 +157,10 @@ test("rincian memakai valuasi yang sama dengan baris jatah", async () => {
     "utf8",
   );
 
-  // metrics.categoryBreakdown menilai valas dengan kurs saat ini, sedangkan
-  // baris jatah memakai kurs historis. Ditaruh berdampingan dengan dua cara
-  // hitung, kategori yang sama akan tampil dua nilai dan itu terbaca sebagai
-  // bug, bukan dua sudut pandang.
+  // metrics.categoryBreakdown (kini sudah dihapus) dulu menilai valas dengan
+  // kurs saat ini, sedangkan baris jatah memakai kurs historis. Ditaruh
+  // berdampingan dengan dua cara hitung, kategori yang sama akan tampil dua
+  // nilai dan itu terbaca sebagai bug, bukan dua sudut pandang.
   assert.match(sumber, /resolveBudgetActivityAmount/);
   assert.match(sumber, /getBudgetCategoryKey/);
   assert.doesNotMatch(sumber, /resolveTransactionCurrentBaseValue/);

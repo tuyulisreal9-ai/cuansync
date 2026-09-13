@@ -118,7 +118,9 @@ test("kolom penerimaan menjadi acuan saat kurs berubah", () => {
     },
   );
 
-  assert.equal(result.from_amount, "2,172,000");
+  /* Kolom rupiah kini dikelompokkan seperti tampilan saldo: 2.172.000.
+     Yang diketik pengguna dengan format lama tetap terbaca utuh. */
+  assert.equal(result.from_amount, "2.172.000");
   assert.equal(result.to_amount, "4,000");
 });
 

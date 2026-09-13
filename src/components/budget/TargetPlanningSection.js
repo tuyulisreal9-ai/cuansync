@@ -16,6 +16,7 @@ import {
   formatCurrency,
   formatNumericInput,
   formatPercent,
+  getNumericInputOptions,
   normalizeCurrencyCode,
   normalizeCurrencyList,
   normalizeNumericInput,
@@ -128,8 +129,8 @@ export function TargetForm({
         : hasDeadline
           ? GOAL_TYPE_COLLECT_BY_DATE
           : GOAL_TYPE_HOLD_BALANCE,
-      target_amount: normalizeNumericInput(form.target_amount),
-      target_amount_idr: normalizeNumericInput(form.target_amount),
+      target_amount: normalizeNumericInput(form.target_amount, getNumericInputOptions(currency)),
+      target_amount_idr: normalizeNumericInput(form.target_amount, getNumericInputOptions(currency)),
       /* Alokasi awal selalu nol: pengisian dana dilakukan lewat aksi
          "Sisihkan" setelah tabungan dibuat. */
       initial_allocation: 0,
@@ -175,7 +176,7 @@ export function TargetForm({
             inputMode="decimal"
             value=${form.target_amount}
             onChange=${(event) =>
-              updateField("target_amount", formatNumericInput(event.target.value))}
+              updateField("target_amount", formatNumericInput(event.target.value, getNumericInputOptions(currency)))}
             placeholder="0"
             className=${INPUT_CLASS}
           />
@@ -347,7 +348,7 @@ export function TargetPlanningSection({
   const selectedActionAccount = actionAccountOptions.find(
     (account) => account.id === actionAccountId,
   );
-  const numericActionAmount = Number(normalizeNumericInput(actionAmount));
+  const numericActionAmount = Number(normalizeNumericInput(actionAmount, getNumericInputOptions(actionGoal?.currency)));
   const selectedAccountLimit = Number(
     action?.type === "assign"
       ? selectedActionAccount?.availableBalance || 0
@@ -405,7 +406,7 @@ export function TargetPlanningSection({
   async function submitAction(event) {
     event.preventDefault();
     if (!actionGoal) return;
-    const amount = normalizeNumericInput(actionAmount);
+    const amount = normalizeNumericInput(actionAmount, getNumericInputOptions(actionGoal?.currency));
     const ok =
       action.type === "move"
         ? await onMoveAllocation(
@@ -836,7 +837,7 @@ export function TargetPlanningSection({
                     inputMode="decimal"
                     value=${actionAmount}
                     onChange=${(event) =>
-                      setActionAmount(formatNumericInput(event.target.value))}
+                      setActionAmount(formatNumericInput(event.target.value, getNumericInputOptions(actionGoal?.currency)))}
                     placeholder="0"
                     className=${INPUT_CLASS}
                   />

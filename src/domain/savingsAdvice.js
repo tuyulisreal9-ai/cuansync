@@ -198,18 +198,35 @@ function adviceFromMissingData(summary) {
       categoryKey: null,
     });
   }
-  if (!summary?.cashFlow?.evaluable) {
-    hasil.push({
-      key: "need_income",
-      rank: 11,
-      tone: "info",
-      title: "Pemasukan bulan ini belum tercatat",
-      detail:
-        "Rasio menabung dan perkiraan kapan target tercapai keduanya dihitung dari pemasukan.",
-      actionLabel: "Catat pemasukan",
-      actionTarget: "income",
-      categoryKey: null,
-    });
+  /* Dua sebab berbeda dulu memakai saran yang sama, sehingga pemasukan valas
+     yang sudah tercatat tetap disuruh "catat pemasukan". */
+  const cashFlow = summary?.cashFlow;
+  if (!cashFlow?.evaluable) {
+    if (cashFlow?.blockedReason === "missing_valuation") {
+      hasil.push({
+        key: "need_valuation",
+        rank: 11,
+        tone: "info",
+        title: `${cashFlow.missingValuationCount} transaksi belum dapat dinilai`,
+        detail:
+          "Arus kas bulan ini menunggu kurs transaksi mata uang asing. Buka transaksinya di Riwayat, lalu isi kursnya.",
+        actionLabel: "Buka riwayat",
+        actionTarget: "history",
+        categoryKey: null,
+      });
+    } else {
+      hasil.push({
+        key: "need_income",
+        rank: 11,
+        tone: "info",
+        title: "Pemasukan bulan ini belum tercatat",
+        detail:
+          "Rasio menabung dan perkiraan kapan target tercapai keduanya dihitung dari pemasukan.",
+        actionLabel: "Catat pemasukan",
+        actionTarget: "income",
+        categoryKey: null,
+      });
+    }
   }
   if (!summary?.goal?.available) {
     hasil.push({

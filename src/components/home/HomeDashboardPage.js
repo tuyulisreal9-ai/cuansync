@@ -76,6 +76,7 @@ function BalancePanel({
   currency,
   visible,
   onToggleVisible,
+  unvaluedCount = 0,
 }) {
   const { symbol, value } = splitCurrency(total, currency);
 
@@ -137,6 +138,18 @@ function BalancePanel({
           amount=${visible ? formatCurrency(expense, currency) : HIDDEN_BALANCE_TEXT}
         />
       </div>
+      ${/* Transaksi yang kursnya belum diketahui tidak ikut dijumlah, jadi
+            disebutkan alih-alih dianggap nol. */ null}
+      ${unvaluedCount > 0
+        ? html`
+            <p
+              className="text-[11px] leading-4"
+              style=${{ color: "var(--cs-panel-mut)" }}
+            >
+              ${unvaluedCount} transaksi belum dapat dinilai dalam ${currency}.
+            </p>
+          `
+        : null}
     </section>
   `;
 }
@@ -624,6 +637,7 @@ export function HomeDashboardPage({
           total=${total}
           income=${Number(metrics.monthlyIncomeIdr || 0)}
           expense=${Number(metrics.monthlyExpenseIdr || 0)}
+          unvaluedCount=${Number(metrics.monthlyUnvaluedCount || 0)}
           currency=${currency}
           visible=${visible}
           onToggleVisible=${onToggleVisible}

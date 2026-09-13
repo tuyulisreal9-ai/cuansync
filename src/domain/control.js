@@ -155,6 +155,10 @@ function getHistoricalFlowTotals(
   baseCurrency,
   timeZone,
 ) {
+  /* Transaksi yang belum bisa dinilai dihitung terpisah per sisi supaya
+     tampilan tahu sisi mana yang belum lengkap, bukan sekadar tahu ada yang
+     kurang. Pemasukan yang belum dapat dinilai tidak sama dengan pemasukan
+     yang memang belum tercatat. */
   const totals = {
     income: 0,
     externalExpenses: 0,
@@ -163,6 +167,8 @@ function getHistoricalFlowTotals(
     expenseCount: 0,
     feeCount: 0,
     missingValuationCount: 0,
+    missingIncomeCount: 0,
+    missingExpenseCount: 0,
   };
 
   transactions
@@ -175,6 +181,7 @@ function getHistoricalFlowTotals(
         );
         if (value == null) {
           totals.missingValuationCount += 1;
+          totals.missingIncomeCount += 1;
           return;
         }
         totals.income += value;
@@ -189,6 +196,7 @@ function getHistoricalFlowTotals(
         );
         if (value == null) {
           totals.missingValuationCount += 1;
+          totals.missingExpenseCount += 1;
           return;
         }
         totals.externalExpenses += value;
@@ -205,6 +213,7 @@ function getHistoricalFlowTotals(
         );
         if (feeValue == null) {
           totals.missingValuationCount += 1;
+          totals.missingExpenseCount += 1;
           return;
         }
         totals.externalExpenses += feeValue;
@@ -463,6 +472,16 @@ function buildCashFlowSummary(
     totals.income > 0 ? netCashFlow / totals.income : null;
   const complete = totals.missingValuationCount === 0;
   const evaluable = complete && totals.income > 0;
+  /* Dua sebab berbeda dulu dicampur menjadi satu: pemasukan yang memang
+     belum tercatat, dan pemasukan yang sudah tercatat tetapi belum bisa
+     dinilai dalam mata uang dasar. Sarannya pun jadi salah alamat. */
+  const blockedReason = complete
+    ? totals.income > 0
+      ? null
+      : "no_income"
+    : "missing_valuation";
+  const incomeRecorded = totals.incomeCount + totals.missingIncomeCount > 0;
+
   const scored = evaluable
     ? getCashFlowScore(savingsRatio)
     : { score: null, status: "Belum dapat dinilai" };
@@ -471,6 +490,8 @@ function buildCashFlowSummary(
     ...totals,
     complete,
     evaluable,
+    blockedReason,
+    incomeRecorded,
     netCashFlow,
     savingsRatio,
     score: scored.score,

@@ -31,6 +31,7 @@ import {
   DEFAULT_BASE_CURRENCY,
   formatNumericInput,
   formatPercent,
+  getNumericInputOptions,
   normalizeCurrencyCode,
   normalizeNumericInput,
 } from "../../lib/currency.js";
@@ -768,7 +769,7 @@ function GoalDetail({
 
   async function submit(event) {
     event.preventDefault();
-    const value = normalizeNumericInput(amount);
+    const value = normalizeNumericInput(amount, getNumericInputOptions(goal.currency));
     const ok =
       actionType === "move"
         ? await onMove?.(
@@ -936,7 +937,7 @@ function GoalDetail({
                   required
                   inputMode="decimal"
                   value=${amount}
-                  onChange=${(event) => setAmount(formatNumericInput(event.target.value))}
+                  onChange=${(event) => setAmount(formatNumericInput(event.target.value, getNumericInputOptions(goal.currency)))}
                   placeholder="0"
                   className="cs-entry-input min-h-11 w-full rounded-lg px-3 text-sm"
                 />
@@ -945,7 +946,7 @@ function GoalDetail({
                 type="submit"
                 disabled=${loading ||
                 !accountId ||
-                !normalizeNumericInput(amount) ||
+                !normalizeNumericInput(amount, getNumericInputOptions(goal.currency)) ||
                 (actionType === "move" && !destinationGoalId)}
                 className="min-h-11 rounded-xl px-3 text-xs font-bold disabled:opacity-50"
                 style=${{ background: "var(--cs-acc)", color: "var(--cs-on-acc)" }}

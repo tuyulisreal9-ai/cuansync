@@ -7,7 +7,10 @@ import {
 } from "lucide-react";
 import { getAssetAccountDisplayName } from "../../domain/assets.js";
 import { getTransactionFlow } from "../../domain/transactions.js";
-import { formatNumericInput } from "../../lib/currency.js";
+import {
+  formatNumericInput,
+  getNumericInputOptions,
+} from "../../lib/currency.js";
 import { formatShortTime } from "../../lib/dates.js";
 import {
   getTransactionCategoryLabel,
@@ -33,14 +36,14 @@ const HISTORY_TYPE_OPTIONS = [
   { value: "all", label: "Semua tipe" },
   { value: "income", label: "Uang masuk" },
   { value: "expense", label: "Uang keluar" },
-  { value: "exchange", label: "Transfer / Exchange" },
+  { value: "exchange", label: "Transfer / Tukar" },
 ];
 
 const TRANSACTION_FILTER_TABS = [
   { value: "all", label: "Semua" },
   { value: "income", label: "Masuk" },
   { value: "expense", label: "Keluar" },
-  { value: "exchange", label: "Exchange" },
+  { value: "exchange", label: "Tukar" },
 ];
 
 export function TransactionFilter({
@@ -155,7 +158,7 @@ export function TransactionFilter({
             placeholder="0"
             value=${filters.minAmount}
             onChange=${(event) =>
-              updateFilter("minAmount", formatNumericInput(event.target.value))}
+              updateFilter("minAmount", formatNumericInput(event.target.value, getNumericInputOptions(filters.currency)))}
             className=${INPUT_CLASS}
           />
         </label>
@@ -169,7 +172,7 @@ export function TransactionFilter({
             placeholder="0"
             value=${filters.maxAmount}
             onChange=${(event) =>
-              updateFilter("maxAmount", formatNumericInput(event.target.value))}
+              updateFilter("maxAmount", formatNumericInput(event.target.value, getNumericInputOptions(filters.currency)))}
             className=${INPUT_CLASS}
           />
         </label>
@@ -264,7 +267,7 @@ export function TransactionItem({
         ? ArrowRightLeft
         : ArrowUpRight;
   const metadata = [
-    flow === "exchange" ? "Transfer / Exchange" : categoryLabel,
+    flow === "exchange" ? "Transfer / Tukar" : categoryLabel,
     accountLabel,
     formatShortTime(transaction.occurred_at),
   ].filter(Boolean);

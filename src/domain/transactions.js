@@ -305,8 +305,14 @@ export function resolveTransactionBaseValue(transaction, fallbackRate = 0) {
   const amount = Math.abs(Number(transaction?.amount || 0));
   const baseAmount = Math.abs(Number(transaction?.base_amount || 0));
   const legacyAmountIdr = Math.abs(Number(transaction?.amount_idr || 0));
+  /* Kurs cadangan boleh berupa fungsi supaya tiap transaksi dinilai dengan
+     kurs mata uangnya sendiri, bukan satu kurs untuk seluruh daftar. */
+  const resolvedFallbackRate =
+    typeof fallbackRate === "function"
+      ? Number(fallbackRate(transaction) || 0)
+      : Number(fallbackRate || 0);
   const rate = Number(
-    transaction?.rate || transaction?.locked_rate || fallbackRate || 0,
+    transaction?.rate || transaction?.locked_rate || resolvedFallbackRate || 0,
   );
 
   if (baseAmount > 0) return baseAmount;
@@ -354,6 +360,30 @@ export function resolveTransactionHistoricalBaseValue(
     return amount * storedRate;
   }
   return null;
+}
+
+/* Menjumlahkan nilai historis sekumpulan transaksi sekaligus menghitung yang
+   belum dapat dinilai, supaya nilai yang belum diketahui tidak diam-diam
+   dihitung sebagai nol di ringkasan. */
+export function sumHistoricalBaseValues(
+  transactions = [],
+  baseCurrency = DEFAULT_BASE_CURRENCY,
+) {
+  return transactions.reduce(
+    (result, transaction) => {
+      const value = resolveTransactionHistoricalBaseValue(
+        transaction,
+        baseCurrency,
+      );
+      if (value == null) {
+        result.missingCount += 1;
+        return result;
+      }
+      result.total += value;
+      return result;
+    },
+    { total: 0, missingCount: 0 },
+  );
 }
 
 export function resolveTransactionFeeHistoricalBaseValue(

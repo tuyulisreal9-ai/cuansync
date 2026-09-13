@@ -21,14 +21,15 @@ import {
   getTransactionFlow,
   getTransactionMainAmount,
   FUTURE_TRANSACTION_DATE_MESSAGE,
-  resolveTransactionBaseValue,
 } from "../../domain/transactions.js";
 import {
   DEFAULT_BASE_CURRENCY,
+  RATE_INPUT_OPTIONS,
   formatCurrency,
   formatMoney,
   formatNumericInput,
   formatRate,
+  getNumericInputOptions,
   normalizeCurrencyCode,
   normalizeNumericInput,
 } from "../../lib/currency.js";
@@ -42,6 +43,7 @@ import {
   getTransactionCompactAmount,
   getTransactionDisplayTitle,
   getTransactionIconLabel,
+  getTransactionIdrValuationWithRate,
   getTransactionTone,
   getTransactionTypeLabel,
 } from "./presentation.js";
@@ -54,14 +56,13 @@ const INPUT_CLASS =
   "w-full min-h-12 rounded-[14px] border px-3.5 text-[14.5px] cs-edit-input";
 const EDIT_LABEL_CLASS = "block px-0.5 text-xs cs-edit-label";
 
-function getTransactionIdrValuationWithRate(transaction, fallbackRate = 0) {
-  const valuation = resolveTransactionBaseValue(transaction, fallbackRate);
-  return valuation > 0 ? valuation : null;
-}
-
-function formatEditNumericValue(value) {
+function formatEditNumericValue(value, currency = null) {
   const numericValue = Math.abs(Number(value || 0));
-  return numericValue > 0 ? formatNumericInput(String(numericValue)) : "";
+  if (!(numericValue > 0)) return "";
+  return formatNumericInput(
+    String(numericValue),
+    getNumericInputOptions(currency),
+  );
 }
 
 function formatExchangeRateOrientation({
@@ -101,14 +102,21 @@ function getTransactionEditForm(transaction) {
     expense_currency: currency,
     from_currency: normalizeCurrencyCode(transaction.from_currency),
     to_currency: normalizeCurrencyCode(transaction.to_currency, "THB"),
-    from_amount: formatEditNumericValue(transaction.from_amount),
-    to_amount: formatEditNumericValue(transaction.to_amount),
-    amount_idr: formatEditNumericValue(transaction.amount_idr),
-    amount_thb: formatEditNumericValue(transaction.amount_thb),
-    amount: formatEditNumericValue(getTransactionAmountValue(transaction)),
-    locked_rate: formatEditNumericValue(
-      rateOrientation?.exchangeRate || rate,
+    from_amount: formatEditNumericValue(
+      transaction.from_amount,
+      transaction.from_currency,
     ),
+    to_amount: formatEditNumericValue(
+      transaction.to_amount,
+      transaction.to_currency,
+    ),
+    amount_idr: formatEditNumericValue(transaction.amount_idr, "IDR"),
+    amount_thb: formatEditNumericValue(transaction.amount_thb, "THB"),
+    amount: formatEditNumericValue(
+      getTransactionAmountValue(transaction),
+      currency,
+    ),
+    locked_rate: formatEditNumericValue(rateOrientation?.exchangeRate || rate),
     rate_base_currency: rateOrientation?.rateBaseCurrency || "",
     rate_quote_currency: rateOrientation?.rateQuoteCurrency || "",
     rate_type: transaction.rate_type || "legacy",
@@ -137,7 +145,14 @@ function TransactionEditForm({
   const transactionCurrency = normalizeCurrencyCode(
     isExpense ? form.expense_currency : form.currency,
   );
-  const amountValue = Number(normalizeNumericInput(form.amount));
+  /* Tiap kolom memakai aturan angka mata uangnya sendiri: rupiah tanpa
+     pecahan, dolar tetap boleh dua angka di belakang koma. */
+  const entryInputOptions = getNumericInputOptions(transactionCurrency);
+  const fromInputOptions = getNumericInputOptions(form.from_currency);
+  const toInputOptions = getNumericInputOptions(form.to_currency);
+  const amountValue = Number(
+    normalizeNumericInput(form.amount, entryInputOptions),
+  );
   const settledEditForm = isExchange
     ? settleExchangeCalculation(form, "locked_rate", {
         rateField: "locked_rate",
@@ -146,8 +161,8 @@ function TransactionEditForm({
         rateQuoteCurrency: form.rate_quote_currency,
       })
     : form;
-  const fromAmount = Number(normalizeNumericInput(settledEditForm.from_amount));
-  const toAmount = Number(normalizeNumericInput(settledEditForm.to_amount));
+  const fromAmount = Number(normalizeNumericInput(settledEditForm.from_amount, fromInputOptions));
+  const toAmount = Number(normalizeNumericInput(settledEditForm.to_amount, toInputOptions));
   const rateValidation = validateExchangeRate(form.locked_rate);
 
   /* Dompet dapat dipindah saat mengubah transaksi. Jalur simpannya memang
@@ -215,9 +230,9 @@ function TransactionEditForm({
       (fromAmount <= 0 ||
         toAmount <= 0 ||
         !rateValidation.valid ||
-        (isTransfer && Number(normalizeNumericInput(form.locked_rate)) !== 1)));
+        (isTransfer && Number(normalizeNumericInput(form.locked_rate, RATE_INPUT_OPTIONS)) !== 1)));
   const formSubtitle = isExchange
-    ? "Exchange"
+    ? "Tukar"
     : isIncome
       ? `Uang masuk | ${transactionCurrency}`
       : `Uang keluar | ${transactionCurrency}`;
@@ -355,11 +370,11 @@ function TransactionEditForm({
               </span>
               <input
                 type="text"
-                inputMode="decimal"
+                inputMode=${fromInputOptions.allowDecimal ? "decimal" : "numeric"}
                 autoComplete="off"
                 value=${form.from_amount}
                 onChange=${(event) =>
-                  updateField("from_amount", formatNumericInput(event.target.value))}
+                  updateField("from_amount", formatNumericInput(event.target.value, fromInputOptions))}
                 onBlur=${() => settleExchangeField("from_amount")}
                 placeholder="0"
                 required
@@ -373,12 +388,12 @@ function TransactionEditForm({
               </span>
               <input
                 type="text"
-                inputMode="decimal"
+                inputMode=${toInputOptions.allowDecimal ? "decimal" : "numeric"}
                 autoComplete="off"
                 required
                 value=${form.to_amount}
                 onChange=${(event) =>
-                  updateField("to_amount", formatNumericInput(event.target.value))}
+                  updateField("to_amount", formatNumericInput(event.target.value, toInputOptions))}
                 onBlur=${() => settleExchangeField("to_amount")}
                 placeholder="0"
                 className=${INPUT_CLASS}
@@ -398,7 +413,7 @@ function TransactionEditForm({
                 autoComplete="off"
                 value=${form.locked_rate}
                 onChange=${(event) =>
-                  updateField("locked_rate", formatNumericInput(event.target.value))}
+                  updateField("locked_rate", formatNumericInput(event.target.value, RATE_INPUT_OPTIONS))}
                 onBlur=${() => settleExchangeField("locked_rate")}
                 placeholder="0"
                 required
@@ -467,11 +482,11 @@ function TransactionEditForm({
               </span>
               <input
                 type="text"
-                inputMode="decimal"
+                inputMode=${entryInputOptions.allowDecimal ? "decimal" : "numeric"}
                 autoComplete="off"
                 value=${form.amount}
                 onChange=${(event) =>
-                  updateField("amount", formatNumericInput(event.target.value))}
+                  updateField("amount", formatNumericInput(event.target.value, entryInputOptions))}
                 placeholder="0"
                 required
                 className=${INPUT_CLASS}
@@ -645,7 +660,7 @@ export function TransactionDetailSheet({
   const amountText = isExchange
     ? `${compactAmount.primary} -> ${compactAmount.secondary}`
     : `${signedPrefix}${formatCurrency(mainAmount, currency)}`;
-  const currencyLabel = isExchange ? "Transfer / Exchange" : currency.toUpperCase();
+  const currencyLabel = isExchange ? "Transfer / Tukar" : currency.toUpperCase();
   const showValuation = valuationIdr != null;
   const exchangeRateOrientation = isExchange
     ? deriveStoredExchangeRateOrientation(transaction)
