@@ -16,6 +16,7 @@ import {
 import {
   formatNumericInput,
   getCurrencyMeta,
+  getNumericInputOptions,
   normalizeNumericInput,
 } from "../../lib/currency.js";
 import { useMaskedCurrency } from "../../lib/balanceVisibility.js";
@@ -300,7 +301,8 @@ export function AccountReconciliationForm({
   const [error, setError] = useState("");
 
   const currency = account?.currency || "IDR";
-  const allowDecimal = getCurrencyMeta(currency).fractionDigits > 0;
+  const numericInputOptions = getNumericInputOptions(currency);
+  const { allowDecimal } = numericInputOptions;
   const appBalance = readNumber(
     account?.balanceAmount,
     account?.actualBalance,
@@ -315,9 +317,10 @@ export function AccountReconciliationForm({
     account?.available_balance,
     Math.max(appBalance - reservedBalance, 0),
   );
-  const normalizedBankBalance = normalizeNumericInput(bankBalanceInput, {
-    allowDecimal,
-  });
+  const normalizedBankBalance = normalizeNumericInput(
+    bankBalanceInput,
+    numericInputOptions,
+  );
   const numericBankBalance = Number(normalizedBankBalance);
   const hasValidBalance =
     normalizedBankBalance !== "" &&
@@ -474,7 +477,7 @@ export function AccountReconciliationForm({
             value=${bankBalanceInput}
             onChange=${(event) => {
               setBankBalanceInput(
-                formatNumericInput(event.target.value, { allowDecimal }),
+                formatNumericInput(event.target.value, numericInputOptions),
               );
               setError("");
             }}

@@ -8,7 +8,6 @@ import {
   getTransactionFlow,
   getTransactionMainAmount,
   orderTransactions,
-  resolveTransactionBaseValue,
 } from "../../domain/transactions.js";
 import {
   getCurrencyOptions,
@@ -26,6 +25,7 @@ import {
   getTransactionCategoryKey,
   getTransactionCategoryLabel,
   getTransactionDisplayTitle,
+  getTransactionIdrValuationWithRate,
   getTransactionTypeLabel,
 } from "./presentation.js";
 export const HISTORY_VISIBLE_LIMIT = 30;
@@ -49,25 +49,15 @@ export function getHistoryCurrencyOptions(activeCurrencies = []) {
   ];
 }
 
-function getTransactionIdrValuation(transaction) {
-  const valuation = resolveTransactionBaseValue(transaction);
-  return valuation > 0 ? valuation : null;
-}
-
-function getTransactionIdrValuationWithRate(transaction, fallbackRate = 0) {
-  const valuation = resolveTransactionBaseValue(transaction, fallbackRate);
-  return valuation > 0 ? valuation : null;
-}
-
 function getTransactionComparableAmount(transaction) {
-  return getTransactionIdrValuation(transaction) ?? getTransactionMainAmount(transaction);
+  return getTransactionIdrValuationWithRate(transaction) ?? getTransactionMainAmount(transaction);
 }
 
 export function getHistoryCategoryOptions(transactions) {
   return [
     { value: "all", label: "Semua kategori" },
     { value: "income", label: "Pemasukan" },
-    { value: "exchange", label: "Transfer / Exchange" },
+    { value: "exchange", label: "Transfer / Tukar" },
     ...CATEGORY_OPTIONS.map((category) => ({
       value: getBudgetCategoryKey(category.value),
       label: category.label,

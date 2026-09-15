@@ -14,10 +14,12 @@ import {
   resolveAutomaticBudgetRate,
 } from "../../domain/budgets.js";
 import {
+  RATE_INPUT_OPTIONS,
   formatAutoNumericValue,
   formatCurrency,
   formatMoney,
   formatNumericInput,
+  getNumericInputOptions,
   normalizeCurrencyCode,
   normalizeNumericInput,
 } from "../../lib/currency.js";
@@ -95,7 +97,7 @@ function BudgetRateSheet({
   function applyRate() {
     const nextRate =
       mode === "custom"
-        ? Number(normalizeNumericInput(customRate))
+        ? Number(normalizeNumericInput(customRate, RATE_INPUT_OPTIONS))
         : Number(automatic.rate || 0);
     if (!nextRate || nextRate <= 0) {
       setError(
@@ -170,7 +172,7 @@ function BudgetRateSheet({
                 ? formatAutoNumericValue(automatic.rate)
                 : customRate}
               onChange=${(event) =>
-                setCustomRate(formatNumericInput(event.target.value))}
+                setCustomRate(formatNumericInput(event.target.value, RATE_INPUT_OPTIONS))}
               placeholder="0"
               className=${INPUT_CLASS}
             />
@@ -193,7 +195,7 @@ function BudgetRateSheet({
         <div className="rounded-lg border border-emerald-300/25 bg-emerald-400/8 px-3 py-2.5">
           <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
             ${formatPlanningRate(
-              mode === "automatic" ? automatic.rate : normalizeNumericInput(customRate),
+              mode === "automatic" ? automatic.rate : normalizeNumericInput(customRate, RATE_INPUT_OPTIONS),
               inputCurrency,
               baseCurrency,
             )}
@@ -267,7 +269,7 @@ function BudgetSection({
         budget.categoryKey === getBudgetCategoryKey(selectedCategory),
     ) || null;
   const officialAmount = calculateBudgetBaseAmount({
-    inputAmount: normalizeNumericInput(inputAmount),
+    inputAmount: normalizeNumericInput(inputAmount, getNumericInputOptions(inputCurrency)),
     inputCurrency,
     baseCurrency,
     planningRate,
@@ -374,7 +376,7 @@ function BudgetSection({
   async function submit(event) {
     event.preventDefault();
     const normalizedInputAmount = Number(
-      normalizeNumericInput(inputAmount),
+      normalizeNumericInput(inputAmount, getNumericInputOptions(inputCurrency)),
     );
     if (!normalizedInputAmount || normalizedInputAmount <= 0) {
       setFormError("Batas pengeluaran bulanan harus lebih besar dari 0.");
@@ -486,7 +488,7 @@ function BudgetSection({
                   enterKeyHint="done"
                   value=${inputAmount}
                   onChange=${(event) =>
-                    setInputAmount(formatNumericInput(event.target.value))}
+                    setInputAmount(formatNumericInput(event.target.value, getNumericInputOptions(inputCurrency)))}
                   placeholder="0"
                   className=${INPUT_CLASS}
                 />
@@ -885,12 +887,9 @@ export function BudgetWorkspacePage({
   const attentionCount =
     Number(metrics.overspentCount || 0) + Number(metrics.warningCount || 0);
 
-  // Seksi Target sudah pindah ke halaman Dompet, jadi permintaan fokus
-  // "__goals__" diarahkan ke sana, bukan digulir di halaman ini.
-  useEffect(() => {
-    if (focusCategoryKey !== "__goals__") return;
-    onNavigate?.("investment");
-  }, [focusCategoryKey]);
+  /* Permintaan membuka Target kini diarahkan ke halaman Dompet sejak dari
+     tombolnya. Halaman ini tidak lagi mengalihkan dirinya sendiri saat
+     dipasang: efek itulah yang membuat tab Jatah tidak bisa dibuka lagi. */
 
   return html`
     ${/* max-w-md adalah lebar ponsel. Tanpa penyesuaian lg, halaman ini
@@ -934,9 +933,7 @@ export function BudgetWorkspacePage({
         loading=${loading}
         onBudgetDelete=${onBudgetDelete}
         onBudgetSubmit=${onBudgetSubmit}
-        focusCategoryKey=${focusCategoryKey === "__goals__"
-          ? null
-          : focusCategoryKey}
+        focusCategoryKey=${focusCategoryKey}
         daysLeftInMonth=${daysLeft}
         onOpenCategoryHistory=${onOpenCategoryHistory}
       />

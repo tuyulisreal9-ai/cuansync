@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import htm from "htm";
-import { getLatestRateForCurrencyUntil } from "../../domain/exchange.js";
+import { createTransactionFallbackRate } from "../../domain/exchange.js";
 import { transactionBelongsToAccount } from "../../domain/transactions.js";
 import {
   DEFAULT_BASE_CURRENCY,
@@ -55,6 +55,7 @@ export function TransactionHistoryPage({
   monthLabel = "",
   monthlyIncome = null,
   monthlyExpense = null,
+  unvaluedCount = 0,
   focusCategory = "",
 }) {
   const [filters, setFilters] = useState(() => ({ ...DEFAULT_TRANSACTION_FILTERS }));
@@ -92,13 +93,11 @@ export function TransactionHistoryPage({
     () => new Map(assetAccounts.map((account) => [account.id, account])),
     [assetAccounts],
   );
-  const latestRate = useMemo(
-    () => getLatestRateForCurrencyUntil(
-      transactions,
-      "THB",
-      new Date(8640000000000000),
-      baseCurrency,
-    ),
+  /* Kurs cadangan mengikuti mata uang tiap transaksi. Dulu satu kurs baht
+     dipakai untuk semua baris, sehingga nominal USD ikut dinilai memakai
+     kurs baht begitu ada satu tukar ke THB. */
+  const resolveFallbackRate = useMemo(
+    () => createTransactionFallbackRate(transactions, baseCurrency),
     [transactions, baseCurrency],
   );
   const exportTransactions = useMemo(
@@ -225,7 +224,11 @@ export function TransactionHistoryPage({
 
   function handleDownloadMonth() {
     if (!exportMonthKey || exportCount === 0) return;
-    downloadMonthlyStatement(exportTransactions, exportMonthKey, latestRate);
+    downloadMonthlyStatement(
+      exportTransactions,
+      exportMonthKey,
+      resolveFallbackRate,
+    );
     setExportSheetOpen(false);
   }
 
@@ -233,30 +236,42 @@ export function TransactionHistoryPage({
     <div className="history-page grid gap-2.5 pb-[calc(5.75rem+env(safe-area-inset-bottom))] lg:pb-0">
       ${Number.isFinite(monthlyIncome) && Number.isFinite(monthlyExpense)
         ? html`
-            <section className="dc-panel flex gap-4 p-[18px]">
-              <div className="flex flex-1 flex-col gap-1">
-                <span className="text-[11.5px] text-[#9c968b]">
-                  Masuk ${monthLabel}
-                </span>
-                <span
-                  className="dc-num text-[16px]"
-                  style=${{ color: "var(--cs-pos)" }}
-                >
-                  +${formatCurrency(monthlyIncome, normalizeCurrencyCode(baseCurrency))}
-                </span>
+            <section className="dc-panel flex flex-col gap-2 p-[18px]">
+              <div className="flex gap-4">
+                <div className="flex flex-1 flex-col gap-1">
+                  <span className="text-[11.5px] text-[#9c968b]">
+                    Masuk ${monthLabel}
+                  </span>
+                  <span
+                    className="dc-num text-[16px]"
+                    style=${{ color: "var(--cs-pos)" }}
+                  >
+                    +${formatCurrency(monthlyIncome, normalizeCurrencyCode(baseCurrency))}
+                  </span>
+                </div>
+                <div
+                  className="w-px shrink-0"
+                  style=${{ background: "rgba(250,247,241,0.14)" }}
+                ></div>
+                <div className="flex flex-1 flex-col gap-1">
+                  <span className="text-[11.5px] text-[#9c968b]">
+                    Keluar ${monthLabel}
+                  </span>
+                  <span className="dc-num text-[16px]">
+                    −${formatCurrency(monthlyExpense, normalizeCurrencyCode(baseCurrency))}
+                  </span>
+                </div>
               </div>
-              <div
-                className="w-px shrink-0"
-                style=${{ background: "rgba(250,247,241,0.14)" }}
-              ></div>
-              <div className="flex flex-1 flex-col gap-1">
-                <span className="text-[11.5px] text-[#9c968b]">
-                  Keluar ${monthLabel}
-                </span>
-                <span className="dc-num text-[16px]">
-                  −${formatCurrency(monthlyExpense, normalizeCurrencyCode(baseCurrency))}
-                </span>
-              </div>
+              ${/* Transaksi yang kursnya belum diketahui tidak ikut dijumlah.
+                    Tanpa catatan ini, totalnya terlihat lengkap padahal ada
+                    yang tertinggal. */ null}
+              ${unvaluedCount > 0
+                ? html`
+                    <p className="text-[11px] leading-4 text-amber-700 dark:text-amber-300">
+                      ${unvaluedCount} transaksi belum dapat dinilai dalam ${normalizeCurrencyCode(baseCurrency)} dan belum masuk hitungan ini.
+                    </p>
+                  `
+                : null}
             </section>
           `
         : null}
@@ -360,7 +375,7 @@ export function TransactionHistoryPage({
                               key=${transaction.id}
                               transaction=${transaction}
                               onOpen=${setSelectedTransaction}
-                              fallbackRate=${latestRate}
+                              fallbackRate=${resolveFallbackRate}
                               accountById=${accountById}
                             />
                           `,
@@ -452,7 +467,7 @@ export function TransactionHistoryPage({
         onClose=${() => setSelectedTransaction(null)}
         onDelete=${onDelete}
         onUpdate=${onUpdate}
-        fallbackRate=${latestRate}
+        fallbackRate=${resolveFallbackRate}
         loading=${loading}
         activeCurrencies=${activeCurrencies}
         baseCurrency=${baseCurrency}

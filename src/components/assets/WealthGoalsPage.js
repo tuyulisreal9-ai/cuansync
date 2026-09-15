@@ -23,6 +23,7 @@ import {
   formatNumericInput,
   formatPercent,
   getCurrencyOptions,
+  getNumericInputOptions,
   normalizeCurrencyList,
   normalizeNumericInput,
 } from "../../lib/currency.js";
@@ -63,7 +64,7 @@ function GoalTracker({ goals, accounts = [], onDelete, onContribute }) {
     event.preventDefault();
     onContribute(
       goal,
-      normalizeNumericInput(amount),
+      normalizeNumericInput(amount, getNumericInputOptions(goal.currency)),
       openAction,
       accountId,
     ).then((ok) => {
@@ -203,7 +204,7 @@ function GoalTracker({ goals, accounts = [], onDelete, onContribute }) {
                                 : "Jumlah setor (IDR)"}
                               value=${amount}
                               onChange=${(event) =>
-                                setAmount(formatNumericInput(event.target.value))}
+                                setAmount(formatNumericInput(event.target.value, getNumericInputOptions(goal.currency)))}
                               className=${INPUT_CLASS}
                             />
                             <button
@@ -391,7 +392,7 @@ function AssetAccountForm({
     event.preventDefault();
     const ok = await onSubmit({
       ...form,
-      balance_amount: normalizeNumericInput(form.balance_amount),
+      balance_amount: normalizeNumericInput(form.balance_amount, getNumericInputOptions(form.currency)),
     });
     if (ok) {
       setForm({
@@ -485,7 +486,7 @@ function AssetAccountForm({
               autoComplete="off"
               value=${form.balance_amount}
               onChange=${(event) =>
-                updateField("balance_amount", formatNumericInput(event.target.value))}
+                updateField("balance_amount", formatNumericInput(event.target.value, getNumericInputOptions(form.currency)))}
               placeholder="0"
               className=${INPUT_CLASS}
             />

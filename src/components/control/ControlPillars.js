@@ -32,6 +32,18 @@ function formatRunwayDuration(months) {
 }
 
 function getCashFlowPresentation(cashFlow) {
+  /* Pemasukan yang sudah tercatat tetapi kursnya belum diketahui bukan
+     "belum ada pemasukan". Dulu keduanya memakai ajakan yang sama, sehingga
+     pengguna yang sudah mencatat pemasukan valas disuruh mencatat lagi. */
+  if (cashFlow.blockedReason === "missing_valuation") {
+    return {
+      tone: "muted",
+      status: "Belum cukup data",
+      metric: "Belum dapat dinilai",
+      progress: 0,
+      nudge: `${cashFlow.missingValuationCount} transaksi belum dapat dinilai. Isi kursnya lewat Riwayat.`,
+    };
+  }
   if (!cashFlow.evaluable) {
     return {
       tone: "muted",
@@ -267,6 +279,8 @@ function FoundationCard({
   `;
 }
 
+const INCOMPLETE_VALUE_TEXT = "Belum dapat dinilai";
+
 function CashFlowDetails({ summary, visible }) {
   const { cashFlow, baseCurrency } = summary;
   const ratio =
@@ -274,24 +288,35 @@ function CashFlowDetails({ summary, visible }) {
       ? "Belum tersedia"
       : `${Math.round(cashFlow.savingsRatio * 100)}%`;
 
+  /* Transaksi yang kursnya belum diketahui dulu dihitung nol, sehingga
+     pemasukan valas tampil Rp 0 dan sisa bulan berwarna merah seolah-olah
+     defisit. Angkanya sekarang ditahan sampai semuanya bisa dinilai. */
+  const incomeIncomplete = cashFlow.missingIncomeCount > 0;
+  const expenseIncomplete = cashFlow.missingExpenseCount > 0;
+  const netIncomplete = !cashFlow.complete;
+  const formatFlow = (value, incomplete) =>
+    incomplete && visible
+      ? INCOMPLETE_VALUE_TEXT
+      : formatControlMoney(value, baseCurrency, visible);
+
   return html`
     <div className="divide-y divide-slate-200/90 dark:divide-slate-800">
       <${ControlSummaryLine}
         label="Pemasukan"
-        value=${formatControlMoney(cashFlow.income, baseCurrency, visible)}
+        value=${formatFlow(cashFlow.income, incomeIncomplete)}
       />
       <${ControlSummaryLine}
         label="Pengeluaran"
-        value=${formatControlMoney(
-          cashFlow.externalExpenses,
-          baseCurrency,
-          visible,
-        )}
+        value=${formatFlow(cashFlow.externalExpenses, expenseIncomplete)}
       />
       <${ControlSummaryLine}
         label="Sisa bulan ini"
-        value=${formatControlMoney(cashFlow.netCashFlow, baseCurrency, visible)}
-        tone=${cashFlow.netCashFlow < 0 ? "text-rose-500" : "text-emerald-600 dark:text-emerald-300"}
+        value=${formatFlow(cashFlow.netCashFlow, netIncomplete)}
+        tone=${netIncomplete
+          ? CONTROL_MUTED
+          : cashFlow.netCashFlow < 0
+            ? "text-rose-500"
+            : "text-emerald-600 dark:text-emerald-300"}
       />
       <${ControlSummaryLine} label="Porsi yang tersisa" value=${ratio} />
       <p className=${`pt-3 text-[10px] leading-4 ${CONTROL_MUTED}`}>
@@ -301,6 +326,7 @@ function CashFlowDetails({ summary, visible }) {
         ? html`
             <p className="pt-2 text-[10px] leading-4 text-amber-700 dark:text-amber-300">
               ${cashFlow.missingValuationCount} transaksi belum dapat dihitung dalam ${baseCurrency}.
+              Isi kursnya lewat Riwayat supaya arus kas bulan ini lengkap.
             </p>
           `
         : null}
@@ -420,8 +446,11 @@ export function ControlPillars({
           presentation=${cashFlow}
           actionLabel=${summary.cashFlow.evaluable
             ? "Lihat transaksi"
-            : "Catat pemasukan"}
-          onAction=${summary.cashFlow.evaluable
+            : summary.cashFlow.blockedReason === "missing_valuation"
+              ? "Buka riwayat"
+              : "Catat pemasukan"}
+          onAction=${summary.cashFlow.evaluable ||
+            summary.cashFlow.blockedReason === "missing_valuation"
             ? () => onNavigate("history")
             : onAddIncome}
           expanded=${expandedKey === "cashFlow"}

@@ -44,9 +44,11 @@ import {
 import {
   DEFAULT_ACTIVE_CURRENCIES,
   DEFAULT_BASE_CURRENCY,
+  RATE_INPUT_OPTIONS,
   formatCurrency,
   formatMoney,
   formatNumericInput,
+  getNumericInputOptions,
   normalizeCurrencyCode,
   normalizeCurrencyList,
   normalizeNumericInput,
@@ -123,9 +125,58 @@ function formatRateInputValue(value) {
   if (!raw) return "";
   const negative = raw.startsWith("-");
   const unsigned = raw.replace(/^[+-]/, "");
-  const formatted = formatNumericInput(unsigned);
+  const formatted = formatNumericInput(unsigned, RATE_INPUT_OPTIONS);
   if (!formatted) return negative ? "-" : "";
   return `${negative ? "-" : ""}${formatted}`;
+}
+
+/* Satu label untuk enam alasan membuat saldo yang kurang terbaca seperti
+   nominal yang belum diisi. Tombol menyebut alasan pertama yang memang
+   menghalangi, mengikuti urutan isian di form. */
+export function getMovementBlockReason({
+  sourceAccount = null,
+  destinationAccount = null,
+  isTransfer = false,
+  rateValid = false,
+  fromAmount = 0,
+  toAmount = 0,
+  balanceSufficient = true,
+  dateInvalid = false,
+  disabled = false,
+}) {
+  if (!sourceAccount) return "Pilih dompet asal";
+  if (!destinationAccount) return "Pilih dompet tujuan";
+  if (sourceAccount.id === destinationAccount.id) return "Pilih dua dompet berbeda";
+  if (isTransfer && sourceAccount.currency !== destinationAccount.currency) {
+    return "Transfer perlu mata uang yang sama";
+  }
+  if (!isTransfer && sourceAccount.currency === destinationAccount.currency) {
+    return "Tukar perlu dua mata uang berbeda";
+  }
+  if (!rateValid) return "Isi kursnya dulu";
+  if (!(fromAmount > 0)) return "Isi jumlahnya dulu";
+  if (!(toAmount > 0)) return "Jumlah diterima belum terisi";
+  if (!balanceSufficient) {
+    return `Saldo ${sourceAccount.name || "dompet asal"} tidak cukup`;
+  }
+  if (dateInvalid) return "Tanggalnya belum benar";
+  return disabled ? "Lengkapi isian yang kurang" : null;
+}
+
+/* Teks bantuan dulu selalu meminta "Isi jumlahnya dulu" walau nominalnya
+   sudah terisi, sehingga terbaca seperti form yang tidak merespons. */
+export function getMovementHelperText({
+  sourceAccount = null,
+  balanceSufficient = true,
+  fromAmount = 0,
+}) {
+  if (!balanceSufficient && sourceAccount) {
+    return `Saldo ${sourceAccount.name} tidak mencukupi.`;
+  }
+  if (!(fromAmount > 0)) {
+    return "Isi jumlahnya dulu, nanti kelihatan uangnya masuk berapa.";
+  }
+  return "";
 }
 
 function SegmentButton({ active, children, onClick, tone = "emerald" }) {
@@ -218,7 +269,15 @@ export function TransactionForm({
        berpindah ke form lengkap berarti mengetik ulang dari nol. */
     amount:
       Number(initialAmount) > 0
-        ? formatNumericInput(String(initialAmount))
+        ? formatNumericInput(
+            String(initialAmount),
+            getNumericInputOptions(
+              normalizeCurrencyCode(
+                initialExpenseCurrency || dailyCurrencySetting,
+                baseCurrencySetting,
+              ),
+            ),
+          )
         : "",
     from_currency: normalizeCurrencyCode(baseCurrencySetting),
     to_currency: "THB",
@@ -257,6 +316,11 @@ export function TransactionForm({
   const isTransfer = isMovement && movementMode === "transfer";
   const selectedCurrency = isIncome ? incomeCurrency : expenseCurrency;
   const selectedCurrencyCode = normalizeCurrencyCode(selectedCurrency);
+  /* Pemisah ribuan dan desimal tiap kolom mengikuti mata uang dompetnya,
+     supaya "25.000" di kolom rupiah tidak pernah terbaca sebagai 25. */
+  const entryInputOptions = getNumericInputOptions(selectedCurrencyCode);
+  const fromInputOptions = getNumericInputOptions(form.from_currency);
+  const toInputOptions = getNumericInputOptions(form.to_currency);
   const selectedAccountField = isIncome
     ? "destination_account_id"
     : "source_account_id";
@@ -298,7 +362,7 @@ export function TransactionForm({
   ) || null;
   const sourceAccount = accountById.get(form.source_account_id) || null;
   const destinationAccount = accountById.get(form.destination_account_id) || null;
-  const entryAmount = Number(normalizeNumericInput(form.amount) || 0);
+  const entryAmount = Number(normalizeNumericInput(form.amount, entryInputOptions) || 0);
   const selectedAvailableBalance = Number(
     selectedEntryAccount?.availableBalance ??
       selectedEntryAccount?.available_balance ??
@@ -379,20 +443,25 @@ export function TransactionForm({
         rateQuoteCurrency,
       })
     : form;
-  const parsedAmount = Number(normalizeNumericInput(form.amount));
+  const parsedAmount = Number(
+    normalizeNumericInput(form.amount, entryInputOptions),
+  );
   const parsedFromAmount = Number(
-    normalizeNumericInput(settledMovementForm.from_amount),
+    normalizeNumericInput(settledMovementForm.from_amount, fromInputOptions),
   );
   const parsedToAmount = Number(
-    normalizeNumericInput(settledMovementForm.to_amount),
+    normalizeNumericInput(settledMovementForm.to_amount, toInputOptions),
   );
-  const parsedFeeAmount = Math.max(Number(normalizeNumericInput(form.fee_amount)), 0);
+  const parsedFeeAmount = Math.max(
+    Number(normalizeNumericInput(form.fee_amount, fromInputOptions)),
+    0,
+  );
   const serializedExchangeRate = serializeExchangeRate(form.exchange_rate);
   const parsedExchangeRate = Number(serializedExchangeRate || 0);
   const exchangeRateValidation = validateExchangeRate(form.exchange_rate);
   const sourceDebitAmount = addExchangeDecimals(
-    normalizeNumericInput(settledMovementForm.from_amount) || "0",
-    normalizeNumericInput(form.fee_amount) || "0",
+    normalizeNumericInput(settledMovementForm.from_amount, fromInputOptions) || "0",
+    normalizeNumericInput(form.fee_amount, fromInputOptions) || "0",
   );
   const sourceBalanceAmount = Number(
     sourceAccount?.balance_amount ?? sourceAccount?.balanceAmount ?? 0,
@@ -472,6 +541,27 @@ export function TransactionForm({
       exceedsSelectedSavings ||
       exceedsActualAccountBalance ||
       transactionDateInvalid;
+
+  const movementBlockReason = isMovement
+    ? getMovementBlockReason({
+        sourceAccount,
+        destinationAccount,
+        isTransfer,
+        rateValid: exchangeRateValidation.valid && parsedExchangeRate > 0,
+        fromAmount: parsedFromAmount,
+        toAmount: parsedToAmount,
+        balanceSufficient: sourceBalanceSufficient,
+        dateInvalid: transactionDateInvalid,
+        disabled: submitDisabled,
+      })
+    : null;
+  const movementHelperText = isMovement
+    ? getMovementHelperText({
+        sourceAccount,
+        balanceSufficient: sourceBalanceSufficient,
+        fromAmount: parsedFromAmount,
+      })
+    : "";
 
   useEffect(() => {
     setEntryType(workspace ? "exchange" : normalizeEntryType(initialEntryType));
@@ -948,17 +1038,21 @@ export function TransactionForm({
       category_group: isExpense ? UNIVERSAL_BUDGET_GROUP : null,
       category: isExpense ? finalForm.category : null,
       currency: isMovement ? null : selectedCurrencyCode,
-      amount: isMovement ? null : normalizeNumericInput(finalForm.amount),
+      amount: isMovement ? null : normalizeNumericInput(finalForm.amount, entryInputOptions),
       amount_idr: null,
       amount_thb: null,
+      /* Pengeluaran valas tidak lagi mengirim kurs sebagai "kurs pilihan
+         pengguna". Penentuannya diserahkan ke jalur kurs bersama supaya
+         rate_type jujur: historis kalau dari tukar, realtime kalau dari
+         kurs global. */
       exchange_rate: isMovement
         ? serializeExchangeRate(finalForm.exchange_rate)
-        : latestExpenseRate || null,
+        : null,
       expense_currency: isExpense ? selectedCurrencyCode : null,
       from_currency: isMovement ? finalForm.from_currency : null,
       to_currency: isMovement ? finalForm.to_currency : null,
-      from_amount: isMovement ? normalizeNumericInput(finalForm.from_amount) : null,
-      to_amount: isMovement ? normalizeNumericInput(finalForm.to_amount) : null,
+      from_amount: isMovement ? normalizeNumericInput(finalForm.from_amount, fromInputOptions) : null,
+      to_amount: isMovement ? normalizeNumericInput(finalForm.to_amount, toInputOptions) : null,
       rate: isMovement ? directionalExchangeRate : null,
       rate_base_currency: isMovement
         ? finalForm.rate_base_currency || rateBaseCurrency
@@ -973,7 +1067,7 @@ export function TransactionForm({
             ? "custom"
             : "realtime"
         : null,
-      fee_amount: isMovement ? normalizeNumericInput(finalForm.fee_amount) : null,
+      fee_amount: isMovement ? normalizeNumericInput(finalForm.fee_amount, fromInputOptions) : null,
       source_account_id: isMovement || isExpense
         ? finalForm.source_account_id || null
         : null,
@@ -1112,13 +1206,13 @@ export function TransactionForm({
                     ${fromSymbol}
                   </span>
                   <input
-                    inputMode="decimal"
+                    inputMode=${fromInputOptions.allowDecimal ? "decimal" : "numeric"}
                     autoComplete="off"
                     value=${form.from_amount}
                     onChange=${(event) =>
                       updateField(
                         "from_amount",
-                        formatNumericInput(event.target.value),
+                        formatNumericInput(event.target.value, fromInputOptions),
                       )}
                     onBlur=${() => settleExchangeField("from_amount")}
                     placeholder="0"
@@ -1193,14 +1287,14 @@ export function TransactionForm({
                     ${toSymbol}
                   </span>
                   <input
-                    inputMode="decimal"
+                    inputMode=${toInputOptions.allowDecimal ? "decimal" : "numeric"}
                     autoComplete="off"
                     aria-label=${`Jumlah diterima dalam ${form.to_currency}`}
                     value=${form.to_amount}
                     onChange=${(event) =>
                       updateField(
                         "to_amount",
-                        formatNumericInput(event.target.value),
+                        formatNumericInput(event.target.value, toInputOptions),
                       )}
                     onBlur=${() => settleExchangeField("to_amount")}
                     placeholder="0"
@@ -1277,14 +1371,25 @@ export function TransactionForm({
                           mentah punya presisi penuh (17857.143176020414) yang
                           tidak enak dibaca dan bukan angka yang diketik
                           pengguna. Begitu diketik, mode pindah ke custom dan
-                          nilai aslinya yang tampil. */ null}
+                          nilai aslinya yang tampil.
+
+                          Kurs "16.000" yang diketik dengan pemisah ribuan
+                          pernah terbaca sebagai 16, sehingga Rp 160.000
+                          ditukar menjadi 10.000 dolar. Nilainya kini
+                          dibakukan saat diketik, bukan saat disimpan. */ null}
                     <input
                       inputMode="decimal"
                       autoComplete="off"
                       value=${rateMode === "custom" ? form.exchange_rate : ""}
                       onChange=${(event) => {
                         if (rateMode !== "custom") setRateMode("custom");
-                        updateField("exchange_rate", event.target.value);
+                        updateField(
+                          "exchange_rate",
+                          normalizeNumericInput(
+                            event.target.value,
+                            RATE_INPUT_OPTIONS,
+                          ),
+                        );
                       }}
                       onBlur=${() => settleExchangeField("exchange_rate")}
                       placeholder=${globalPairRate.exchangeRate
@@ -1311,18 +1416,23 @@ export function TransactionForm({
             `
           : null}
 
-        <span
-          className="px-0.5 text-xs leading-[1.45]"
-          style=${{
-            color: sourceBalanceSufficient
-              ? "var(--cs-mut)"
-              : "var(--cs-danger)",
-          }}
-        >
-          ${!sourceBalanceSufficient
-            ? `Saldo ${sourceAccount?.name || "dompet asal"} tidak mencukupi.`
-            : "Isi jumlahnya dulu, nanti kelihatan uangnya masuk berapa."}
-        </span>
+        ${/* Teks bantuan dulu selalu meminta "Isi jumlahnya dulu" walau
+              nominalnya sudah terisi. Sekarang hanya muncul kalau memang
+              ada yang perlu dibereskan. */ null}
+        ${movementHelperText
+          ? html`
+              <span
+                className="px-0.5 text-xs leading-[1.45]"
+                style=${{
+                  color: sourceBalanceSufficient
+                    ? "var(--cs-mut)"
+                    : "var(--cs-danger)",
+                }}
+              >
+                ${movementHelperText}
+              </span>
+            `
+          : null}
 
         <div className="sticky bottom-0 -mx-1 flex flex-col px-1 pb-2 pt-3">
           <button
@@ -1336,8 +1446,8 @@ export function TransactionForm({
           >
             ${loading
               ? "Menyimpan..."
-              : submitDisabled
-                ? "Isi jumlahnya dulu"
+              : movementBlockReason
+                ? movementBlockReason
                 : isTransfer
                   ? "Kirim sekarang"
                   : "Tukar sekarang"}
@@ -1654,11 +1764,11 @@ export function TransactionForm({
                       </span>
                     <input
                       type="text"
-                      inputMode="decimal"
+                      inputMode=${entryInputOptions.allowDecimal ? "decimal" : "numeric"}
                       autoComplete="off"
                       required
                       value=${form.amount}
-                      onChange=${(event) => updateField("amount", formatNumericInput(event.target.value))}
+                      onChange=${(event) => updateField("amount", formatNumericInput(event.target.value, entryInputOptions))}
                       placeholder="0"
                       className=${`${INPUT_CLASS} pl-[4.25rem] font-display text-base font-black tabular-nums`}
                     />
@@ -1720,8 +1830,8 @@ export function TransactionForm({
                         ${exceedsSelectedSavings
                           ? html`
                               <div key="savings-balance-warning" className="rounded-lg border border-amber-400/30 bg-amber-500/10 p-3 text-xs leading-5 text-amber-700 dark:text-amber-200">
-                                Nominal lebih besar dari saldo ${selectedGoal.name} yang tersimpan di
-                                ${selectedEntryAccount?.name}. Kurangi nominal atau pilih dompet sumber lain.
+                                Nominal lebih besar dari saldo ${selectedGoal.name} yang tersimpan di ${selectedEntryAccount?.name}.
+                                Kurangi nominal atau pilih dompet sumber lain.
                               </div>
                             `
                           : null}
@@ -1897,12 +2007,12 @@ export function TransactionForm({
                     </span>
                     <input
                       type="text"
-                      inputMode="decimal"
+                      inputMode=${fromInputOptions.allowDecimal ? "decimal" : "numeric"}
                       autoComplete="off"
                       required
                       value=${settledMovementForm.from_amount}
                       onChange=${(event) =>
-                        updateField("from_amount", formatNumericInput(event.target.value))}
+                        updateField("from_amount", formatNumericInput(event.target.value, fromInputOptions))}
                       onBlur=${() => settleExchangeField("from_amount")}
                       placeholder="0"
                       className=${INPUT_CLASS}
@@ -1915,14 +2025,14 @@ export function TransactionForm({
                           <span className="cs-entry-label">Akan diterima (${form.to_currency})</span>
                           <input
                             type="text"
-                            inputMode="decimal"
+                            inputMode=${toInputOptions.allowDecimal ? "decimal" : "numeric"}
                             autoComplete="off"
                             required
                             value=${settledMovementForm.to_amount}
                             onChange=${(event) =>
                               updateField(
                                 "to_amount",
-                                formatNumericInput(event.target.value),
+                                formatNumericInput(event.target.value, toInputOptions),
                               )}
                             onBlur=${() => settleExchangeField("to_amount")}
                             placeholder="0"
@@ -1936,11 +2046,11 @@ export function TransactionForm({
                     <span className="cs-entry-label">Biaya Admin / Transfer Fee (${form.from_currency})</span>
                     <input
                       type="text"
-                      inputMode="decimal"
+                      inputMode=${fromInputOptions.allowDecimal ? "decimal" : "numeric"}
                       autoComplete="off"
                       value=${form.fee_amount}
                       onChange=${(event) =>
-                        updateField("fee_amount", formatNumericInput(event.target.value))}
+                        updateField("fee_amount", formatNumericInput(event.target.value, fromInputOptions))}
                       placeholder="0"
                       className=${INPUT_CLASS}
                     />

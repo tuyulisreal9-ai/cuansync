@@ -54,6 +54,18 @@ export function DesktopRightPanel({
       : budget.todayRemainingSafe >= 0
         ? formatCurrency(budget.todayRemainingSafe, budgetCurrency)
         : `- ${formatCurrency(Math.abs(budget.todayRemainingSafe), budgetCurrency)}`;
+  /* Terpakai dan Sisa aman dulu memakai cakupan berbeda di kartu yang sama:
+     Terpakai menjumlah pengeluaran hari ini dalam mata uang harian saja,
+     sedangkan Sisa aman memotong belanja jatah hari ini dari semua mata
+     uang. Angkanya jadi tidak pernah nyambung. Keduanya kini memakai jatah
+     yang sama selama jatahnya ada. */
+  const spentToday = budget
+    ? Number(budget.spentToday || 0)
+    : Number(todaySpentCurrency || 0);
+  const spentCurrency = budget ? budgetCurrency : normalizedDailyCurrency;
+  const spentHelper = budget
+    ? budget.categoryLabel || "Jatah harian"
+    : `Semua pengeluaran ${normalizedDailyCurrency}`;
   const budgetLimit = budget
     ? visible
       ? formatCurrency(budget.limitAmount, budgetCurrency)
@@ -78,19 +90,29 @@ export function DesktopRightPanel({
             <div className="mt-4 grid grid-cols-2 gap-2.5">
               <${DesktopPanelStat}
                 label="Terpakai"
+                helper=${spentHelper}
                 value=${html`
                   <${AmountFormatter}
-                    amount=${todaySpentCurrency}
-                    currency=${normalizedDailyCurrency}
+                    amount=${spentToday}
+                    currency=${spentCurrency}
                     visible=${visible}
                     compact=${true}
                   />
                 `}
               />
-              <${DesktopPanelStat} label="Sisa aman" value=${safeRemaining} />
-              <${DesktopPanelStat} label="Anggaran" value=${budgetLimit} />
+              <${DesktopPanelStat}
+                label="Sisa aman"
+                helper=${budget ? "Jatah harian hari ini" : ""}
+                value=${safeRemaining}
+              />
+              <${DesktopPanelStat}
+                label="Anggaran"
+                helper=${budget ? "Batas bulan ini" : ""}
+                value=${budgetLimit}
+              />
               <${DesktopPanelStat}
                 label=${`Valuasi ${normalizedBaseCurrency}`}
+                helper=${`Pengeluaran ${normalizedDailyCurrency} hari ini`}
                 value=${baseValuation}
               />
             </div>
@@ -101,7 +123,7 @@ export function DesktopRightPanel({
           <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.10),transparent_55%)] opacity-80"></div>
           <div className="relative">
             <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
-              Wallet Aktif
+              Dompet Aktif
             </h3>
             <div className="mt-4 grid gap-2.5">
               ${walletRows.length
@@ -144,13 +166,13 @@ export function DesktopRightPanel({
                   )
                 : html`
                     <div className="rounded-2xl border border-dashed border-slate-300/70 bg-white/40 px-4 py-5 text-center text-sm font-semibold text-slate-600 dark:border-white/10 dark:bg-slate-950/24 dark:text-slate-300">
-                      <p>Belum ada wallet tambahan.</p>
+                      <p>Belum ada dompet tambahan.</p>
                       <button
                         type="button"
                         onClick=${() => onNavigate("investment")}
                         className="mt-3 min-h-10 rounded-2xl bg-brand-600 px-3 py-2 text-xs font-black text-white transition hover:bg-brand-700 dark:bg-emerald-500"
                       >
-                        Tambah wallet
+                        Tambah dompet
                       </button>
                     </div>
                   `}

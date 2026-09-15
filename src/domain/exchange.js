@@ -1,6 +1,7 @@
 import {
   DEFAULT_BASE_CURRENCY,
   formatNumericInput,
+  getNumericInputOptions,
   normalizeCurrencyCode,
   normalizeNumericInput,
 } from "../lib/currency.js";
@@ -52,12 +53,17 @@ export function settleExchangeCalculation(
   } = {},
 ) {
   const next = { ...form };
-  const fromAmount = normalizeNumericInput(next.from_amount);
-  const toAmount = normalizeNumericInput(next.to_amount);
+  /* Kolom asal dan tujuan memakai aturan angka mata uangnya masing-masing:
+     "160.000" di kolom rupiah berarti seratus enam puluh ribu. */
+  const fromOptions = getNumericInputOptions(next.from_currency);
+  const toOptions = getNumericInputOptions(next.to_currency);
+  const fromAmount = normalizeNumericInput(next.from_amount, fromOptions);
+  const toAmount = normalizeNumericInput(next.to_amount, toOptions);
   const rate = serializeExchangeRate(next[rateField]);
 
   function setAutoValue(field, value) {
-    const formatted = value ? formatNumericInput(value) : "";
+    const options = field === "to_amount" ? toOptions : fromOptions;
+    const formatted = value ? formatNumericInput(value, options) : "";
     if (formatted) next[field] = formatted;
   }
 
@@ -228,19 +234,45 @@ export function getGlobalPairRate(
     : { rate: 0, source: null };
 }
 
-export function getLockedExchange(transactions, occurredAt) {
-  const target = new Date(occurredAt).getTime();
-  return orderTransactions(transactions)
-    .filter(
-      (item) =>
-        item.type === "exchange" &&
-        (item.to_currency === "THB" ||
-          item.from_currency === "THB" ||
-          Number(item.amount_thb || 0) !== 0) &&
-        Number(item.rate || item.locked_rate || 0) > 0 &&
-        new Date(item.occurred_at).getTime() <= target,
-    )
-    .at(-1);
+/* Kurs cadangan untuk transaksi lama yang belum menyimpan base_amount:
+   diambil dari tukar terakhir sebelum tanggal transaksi itu, mengikuti mata
+   uang transaksinya sendiri. Sebelumnya kurs cadangan selalu diambil dari
+   tukar THB - sisa masa aplikasi ini hanya melayani baht - sehingga
+   pemasukan USD ikut dinilai memakai kurs baht. */
+export function createTransactionFallbackRate(
+  transactions = [],
+  baseCurrency = DEFAULT_BASE_CURRENCY,
+) {
+  const base = normalizeCurrencyCode(baseCurrency);
+  const ratesByCurrency = new Map();
+
+  orderTransactions(transactions).forEach((item) => {
+    if (item.type !== "exchange") return;
+    const time = new Date(item.occurred_at || 0).getTime();
+    if (!Number.isFinite(time)) return;
+    [item.from_currency, item.to_currency].forEach((currency) => {
+      const code = normalizeCurrencyCode(currency);
+      if (code === base) return;
+      const rate = getExchangeRateToBase(item, code, base);
+      if (!(rate > 0)) return;
+      if (!ratesByCurrency.has(code)) ratesByCurrency.set(code, []);
+      ratesByCurrency.get(code).push({ time, rate });
+    });
+  });
+
+  return function getFallbackRate(transaction) {
+    const code = normalizeCurrencyCode(getTransactionCurrency(transaction));
+    if (code === base) return 1;
+    const entries = ratesByCurrency.get(code);
+    if (!entries?.length) return 0;
+    const limit = new Date(transaction?.occurred_at || Date.now()).getTime();
+    let rate = 0;
+    for (const entry of entries) {
+      if (entry.time > limit) break;
+      rate = entry.rate;
+    }
+    return rate;
+  };
 }
 
 export function getExchangeRateToBase(

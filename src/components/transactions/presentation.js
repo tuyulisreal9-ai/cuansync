@@ -120,6 +120,14 @@ export function getTransactionDisplayTitle(transaction) {
   );
 }
 
+/* Nilai transaksi dalam mata uang dasar, atau null bila belum dapat dinilai.
+   Kurs cadangan boleh berupa angka atau fungsi per transaksi. Fungsi ini
+   sebelumnya ditulis ulang di Riwayat dan di sheet detail transaksi. */
+export function getTransactionIdrValuationWithRate(transaction, fallbackRate = 0) {
+  const valuation = resolveTransactionBaseValue(transaction, fallbackRate);
+  return valuation > 0 ? valuation : null;
+}
+
 export function getTransactionCompactAmount(transaction, fallbackRate = 0) {
   const flow = getTransactionFlow(transaction);
   const currency = getTransactionCurrency(transaction);

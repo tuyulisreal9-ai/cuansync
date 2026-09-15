@@ -4,7 +4,11 @@ import {
   normalizeBudgetCategory,
   normalizeBudgets,
 } from "./budgets.js";
-import { getExchangeBaseVolume, getLatestRateForCurrencyUntil } from "./exchange.js";
+import {
+  createTransactionFallbackRate,
+  getExchangeBaseVolume,
+  getLatestRateForCurrencyUntil,
+} from "./exchange.js";
 import {
   getTransactionAmountValue,
   getTransactionCurrency,
@@ -33,15 +37,6 @@ export function getAvailableReportMonths(transactions, selectedMonthKey) {
   });
 
   return [...months].sort((a, b) => b.localeCompare(a));
-}
-
-export function getLatestReportRateUntil(transactions, endDate, baseCurrency = DEFAULT_BASE_CURRENCY) {
-  return getLatestRateForCurrencyUntil(
-    transactions,
-    "THB",
-    endDate,
-    baseCurrency,
-  );
 }
 
 function resolveReportValueIdr(transaction, rateSource = 0, baseCurrency = DEFAULT_BASE_CURRENCY) {
@@ -216,7 +211,9 @@ export function buildMonthlyReport(transactions, budgets, selectedMonthKey, base
   const monthKey = selectedMonthKey || getMonthKey(new Date());
   const meta = getMonthMeta(monthKey);
   const previousMonthKey = shiftMonthKey(monthKey, -1);
-  const fallbackRate = getLatestReportRateUntil(transactions, meta.end, baseCurrency);
+  /* Kurs cadangan mengikuti mata uang tiap transaksi; sebelumnya seluruh
+     laporan memakai satu kurs baht. */
+  const fallbackRate = createTransactionFallbackRate(transactions, baseCurrency);
   const summary = summarizeReportMonth(transactions, monthKey, baseCurrency);
   const previousSummary = summarizeReportMonth(
     transactions,

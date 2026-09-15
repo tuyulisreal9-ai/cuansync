@@ -196,9 +196,29 @@ const percentFormatter = new Intl.NumberFormat("id-ID", {
   minimumFractionDigits: 0,
   maximumFractionDigits: 0,
 });
-const inputGroupingFormatter = new Intl.NumberFormat("en-US", {
-  maximumFractionDigits: 0,
-});
+const inputGroupingFormatters = {};
+const inputDecimalSeparators = {};
+
+function getInputGroupingFormatter(locale = "en-US") {
+  const key = locale || "en-US";
+  if (!inputGroupingFormatters[key]) {
+    inputGroupingFormatters[key] = new Intl.NumberFormat(key, {
+      maximumFractionDigits: 0,
+    });
+  }
+  return inputGroupingFormatters[key];
+}
+
+function getDecimalSeparator(locale = "en-US") {
+  const key = locale || "en-US";
+  if (!inputDecimalSeparators[key]) {
+    const part = new Intl.NumberFormat(key, { minimumFractionDigits: 1 })
+      .formatToParts(1.1)
+      .find((item) => item.type === "decimal");
+    inputDecimalSeparators[key] = part?.value || ".";
+  }
+  return inputDecimalSeparators[key];
+}
 
 const currencyFormatters = {};
 const moneyFormatters = {};
@@ -405,42 +425,104 @@ export function formatPercent(value) {
   return percentFormatter.format(Number(value || 0));
 }
 
-export function normalizeNumericInput(value, { allowDecimal = true } = {}) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return "";
+/* Kolom kurs bukan nominal mata uang: nilainya bisa jauh di bawah satu
+   (0,0000625) sehingga aturan desimal umum yang dipakai, bukan aturan
+   mata uang dompet. */
+export const RATE_INPUT_OPTIONS = {
+  allowDecimal: true,
+  fractionDigits: 2,
+  locale: "en-US",
+};
 
-  const withoutCommas = raw.replace(/,/g, "");
-  if (!allowDecimal) {
-    return withoutCommas.replace(/[^\d]/g, "");
-  }
-
-  let cleaned = withoutCommas.replace(/[^\d.]/g, "");
-  const firstDot = cleaned.indexOf(".");
-  if (firstDot !== -1) {
-    cleaned = `${cleaned.slice(0, firstDot + 1)}${cleaned
-      .slice(firstDot + 1)
-      .replace(/\./g, "")}`;
-  }
-  return cleaned;
+export function getNumericInputOptions(currency) {
+  /* Tanpa mata uang yang jelas, pakai aturan paling longgar supaya kolom
+     berpecahan tidak pernah kehilangan angka di belakang koma. */
+  if (!currency) return { allowDecimal: true, fractionDigits: 2, locale: "en-US" };
+  const meta = getCurrencyMeta(currency);
+  const digits = Number(meta.fractionDigits);
+  const fractionDigits = Number.isFinite(digits) ? digits : 2;
+  return {
+    allowDecimal: fractionDigits > 0,
+    fractionDigits,
+    locale: meta.locale || "en-US",
+  };
 }
 
-export function formatNumericInput(value, { allowDecimal = true } = {}) {
-  const cleaned = normalizeNumericInput(value, { allowDecimal });
+function resolveNumericInputOptions({
+  allowDecimal = true,
+  fractionDigits,
+  locale = "en-US",
+} = {}) {
+  const digits = Number(fractionDigits);
+  const resolvedDigits = Number.isFinite(digits) ? digits : allowDecimal ? 2 : 0;
+  return {
+    maxDecimals: allowDecimal ? Math.max(resolvedDigits, 0) : 0,
+    locale: locale || "en-US",
+  };
+}
+
+/* "25.000" yang diketik pengguna Indonesia pernah tersimpan sebagai 25
+   karena titik selalu dianggap desimal. Pemisahnya sekarang ditentukan
+   dari bentuk angkanya, bukan dari satu locale tetap: pemisah terakhir
+   baru dibaca sebagai desimal kalau masuk akal untuk mata uang itu. */
+export function normalizeNumericInput(value, options = {}) {
+  const { maxDecimals } = resolveNumericInputOptions(options);
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  if (maxDecimals <= 0) return raw.replace(/[^\d]/g, "");
+
+  const cleaned = raw.replace(/[^\d.,]/g, "");
   if (!cleaned) return "";
 
-  if (!allowDecimal) {
-    return inputGroupingFormatter.format(Number(cleaned));
-  }
+  const lastDot = cleaned.lastIndexOf(".");
+  const lastComma = cleaned.lastIndexOf(",");
+  const separatorIndex = Math.max(lastDot, lastComma);
+  if (separatorIndex === -1) return cleaned;
 
-  if (cleaned.includes(".")) {
-    const [integerPartRaw, decimalPart = ""] = cleaned.split(".");
-    const integerPart = integerPartRaw
-      ? inputGroupingFormatter.format(Number(integerPartRaw))
-      : "0";
-    return `${integerPart}.${decimalPart}`;
-  }
+  const separator = cleaned[separatorIndex];
+  const integerPart = cleaned.slice(0, separatorIndex).replace(/[^\d]/g, "");
+  const decimalPart = cleaned.slice(separatorIndex + 1).replace(/[^\d]/g, "");
+  const mixesSeparators = lastDot !== -1 && lastComma !== -1;
+  const repeatsSeparator = cleaned.split(separator).length - 1 > 1;
 
-  return inputGroupingFormatter.format(Number(cleaned));
+  /* Tiga angka di belakang pemisah adalah pola ribuan: tidak ada mata uang
+     di aplikasi ini yang berpecahan tiga digit. Nilai di bawah satu
+     ("0.075" untuk kurs) tetap dibaca sebagai desimal. */
+  const looksLikeThousands =
+    decimalPart.length === 3 &&
+    maxDecimals < 3 &&
+    integerPart !== "" &&
+    !integerPart.startsWith("0");
+
+  if (!mixesSeparators && (repeatsSeparator || looksLikeThousands)) {
+    return `${integerPart}${decimalPart}`;
+  }
+  return `${integerPart}.${decimalPart}`;
+}
+
+export function formatNumericInput(value, options = {}) {
+  const { locale } = resolveNumericInputOptions(options);
+  const cleaned = normalizeNumericInput(value, options);
+  if (!cleaned) return "";
+
+  const formatter = getInputGroupingFormatter(locale);
+  if (!cleaned.includes(".")) return formatter.format(Number(cleaned));
+
+  const [integerPartRaw, decimalPart = ""] = cleaned.split(".");
+  const integerPart = integerPartRaw
+    ? formatter.format(Number(integerPartRaw))
+    : "0";
+  return `${integerPart}${getDecimalSeparator(locale)}${decimalPart}`;
+}
+
+/* Dua pembungkus di bawah ini yang dipakai kolom nominal: pemisah ribuan
+   dan desimalnya ikut mata uang dompet, sama seperti tampilan saldo. */
+export function formatCurrencyInput(value, currency) {
+  return formatNumericInput(value, getNumericInputOptions(currency));
+}
+
+export function parseCurrencyInput(value, currency) {
+  return normalizeNumericInput(value, getNumericInputOptions(currency));
 }
 
 export function formatAutoNumericValue(value) {

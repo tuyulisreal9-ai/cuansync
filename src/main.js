@@ -30,8 +30,6 @@ import {
   TransactionHistoryPage,
   getTransactionCategoryLabel,
   getTransactionDisplayTitle,
-  getTransactionPreview,
-  getTransactionTypeLabel,
 } from "./components/transactions/index.js";
 import {
   ASSET_ACCOUNT_TYPE_LOOKUP,
@@ -55,21 +53,22 @@ import {
   getBudgetCategoryKey,
   getBudgetCategoryLabel,
   getBudgetCategoryMeta,
-  getCategoryMeta,
   getDefaultGroupForCategory,
   normalizeBudgetCategory,
   normalizeBudgets,
 } from "./domain/budgets.js";
 import { buildBudgetControlSummary } from "./domain/control.js";
 import {
+  applyTransactionRateToRecord,
+  resolveTransactionRateInfo,
+} from "./domain/transactionRates.js";
+import {
   addExchangeDecimals,
   calculateExchangeTargetAmount,
   compareExchangeDecimals,
+  createTransactionFallbackRate,
   getDirectionalExchangeRate,
-  getExchangeBaseVolume,
   getLatestRateForCurrencyUntil,
-  getLockedExchange,
-  resolveTransactionCurrentBaseValue,
   serializeExchangeRate,
   validateExchangeRate,
 } from "./domain/exchange.js";
@@ -88,7 +87,6 @@ import {
   normalizeAccountReconciliation,
   normalizeAccountReconciliations,
 } from "./domain/reconciliations.js";
-import { getLatestReportRateUntil } from "./domain/reports.js";
 import {
   computeCurrencyBalances,
   createLegacyTransactionId,
@@ -101,6 +99,7 @@ import {
   normalizeTransactions,
   orderTransactions,
   resolveTransactionBaseValue,
+  sumHistoricalBaseValues,
   transactionBelongsToAccount,
   validateTransactionAccountLinks,
   validateTransactionOccurredAt,
@@ -111,17 +110,13 @@ import {
   DEFAULT_SELECTED_CURRENCIES,
   formatCurrency,
   formatNumericInput,
-  formatPercent,
-  formatRate,
   getCurrencyOptions as buildCurrencyOptions,
+  getNumericInputOptions,
   normalizeCurrencyCode,
   normalizeCurrencyList as normalizeCurrencyListBase,
   normalizeNumericInput,
-  numberFormatter,
 } from "./lib/currency.js";
 import {
-  formatDateTime,
-  formatDay,
   formatLongDate,
   formatMonthKey,
   getLocalDayKey,
@@ -172,6 +167,14 @@ import {
 } from "./lib/nativeWidgets.js";
 
 const html = htm.bind(React.createElement);
+
+/* Nominal dari form berupa teks yang masih memakai format mata uangnya
+   ("25.000"), sedangkan Catat cepat dan widget mengirim angka. Keduanya
+   harus sampai utuh: teks dibaca menurut mata uangnya, angka dibiarkan. */
+function readCurrencyAmount(value, currency) {
+  if (typeof value === "number") return value;
+  return Number(normalizeNumericInput(value, getNumericInputOptions(currency)));
+}
 
 const STORAGE_KEYS = {
   theme: "monefy-theme",
@@ -590,85 +593,6 @@ function buildUserCurrencyRecords(userId, settings, existingCodes = []) {
   }));
 }
 
-function buildExpenseChart(transactions, monthKey) {
-  const now = new Date();
-  const [year, month] = String(monthKey).split("-");
-  const monthDate = new Date(Number(year), Number(month) - 1, 1);
-  const isCurrentMonth = monthKey === getMonthKey(now);
-  const lastDay = isCurrentMonth
-    ? now.getDate()
-    : new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
-
-  const days = [];
-  for (let day = 1; day <= lastDay; day += 1) {
-    const cursor = new Date(monthDate.getFullYear(), monthDate.getMonth(), day);
-    days.push({
-      key: getLocalDayKey(cursor),
-      label: String(day).padStart(2, "0"),
-      tooltipLabel: formatDay(cursor),
-      value: 0,
-    });
-  }
-
-  const map = new Map(days.map((item) => [item.key, item]));
-
-  transactions
-    .filter(
-      (item) =>
-        item.type === "expense" &&
-        getTransactionCurrency(item) === "THB" &&
-        getMonthKey(item.occurred_at) === monthKey,
-    )
-    .forEach((item) => {
-      const dayKey = getLocalDayKey(item.occurred_at);
-      const bucket = map.get(dayKey);
-      if (bucket) {
-        bucket.value += getTransactionAmountValue(item);
-      }
-    });
-
-  return days;
-}
-
-function buildOverviewDailyExpenses(transactions, monthKey) {
-  const now = new Date();
-  const [year, month] = String(monthKey).split("-").map(Number);
-  const monthDate = new Date(year, month - 1, 1);
-  const isCurrentMonth = monthKey === getMonthKey(now);
-  const lastDay = isCurrentMonth
-    ? now.getDate()
-    : new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
-
-  const days = [];
-  for (let day = 1; day <= lastDay; day += 1) {
-    const cursor = new Date(monthDate.getFullYear(), monthDate.getMonth(), day);
-    days.push({
-      key: getLocalDayKey(cursor),
-      label: String(day).padStart(2, "0"),
-      tooltipLabel: formatDay(cursor),
-      valueIdr: 0,
-      valueThb: 0,
-    });
-  }
-
-  const map = new Map(days.map((item) => [item.key, item]));
-
-  transactions
-    .filter(
-      (item) =>
-        item.type === "expense" && getMonthKey(item.occurred_at) === monthKey,
-    )
-    .forEach((item) => {
-      const bucket = map.get(getLocalDayKey(item.occurred_at));
-      if (!bucket) return;
-
-      bucket.valueIdr += resolveTransactionBaseValue(item);
-      bucket.valueThb += getTransactionCurrency(item) === "THB" ? getTransactionAmountValue(item) : 0;
-    });
-
-  return days;
-}
-
 function computeMetrics(
   transactions,
   budgets,
@@ -683,15 +607,6 @@ function computeMetrics(
   const currentMonthKey = getMonthKey(new Date());
   const currentMonthTransactions = ordered.filter(
     (item) => getMonthKey(item.occurred_at) === currentMonthKey,
-  );
-  const currentMonthExpenses = currentMonthTransactions.filter(
-    (item) => item.type === "expense",
-  );
-  const thbExpenses = ordered.filter(
-    (item) =>
-      item.type === "expense" &&
-      getTransactionCurrency(item) === "THB" &&
-      getMonthKey(item.occurred_at) === currentMonthKey,
   );
 
   const transactionCurrencyBalances = computeCurrencyBalances(
@@ -739,94 +654,10 @@ function computeMetrics(
           ...currencyBalanceDefaults,
           ...transactionCurrencyBalances,
         };
-  const resolveIdrValue = (item) =>
-    resolveTransactionCurrentBaseValue(item, globalRateSnapshot, baseCurrency);
-  const incomeIdr = ordered
-    .filter((item) => item.type === "income")
-    .reduce((sum, item) => sum + resolveIdrValue(item), 0);
   const receivedThb = Number(currencyBalances.THB || 0);
   const spentThb = ordered
     .filter((item) => item.type === "expense" && getTransactionCurrency(item) === "THB")
     .reduce((sum, item) => sum + getTransactionAmountValue(item), 0);
-  const monthlyDirectSpentIdr = ordered
-    .filter(
-      (item) =>
-        item.type === "expense" &&
-        getTransactionCurrency(item) === DEFAULT_BASE_CURRENCY &&
-        getMonthKey(item.occurred_at) === currentMonthKey,
-    )
-    .reduce((sum, item) => sum + resolveIdrValue(item), 0);
-  const directSpentIdr = ordered
-    .filter(
-      (item) =>
-        item.type === "expense" &&
-        getTransactionCurrency(item) === DEFAULT_BASE_CURRENCY,
-    )
-    .reduce((sum, item) => sum + resolveIdrValue(item), 0);
-  const spentIdr = ordered
-    .filter((item) => item.type === "expense")
-    .reduce((sum, item) => sum + resolveIdrValue(item), 0);
-
-  const categoryAccumulator = {};
-
-  currentMonthExpenses.forEach((item) => {
-    const categoryName = normalizeBudgetCategory(
-      item.category,
-      item.category_group,
-    );
-    if (!categoryAccumulator[categoryName]) {
-      categoryAccumulator[categoryName] = {
-        valueThb: 0,
-        valueIdr: 0,
-        count: 0,
-      };
-    }
-    const bucket = categoryAccumulator[categoryName];
-    bucket.valueThb += getTransactionCurrency(item) === "THB" ? getTransactionAmountValue(item) : 0;
-    bucket.valueIdr += resolveIdrValue(item);
-    bucket.count += 1;
-  });
-
-  const monthlyThb = thbExpenses.reduce(
-    (sum, item) => sum + getTransactionAmountValue(item),
-    0,
-  );
-  const monthlyExpenseByCurrency = Object.fromEntries(
-    activeCurrencies.map((currency) => [currency, 0]),
-  );
-  const monthlyExpenseBaseByCurrency = Object.fromEntries(
-    activeCurrencies.map((currency) => [currency, 0]),
-  );
-  currentMonthExpenses.forEach((item) => {
-    const currency = getTransactionCurrency(item);
-    const amount = getTransactionAmountValue(item);
-    monthlyExpenseByCurrency[currency] =
-      Number(monthlyExpenseByCurrency[currency] || 0) + amount;
-    monthlyExpenseBaseByCurrency[currency] =
-      Number(monthlyExpenseBaseByCurrency[currency] || 0) + resolveIdrValue(item);
-  });
-  const monthlyCategoryIdr = Object.values(categoryAccumulator).reduce(
-    (sum, data) => sum + Number(data.valueIdr || 0),
-    0,
-  );
-
-  const categoryBreakdown = Object.entries(categoryAccumulator)
-    .map(([category, data]) => ({
-      key: category,
-      label: getCategoryMeta(category).label,
-      valueThb: data.valueThb,
-      valueIdr: data.valueIdr,
-      count: data.count,
-      share:
-        monthlyCategoryIdr > 0
-          ? data.valueIdr / monthlyCategoryIdr
-          : monthlyThb > 0
-            ? data.valueThb / monthlyThb
-            : 0,
-      meta: getCategoryMeta(category),
-    }))
-    .sort((a, b) => b.valueIdr - a.valueIdr || b.valueThb - a.valueThb);
-
   const budgetInsights = computeBudgetInsights(
     currentMonthTransactions,
     budgets,
@@ -926,24 +757,25 @@ function computeMetrics(
     (sum, item) => sum + Number(item.valuationIdr || 0),
     0,
   );
-  const monthlyIncomeIdr = currentMonthTransactions
-    .filter((item) => item.type === "income")
-    .reduce((sum, item) => sum + resolveIdrValue(item), 0);
-  const monthlyExpenseIdr = currentMonthTransactions
-    .filter((item) => item.type === "expense")
-    .reduce((sum, item) => sum + resolveIdrValue(item), 0);
-  const monthlyExternalIncomeIdr = currentMonthTransactions
-    .filter((item) => item.type === "income")
-    .reduce((sum, item) => sum + resolveIdrValue(item), 0);
-  const monthlyNetChangeIdr = monthlyExternalIncomeIdr - monthlyExpenseIdr;
-  const overviewDailyExpenses = buildOverviewDailyExpenses(
-    ordered,
-    currentMonthKey,
+  /* Ringkasan bulanan memakai nilai yang tersimpan bersama transaksinya,
+     sama seperti Jatah dan Kondisi keuanganmu. Sebelumnya angkanya dinilai
+     ulang dengan kurs hari ini, sehingga total "Keluar" bergeser sendiri
+     tiap hari dan berbeda dari total di Jatah untuk data yang sama. Kurs
+     hari ini tetap dipakai untuk valuasi saldo dan aset. */
+  const monthlyIncome = sumHistoricalBaseValues(
+    currentMonthTransactions.filter((item) => item.type === "income"),
+    baseCurrency,
   );
-  const currentDay = new Date().getDate();
-  const averageDailyExpenseIdr =
-    currentDay > 0 ? monthlyExpenseIdr / currentDay : 0;
-  const topExpenseCategory = categoryBreakdown[0] || null;
+  const monthlyExpense = sumHistoricalBaseValues(
+    currentMonthTransactions.filter((item) => item.type === "expense"),
+    baseCurrency,
+  );
+  const monthlyIncomeIdr = monthlyIncome.total;
+  const monthlyExpenseIdr = monthlyExpense.total;
+  const monthlyExternalIncomeIdr = monthlyIncome.total;
+  const monthlyUnvaluedCount =
+    monthlyIncome.missingCount + monthlyExpense.missingCount;
+  const monthlyNetChangeIdr = monthlyExternalIncomeIdr - monthlyExpenseIdr;
   const budgetRemainingThb = budgetLimitTotal - budgetSpentTotal;
   const budgetStatus =
     budgetLimitTotal <= 0
@@ -980,22 +812,15 @@ function computeMetrics(
     currencyBalances,
     netWorthIdr,
     latestRate,
-    directSpentIdr,
-    monthlyDirectSpentIdr,
     monthlyIncomeIdr,
     monthlyExpenseIdr,
     monthlyExternalIncomeIdr,
+    monthlyUnvaluedCount,
     monthlyNetChangeIdr,
-    spentIdr,
     spentThb,
-    monthlyThb,
-    monthlyExpenseByCurrency,
-    monthlyExpenseBaseByCurrency,
     activeCurrencies,
     activeExchange,
     recent: [...ordered].reverse().slice(0, 10),
-    chart: buildExpenseChart(ordered, currentMonthKey),
-    categoryBreakdown,
     budgetInsights,
     overspentCount,
     warningCount,
@@ -1005,9 +830,6 @@ function computeMetrics(
     budgetUsageTotal,
     budgetStatus,
     budgetStatusLabel,
-    overviewDailyExpenses,
-    averageDailyExpenseIdr,
-    topExpenseCategory,
     goalInsights,
     totalGoalTarget,
     totalGoalSaved,
@@ -1022,852 +844,6 @@ function computeMetrics(
     globalRateProvider: globalRateSnapshot?.provider || null,
     globalRateSourceDate: globalRateSnapshot?.sourceDate || null,
   };
-}
-
-function getExchangeVolumeIdr(transaction, fallbackRate = 0) {
-  return getExchangeBaseVolume(transaction, fallbackRate);
-}
-
-function MetricCard({ title, value, helper, accent, glow = false }) {
-  const accentClasses = {
-    emerald: {
-      halo: "from-emerald-200/50 via-emerald-400/25 to-transparent",
-      shadow: "hover:shadow-[0_28px_80px_rgba(16,185,129,0.18)]",
-      glow:
-        "[text-shadow:0_0_18px_rgba(16,185,129,0.16)] dark:[text-shadow:0_0_24px_rgba(52,211,153,0.30)]",
-    },
-    sky: {
-      halo: "from-indigo-200/45 via-indigo-400/22 to-transparent",
-      shadow: "hover:shadow-[0_28px_80px_rgba(99,102,241,0.16)]",
-      glow: "",
-    },
-    amber: {
-      halo: "from-amber-200/45 via-orange-400/18 to-transparent",
-      shadow: "hover:shadow-[0_28px_80px_rgba(245,158,11,0.16)]",
-      glow: "",
-    },
-    slate: {
-      halo: "from-sky-200/45 via-blue-500/18 to-transparent",
-      shadow: "hover:shadow-[0_28px_80px_rgba(37,99,235,0.16)]",
-      glow: "",
-    },
-  };
-
-  return html`
-    <div
-      className=${`${PREMIUM_PANEL_SOFT} group p-5 md:p-6 transition duration-500 hover:-translate-y-1 hover:scale-[1.015] hover:border-white/20 ${accentClasses[accent].shadow}`}
-    >
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.18),transparent_42%,rgba(255,255,255,0.04))] opacity-80"></div>
-      <div className=${`pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-gradient-to-br ${accentClasses[accent].halo} blur-3xl transition duration-700 group-hover:scale-110`}></div>
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent opacity-90"></div>
-      <div className="relative">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600 dark:text-slate-400">
-          ${title}
-        </p>
-        <p
-          className=${`mt-4 font-sans text-[2rem] font-black tracking-[-0.05em] text-slate-950 md:text-[2.35rem] dark:text-white ${glow ? accentClasses[accent].glow : ""}`}
-        >
-          ${value}
-        </p>
-        <p className="mt-3 max-w-[18rem] text-sm leading-6 text-slate-600 dark:text-slate-300/80">
-          ${helper}
-        </p>
-      </div>
-    </div>
-  `;
-}
-
-function OverviewHero({ metrics }) {
-  const changePositive = metrics.monthlyNetChangeIdr >= 0;
-  const changeText = `${changePositive ? "+" : "-"}${formatCurrency(
-    Math.abs(metrics.monthlyNetChangeIdr),
-    "idr",
-  )}`;
-
-  return html`
-    <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.16),transparent_48%)] opacity-80"></div>
-      <div className="pointer-events-none absolute -right-20 -top-20 h-56 w-56 rounded-full bg-brand-400/18 blur-3xl dark:bg-brand-400/12"></div>
-      <div className="relative grid gap-5 lg:grid-cols-[1.35fr_0.65fr] lg:items-end">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-600 dark:text-slate-400">
-            Total kekayaan bersih
-          </p>
-          <h2 className="mt-3 break-words font-display text-4xl font-black text-slate-950 dark:text-white md:text-5xl">
-            ${formatCurrency(metrics.netWorthIdr, "idr")}
-          </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-700 dark:text-slate-300">
-            Gabungan saldo ${getBaseCurrency()} tersedia dan valuasi saldo mata uang aktif memakai kurs global terbaru.
-            ${metrics.foreignBalanceItems?.length
-              ? ` Valuasi mata uang asing saat ini ${formatCurrency(
-                  metrics.foreignBalanceValuationIdr,
-                  "idr",
-                )}.`
-              : " Mode satu mata uang aktif."}
-          </p>
-        </div>
-
-        <div className="rounded-[24px] border border-brand-300/25 bg-brand-500/10 p-4 dark:border-brand-400/20 dark:bg-brand-500/10">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-brand-800 dark:text-brand-200">
-            Perubahan bulan ini
-          </p>
-          <p className=${`mt-3 text-2xl font-black ${changePositive ? "text-brand-700 dark:text-brand-300" : "text-rose-700 dark:text-rose-300"}`}>
-            ${changeText}
-          </p>
-          <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-300">
-            Pemasukan eksternal dikurangi seluruh pengeluaran bulan berjalan.
-          </p>
-        </div>
-      </div>
-    </section>
-  `;
-}
-
-function OverviewStatGrid({ metrics }) {
-  const balanceStats = normalizeCurrencyList(metrics.activeCurrencies || getActiveCurrencies()).map(
-    (currency) => {
-      const balance =
-        currency === DEFAULT_BASE_CURRENCY
-          ? metrics.balanceIdr
-          : Number(metrics.currencyBalances?.[currency] || 0);
-      const foreignItem = metrics.foreignBalanceItems?.find(
-        (item) => item.currency === currency,
-      );
-      return {
-        title: `Saldo ${currency}`,
-        value: formatCurrency(balance, currency),
-        helper:
-          currency === DEFAULT_BASE_CURRENCY
-            ? "Tersedia"
-            : foreignItem?.rate
-              ? formatRate(foreignItem.rate, DEFAULT_BASE_CURRENCY, currency)
-              : "Belum ada kurs",
-      };
-    },
-  );
-  const spendingStats = normalizeCurrencyList(metrics.activeCurrencies || getActiveCurrencies())
-    .filter((currency) => Number(metrics.monthlyExpenseByCurrency?.[currency] || 0) > 0)
-    .map((currency) => ({
-      title: `Belanja ${currency}`,
-      value: formatCurrency(metrics.monthlyExpenseByCurrency[currency], currency),
-      helper: "Bulan ini",
-    }));
-  const stats = [
-    ...balanceStats,
-    {
-      title: "Pemasukan",
-      value: formatCurrency(metrics.monthlyIncomeIdr, "idr"),
-      helper: "Bulan ini",
-    },
-    {
-      title: "Pengeluaran",
-      value: formatCurrency(metrics.monthlyExpenseIdr, "idr"),
-      helper: "Valuasi IDR",
-    },
-    ...spendingStats,
-  ];
-
-  return html`
-    <section className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-      ${stats.map(
-        (item) => html`
-          <div key=${item.title} className="cuan-card-soft rounded-[22px] p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-              ${item.title}
-            </p>
-            <p className="mt-2 break-words text-lg font-black text-slate-950 dark:text-white md:text-xl">
-              ${item.value}
-            </p>
-            <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
-              ${item.helper}
-            </p>
-          </div>
-        `,
-      )}
-    </section>
-  `;
-}
-
-function OverviewBudgetProgress({ metrics }) {
-  const usage = metrics.budgetLimitTotal > 0 ? metrics.budgetUsageTotal : 0;
-  const width = `${Math.min(Math.max(usage * 100, usage > 0 ? 8 : 0), 100)}%`;
-  const barClass =
-    metrics.budgetStatus === "over"
-      ? "from-rose-500 to-rose-400"
-      : metrics.budgetStatus === "warning"
-        ? "from-amber-400 to-orange-500"
-        : "from-brand-500 to-emerald-300";
-  const chipClass =
-    metrics.budgetStatus === "over"
-      ? "border-rose-300/25 bg-rose-500/10 text-rose-700 dark:border-rose-400/20 dark:text-rose-200"
-      : metrics.budgetStatus === "warning"
-        ? "border-amber-300/25 bg-amber-500/10 text-amber-700 dark:border-amber-400/20 dark:text-amber-200"
-        : "border-brand-300/25 bg-brand-500/10 text-brand-700 dark:border-brand-400/20 dark:text-brand-200";
-
-  return html`
-    <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-      <div className="relative flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h3 className="font-display text-xl font-bold text-slate-950 dark:text-white">
-            Anggaran Bulanan
-          </h3>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Ringkasan semua anggaran aktif dalam valuasi IDR.
-          </p>
-        </div>
-        <span className=${`rounded-full border px-3 py-1 text-xs font-semibold ${chipClass}`}>
-          ${metrics.budgetStatusLabel}
-        </span>
-      </div>
-
-      <div className="relative mt-5 grid grid-cols-3 gap-3">
-        ${[
-          ["Anggaran", formatCurrency(metrics.budgetLimitTotal, "idr")],
-          ["Terpakai", formatCurrency(metrics.budgetSpentTotal, "idr")],
-          ["Sisa", formatCurrency(Math.max(metrics.budgetRemainingThb, 0), "idr")],
-        ].map(
-          ([label, value]) => html`
-            <div key=${label}>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-                ${label}
-              </p>
-              <p className="mt-2 break-words text-sm font-black text-slate-950 dark:text-white md:text-base">
-                ${value}
-              </p>
-            </div>
-          `,
-        )}
-      </div>
-
-      <div className="relative mt-5 h-3 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
-        <div
-          className=${`h-full rounded-full bg-gradient-to-r ${barClass}`}
-          style=${{ width }}
-        ></div>
-      </div>
-      <p className="relative mt-2 text-xs text-slate-600 dark:text-slate-300">
-        ${metrics.budgetLimitTotal > 0
-          ? `${formatPercent(usage)} dari anggaran sudah terpakai.`
-          : "Belum ada anggaran aktif untuk bulan ini."}
-      </p>
-    </section>
-  `;
-}
-
-function OverviewCharts({ metrics }) {
-  const cashflowMax = Math.max(
-    metrics.monthlyIncomeIdr,
-    metrics.monthlyExpenseIdr,
-    1,
-  );
-  const dailyData = metrics.overviewDailyExpenses.slice(-14);
-  const dailyMax = Math.max(
-    ...dailyData.map((item) => item.valueIdr || item.valueThb),
-    1,
-  );
-
-  return html`
-    <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
-      <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-        <div className="relative">
-          <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
-            Arus Kas Bulan Ini
-          </h3>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            Pemasukan vs pengeluaran dalam valuasi IDR.
-          </p>
-        </div>
-        <div className="relative mt-5 grid gap-4">
-          ${[
-            ["Pemasukan", metrics.monthlyIncomeIdr, "from-brand-500 to-emerald-300"],
-            ["Pengeluaran", metrics.monthlyExpenseIdr, "from-rose-500 to-amber-400"],
-          ].map(([label, value, gradient]) => {
-            const width = `${Math.max((Number(value) / cashflowMax) * 100, value > 0 ? 8 : 0)}%`;
-            return html`
-              <div key=${label}>
-                <div className="mb-2 flex items-center justify-between gap-3 text-xs">
-                  <span className="font-semibold text-slate-600 dark:text-slate-300">
-                    ${label}
-                  </span>
-                  <span className="font-bold text-slate-950 dark:text-white">
-                    ${formatCurrency(value, "idr")}
-                  </span>
-                </div>
-                <div className="h-3 overflow-hidden rounded-full bg-slate-200/80 dark:bg-slate-800">
-                  <div
-                    className=${`h-full rounded-full bg-gradient-to-r ${gradient}`}
-                    style=${{ width }}
-                  ></div>
-                </div>
-              </div>
-            `;
-          })}
-        </div>
-      </div>
-
-      <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-        <div className="relative">
-          <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
-            Pengeluaran Harian
-          </h3>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            14 hari terakhir bulan ini.
-          </p>
-        </div>
-        <div className="relative mt-5 flex h-36 items-end gap-1.5">
-          ${dailyData.map((item) => {
-            const value = item.valueIdr || item.valueThb;
-            const height = Math.max((value / dailyMax) * 100, value > 0 ? 10 : 4);
-            return html`
-              <div key=${item.key} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-                <div className="flex h-24 w-full items-end">
-                  <div
-                    title=${`${item.tooltipLabel}: ${
-                      item.valueIdr > 0
-                        ? formatCurrency(item.valueIdr, "idr")
-                        : formatCurrency(item.valueThb, "thb")
-                    }`}
-                    className="w-full rounded-t-xl bg-gradient-to-t from-brand-600 to-emerald-300 dark:from-brand-500 dark:to-emerald-200"
-                    style=${{ height: `${height}%` }}
-                  ></div>
-                </div>
-                <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
-                  ${item.label}
-                </span>
-              </div>
-            `;
-          })}
-        </div>
-      </div>
-    </section>
-  `;
-}
-
-function OverviewInsights({ metrics }) {
-  const topCategory = metrics.topExpenseCategory;
-  const topCategoryAmount = topCategory
-    ? topCategory.valueIdr > 0
-      ? formatCurrency(topCategory.valueIdr, "idr")
-      : formatCurrency(topCategory.valueThb, "thb")
-    : "";
-  const insights = [
-    {
-      title: "Kategori terbesar",
-      value: topCategory ? topCategory.label : "Belum ada",
-      helper: topCategory
-        ? `${topCategoryAmount} bulan ini`
-        : "Transaksi pengeluaran akan muncul di sini.",
-    },
-    {
-      title: "Rata-rata harian",
-      value:
-        metrics.averageDailyExpenseIdr > 0
-          ? formatCurrency(metrics.averageDailyExpenseIdr, "idr")
-          : "-",
-      helper: "Rata-rata pengeluaran per hari bulan ini.",
-    },
-    {
-      title: "Status anggaran",
-      value: metrics.budgetStatusLabel,
-      helper:
-        metrics.budgetLimitTotal > 0
-          ? `${formatPercent(metrics.budgetUsageTotal)} terpakai`
-          : "Buat anggaran agar status aktif.",
-    },
-  ];
-
-  return html`
-    <section className="grid gap-3 md:grid-cols-3">
-      ${insights.map(
-        (item) => html`
-          <div key=${item.title} className="cuan-card-soft rounded-[22px] p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-              ${item.title}
-            </p>
-            <p className="mt-2 break-words text-base font-black text-slate-950 dark:text-white">
-              ${item.value}
-            </p>
-            <p className="mt-1 text-xs leading-5 text-slate-600 dark:text-slate-300">
-              ${item.helper}
-            </p>
-          </div>
-        `,
-      )}
-    </section>
-  `;
-}
-
-function OverviewRecentTransactions({ transactions, onNavigate }) {
-  return html`
-    <section className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-      <div className="relative flex items-center justify-between gap-3">
-        <div>
-          <h3 className="font-display text-lg font-bold text-slate-950 dark:text-white">
-            Transaksi Terbaru
-          </h3>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-            5 aktivitas terakhir.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick=${() => onNavigate("history")}
-          className="cuan-secondary min-h-11 rounded-2xl px-4 py-2 text-sm font-semibold transition hover:-translate-y-0.5"
-        >
-          Lihat semua
-        </button>
-      </div>
-
-      <div className="relative mt-4 grid gap-2">
-        ${transactions.map((item) => html`
-          <div
-            key=${item.id}
-            className="grid grid-cols-[1fr_auto] gap-3 rounded-2xl border border-slate-200/70 bg-white/50 p-3 dark:border-white/10 dark:bg-slate-800/45"
-          >
-            <div className="min-w-0">
-              <p className="truncate text-sm font-bold text-slate-950 dark:text-white">
-                ${item.description || TYPE_META[item.type]?.label || "Transaksi"}
-              </p>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                ${formatDateTime(item.occurred_at)}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-sm font-black text-slate-950 dark:text-white">
-                ${getTransactionPreview(item)}
-              </p>
-              <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                ${getTransactionTypeLabel(item)}
-              </p>
-            </div>
-          </div>
-        `)}
-      </div>
-    </section>
-  `;
-}
-
-function OverviewEmptyState({ onNavigate }) {
-  return html`
-    <section className=${`${PREMIUM_PANEL} p-6 text-center md:p-8`}>
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(16,185,129,0.16),transparent_48%)]"></div>
-      <div className="relative mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-brand-300/25 bg-brand-500/12 text-2xl font-black text-brand-700 dark:text-brand-200">
-        +
-      </div>
-      <h3 className="relative mt-4 font-display text-2xl font-bold text-slate-950 dark:text-white">
-        Ringkasan siap diisi
-      </h3>
-      <p className="relative mx-auto mt-2 max-w-md text-sm leading-6 text-slate-600 dark:text-slate-300">
-        Tambahkan transaksi pertama agar saldo, arus kas, anggaran, wawasan, dan riwayat mulai hidup.
-      </p>
-      <button
-        type="button"
-        onClick=${() => onNavigate("add")}
-        className="relative mt-5 min-h-12 rounded-2xl bg-brand-600 px-5 py-3 text-sm font-semibold text-white shadow-[0_18px_44px_rgba(16,185,129,0.22)] transition hover:-translate-y-0.5 hover:bg-brand-700 dark:bg-emerald-500"
-      >
-        Tambah transaksi pertama
-      </button>
-    </section>
-  `;
-}
-
-function OverviewPage({ metrics, transactions, onNavigate }) {
-  const latestTransactions = metrics.recent.slice(0, 5);
-
-  if (!transactions.length) {
-    return html`
-      <div className="grid gap-4">
-        <${OverviewEmptyState} onNavigate=${onNavigate} />
-      </div>
-    `;
-  }
-
-  return html`
-    <div className="grid gap-4">
-      <${OverviewHero} metrics=${metrics} />
-      <${OverviewStatGrid} metrics=${metrics} />
-      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <${OverviewBudgetProgress} metrics=${metrics} />
-        <${OverviewInsights} metrics=${metrics} />
-      </div>
-      <${OverviewCharts} metrics=${metrics} />
-      <${OverviewRecentTransactions}
-        transactions=${latestTransactions}
-        onNavigate=${onNavigate}
-      />
-    </div>
-  `;
-}
-
-function ThemeToggle({ theme, onToggle }) {
-  return html`
-    <button type="button" onClick=${onToggle} className=${GLASS_PILL}>
-      ${theme === "dark" ? "Mode Terang" : "Mode Gelap"}
-    </button>
-  `;
-}
-
-function ExpenseChart({ data, monthLabel }) {
-  const max = Math.max(...data.map((item) => item.value), 1);
-
-  return html`
-    <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.14),transparent_45%)] opacity-80"></div>
-      <div className="flex items-start justify-between gap-4">
-        <div className="relative">
-          <h3 className="font-display text-xl font-bold">Ringkasan Interaktif</h3>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-            Grafik harian langsung berubah setiap kali angka transaksi diperbarui.
-          </p>
-        </div>
-        <div className="relative inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600 backdrop-blur-xl dark:bg-slate-900/40 dark:text-slate-300">
-          ${monthLabel}
-        </div>
-      </div>
-
-      <div className="relative mt-6 overflow-x-auto pb-2">
-        <div className="flex min-w-[640px] items-end gap-3">
-          ${data.map((item) => {
-            const height = Math.max((item.value / max) * 180, item.value > 0 ? 14 : 4);
-            return html`
-              <div key=${item.key} className="flex w-8 flex-col items-center gap-2">
-                <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                  ${item.value > 0 ? numberFormatter.format(item.value) : ""}
-                </span>
-                <div
-                  title=${`${item.tooltipLabel}: ${formatCurrency(item.value, "thb")}`}
-                  className="chart-bar w-full rounded-t-2xl bg-gradient-to-t from-brand-600 to-emerald-300 dark:from-brand-500 dark:to-emerald-200"
-                  style=${{ height: `${height}px` }}
-                ></div>
-                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                  ${item.label}
-                </span>
-              </div>
-            `;
-          })}
-        </div>
-      </div>
-    </div>
-  `;
-}
-
-function CategoryBreakdown({ categories, totalMonthlyThb }) {
-  return html`
-    <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.14),transparent_50%)] opacity-80"></div>
-      <div className="relative">
-          <h3 className="font-display text-xl font-bold">Pengeluaran per Kategori</h3>
-          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-          Breakdown dibuat dari pengeluaran mata uang aktif yang kamu catat.
-        </p>
-      </div>
-
-      ${totalMonthlyThb > 0
-        ? html`
-            <div className="relative mt-5 space-y-3">
-              ${categories.map(
-                (item) => html`
-                  <div
-                    key=${item.key}
-                    className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className=${`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${item.meta.chip}`}>
-                          ${item.label}
-                        </div>
-                        <p className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          ${formatCurrency(item.valueThb, "thb")}
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-                          ${formatPercent(item.share)}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                          ${item.count} transaksi
-                        </p>
-                      </div>
-                    </div>
-                    <div className="mt-4 h-2 rounded-full bg-slate-200/70 dark:bg-slate-800">
-                      <div
-                        className=${`h-full rounded-full bg-gradient-to-r ${item.meta.bar}`}
-                        style=${{
-                          width: `${Math.min(
-                            Math.max(item.share * 100, item.valueThb > 0 ? 12 : 0),
-                            100,
-                          )}%`,
-                        }}
-                      ></div>
-                    </div>
-                  </div>
-                `,
-              )}
-            </div>
-          `
-        : html`
-            <div className="relative mt-5 rounded-2xl border border-dashed border-white/15 bg-white/5 p-5 text-sm text-slate-600 backdrop-blur-xl dark:bg-slate-900/25 dark:text-slate-300/80">
-              Belum ada pengeluaran bulan ini. Begitu kamu mencatat pengeluaran, kategori akan langsung tampil di sini.
-            </div>
-          `}
-    </div>
-  `;
-}
-
-function BudgetTracker({ budgets, monthLabel, onDelete, onCreateBudget = null }) {
-  return html`
-    <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-      <div className="relative">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 className="font-display text-xl font-bold">Proteksi Anggaran</h3>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-              Batas aman harian dihitung otomatis dari sisa anggaran dibagi sisa hari.
-            </p>
-          </div>
-          <div className="inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-600 backdrop-blur-xl dark:bg-slate-900/40 dark:text-slate-300">
-            ${monthLabel}
-          </div>
-        </div>
-      </div>
-
-      ${budgets.length
-        ? html`
-            <div className="relative mt-5 space-y-3">
-              ${budgets.map(
-                (budget) => {
-                  const progressWidth = Math.min(
-                    Math.max(budget.usage * 100, budget.spentAmount > 0 ? 8 : 0),
-                    100,
-                  );
-                  const remainingAmount = Math.max(budget.remainingAmount, 0);
-                  const todaySafeValue = Math.abs(budget.todayRemainingSafe || 0);
-                  const tomorrowLabel =
-                    budget.remainingDaysAfterToday > 0
-                      ? formatCurrency(budget.projectedNextDailyLimit, budget.currency)
-                      : "-";
-                  const tomorrowHelper =
-                    budget.remainingDaysAfterToday > 0
-                      ? `${budget.remainingDaysAfterToday} hari tersisa`
-                      : "Hari terakhir";
-                  const adjustmentLabel =
-                    budget.dailyAdjustment >= 0
-                      ? `+${formatCurrency(budget.dailyAdjustment, budget.currency)}`
-                      : `-${formatCurrency(Math.abs(budget.dailyAdjustment), budget.currency)}`;
-                  const todaySafeLabel =
-                    budget.todayRemainingSafe >= 0 ? "Sisa hari ini" : "Lewat hari ini";
-                  const todaySafeTone =
-                    budget.todayRemainingSafe >= 0
-                      ? "text-emerald-700 dark:text-emerald-300"
-                      : "text-rose-600 dark:text-rose-300";
-
-                  return html`
-                    <div
-                      key=${budget.id}
-                      className="rounded-[24px] border border-slate-200/70 bg-white/58 p-4 backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/40"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className=${`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${budget.meta.chip}`}>
-                            ${budget.meta.label}
-                          </div>
-                          <p className="mt-3 text-xs font-black uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-                            Batas bulanan
-                          </p>
-                          <p className="mt-1 text-2xl font-black tracking-[-0.02em] text-slate-950 dark:text-white">
-                            ${formatCurrency(budget.limitAmount, budget.currency)}
-                          </p>
-                        </div>
-
-                        <div className="flex shrink-0 flex-col items-end gap-2">
-                          <div className=${`inline-flex rounded-full border px-2.5 py-1 text-xs font-black ${budget.tone}`}>
-                            ${budget.statusLabel}
-                          </div>
-                          <button
-                            type="button"
-                            onClick=${() => onDelete(budget)}
-                            className="rounded-full px-2 py-1 text-xs font-black text-rose-600 transition hover:bg-rose-500/10 hover:text-rose-500 dark:text-rose-300"
-                          >
-                            Hapus
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="mt-4">
-                        <div className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold">
-                          <span className="text-slate-500 dark:text-slate-400">
-                            Terpakai ${formatCurrency(budget.spentAmount, budget.currency)}
-                          </span>
-                          <span className="text-slate-700 dark:text-slate-200">
-                            ${formatPercent(budget.usage)}
-                          </span>
-                        </div>
-                        <div className="h-2.5 rounded-full bg-slate-200/70 dark:bg-slate-800">
-                          <div
-                            className=${`h-full rounded-full bg-gradient-to-r ${budget.barClass}`}
-                            style=${{ width: `${progressWidth}%` }}
-                          ></div>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-2 gap-2">
-                        <div className="rounded-2xl border border-slate-200/65 bg-white/52 p-3 dark:border-white/10 dark:bg-slate-950/30">
-                          <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                            Sisa anggaran
-                          </p>
-                          <p className="mt-1.5 truncate text-sm font-black text-slate-950 dark:text-white">
-                            ${formatCurrency(remainingAmount, budget.currency)}
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200/65 bg-white/52 p-3 dark:border-white/10 dark:bg-slate-950/30">
-                          <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                            Batas hari ini
-                          </p>
-                          <p className="mt-1.5 truncate text-sm font-black text-slate-950 dark:text-white">
-                            ${formatCurrency(budget.dynamicDailyLimit, budget.currency)}
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200/65 bg-white/52 p-3 dark:border-white/10 dark:bg-slate-950/30">
-                          <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                            Dipakai hari ini
-                          </p>
-                          <p className="mt-1.5 truncate text-sm font-black text-slate-950 dark:text-white">
-                            ${formatCurrency(budget.spentToday, budget.currency)}
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200/65 bg-white/52 p-3 dark:border-white/10 dark:bg-slate-950/30">
-                          <p className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">
-                            ${todaySafeLabel}
-                          </p>
-                          <p className=${`mt-1.5 truncate text-sm font-black ${todaySafeTone}`}>
-                            ${formatCurrency(todaySafeValue, budget.currency)}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <div className="rounded-full border border-slate-200/70 bg-white/58 px-3 py-1.5 text-[11px] font-bold text-slate-600 dark:border-white/10 dark:bg-slate-950/30 dark:text-slate-300">
-                          Besok ${tomorrowLabel}
-                        </div>
-                        <div className="rounded-full border border-slate-200/70 bg-white/58 px-3 py-1.5 text-[11px] font-bold text-slate-600 dark:border-white/10 dark:bg-slate-950/30 dark:text-slate-300">
-                          ${tomorrowHelper}
-                        </div>
-                        <div className="rounded-full border border-slate-200/70 bg-white/58 px-3 py-1.5 text-[11px] font-bold text-slate-600 dark:border-white/10 dark:bg-slate-950/30 dark:text-slate-300">
-                          Ritme ${adjustmentLabel}
-                        </div>
-                      </div>
-
-                      ${budget.status === "over"
-                        ? html`
-                            <p className="mt-3 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-xs font-semibold text-rose-700 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200">
-                              Lewat ${formatCurrency(
-                                Math.abs(budget.remainingAmount),
-                                budget.currency,
-                              )} dari batas.
-                            </p>
-                          `
-                        : null}
-                    </div>
-                  `;
-                },
-              )}
-            </div>
-          `
-        : html`
-            <div className="relative mt-5 rounded-[24px] border border-dashed border-brand-300/25 bg-brand-400/10 p-6 text-center backdrop-blur-xl dark:border-brand-400/20 dark:bg-brand-500/10">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-brand-300/25 bg-brand-500/12 text-lg font-black text-brand-700 dark:text-brand-200">
-                0
-              </div>
-              <h4 className="mt-4 font-display text-lg font-bold text-slate-950 dark:text-white">
-                Anggaran belum aktif
-              </h4>
-              <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-600 dark:text-slate-300/80">
-                Buat batas uang keluar bulanan agar indikator batas aman harian mulai bekerja.
-              </p>
-              ${onCreateBudget
-                ? html`
-                    <button
-                      type="button"
-                      onClick=${onCreateBudget}
-                      className="history-action-primary mt-4 min-h-11 rounded-2xl px-4 py-2.5 text-sm font-black"
-                    >
-                      Atur anggaran
-                    </button>
-                  `
-                : null}
-            </div>
-          `}
-    </div>
-  `;
-}
-
-function ExchangeSummaryPanel({
-  activeExchange,
-  currentMonthLabel,
-  monthlyExpenseThb,
-  onStartExchange = null,
-}) {
-  return html`
-    <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-      <div className="relative">
-        <h3 className="font-display text-xl font-bold">Ringkasan Kurs & Modal</h3>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-          Exchange berkurs menjadi dasar valuasi mata uang laporan untuk pengeluaran multi-mata uang.
-        </p>
-      </div>
-
-      <div className="relative mt-5 space-y-3">
-        ${activeExchange
-          ? html`
-              <div className="rounded-2xl border border-brand-300/25 bg-brand-400/10 p-4 backdrop-blur-xl dark:border-brand-300/20 dark:bg-brand-500/10">
-                <p className="text-sm font-semibold text-brand-800 dark:text-brand-200">Kurs aktif terakhir</p>
-                <p className="mt-2 text-lg font-bold text-brand-900 dark:text-white">
-                  ${formatCurrency(activeExchange.from_amount, activeExchange.from_currency)} ->
-                  ${formatCurrency(activeExchange.to_amount, activeExchange.to_currency)}
-                </p>
-                <p className="mt-2 text-sm text-brand-800 dark:text-brand-200">
-                  ${formatRate(activeExchange.rate || activeExchange.locked_rate, activeExchange.from_currency, activeExchange.to_currency)}
-                </p>
-              </div>
-            `
-          : html`
-              <div className="rounded-2xl border border-dashed border-white/15 bg-white/5 p-4 text-sm text-slate-600 backdrop-blur-xl dark:bg-slate-900/25 dark:text-slate-300/80">
-                <p>
-                  Belum ada exchange. Gunakan saat kamu menukar atau memindahkan dana antar mata uang.
-                </p>
-                ${onStartExchange
-                  ? html`
-                      <button
-                        type="button"
-                        onClick=${onStartExchange}
-                        className="history-action-primary mt-4 min-h-11 rounded-2xl px-4 py-2.5 text-sm font-black"
-                      >
-                        Coba exchange
-                      </button>
-                    `
-                  : null}
-              </div>
-            `}
-
-        <div className="rounded-2xl border border-slate-900/[0.08] bg-white/[0.68] p-4 shadow-[0_12px_30px_rgba(15,23,42,0.07)] backdrop-blur-xl dark:border-white/10 dark:bg-slate-900/40">
-          <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-            Total uang keluar ${currentMonthLabel}
-          </p>
-          <p className="mt-3 text-2xl font-black tracking-[-0.05em] text-slate-950 dark:text-white">
-            ${formatCurrency(monthlyExpenseThb, "thb")}
-          </p>
-          <p className="mt-2 text-sm text-slate-600 dark:text-slate-300/80">
-            Angka ini adalah total seluruh transaksi uang keluar di bulan berjalan.
-          </p>
-        </div>
-      </div>
-    </div>
-  `;
 }
 
 function DailyExpenseForm({
@@ -1915,7 +891,19 @@ function DailyExpenseForm({
       ? formatCurrency(budget.todayRemainingSafe, dailyCurrency)
       : `- ${formatCurrency(Math.abs(budget.todayRemainingSafe), dailyCurrency)}`
     : "-";
-  const parsedAmount = Number(normalizeNumericInput(form.amount_thb));
+  /* Terpakai mengikuti jatah yang sama dengan Sisa aman selama jatahnya ada,
+     supaya kedua angka di kartu ini bisa dikurangkan satu sama lain. */
+  const todaySpentToday = budget
+    ? Number(budget.spentToday || 0)
+    : Number(todaySpentCurrency || 0);
+  const todaySpentCurrencyCode = budget ? budget.currency : dailyCurrency;
+  const todaySpentScopeLabel = budget
+    ? budget.categoryLabel || "Jatah harian"
+    : `Semua pengeluaran ${dailyCurrency}`;
+  const dailyInputOptions = getNumericInputOptions(dailyCurrency);
+  const parsedAmount = Number(
+    normalizeNumericInput(form.amount_thb, dailyInputOptions),
+  );
   const selectedQuickAccount = accountOptions.find(
     (account) => account.id === form.source_account_id,
   );
@@ -1970,9 +958,9 @@ function DailyExpenseForm({
       category_group: hasBudget ? UNIVERSAL_BUDGET_GROUP : null,
       category: form.category,
       currency: dailyCurrency,
-      amount: normalizeNumericInput(form.amount_thb),
-      amount_idr: dailyCurrency === "IDR" ? normalizeNumericInput(form.amount_thb) : null,
-      amount_thb: dailyCurrency === "THB" ? normalizeNumericInput(form.amount_thb) : null,
+      amount: normalizeNumericInput(form.amount_thb, dailyInputOptions),
+      amount_idr: dailyCurrency === "IDR" ? normalizeNumericInput(form.amount_thb, dailyInputOptions) : null,
+      amount_thb: dailyCurrency === "THB" ? normalizeNumericInput(form.amount_thb, dailyInputOptions) : null,
       exchange_rate: null,
       expense_currency: dailyCurrency,
       source_account_id: form.source_account_id || null,
@@ -2030,7 +1018,13 @@ function DailyExpenseForm({
               Terpakai
             </p>
             <p className="mt-1.5 truncate text-sm font-black text-slate-950 dark:text-white md:text-lg">
-              ${formatCurrency(todaySpentCurrency, dailyCurrency)}
+              ${formatCurrency(todaySpentToday, todaySpentCurrencyCode)}
+            </p>
+            ${/* Terpakai dan Sisa aman harus berasal dari jatah yang sama.
+                  Dulu Terpakai hanya menjumlah mata uang harian sedangkan
+                  Sisa aman memotong belanja jatah dari semua mata uang. */ null}
+            <p className="mt-1 truncate text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+              ${todaySpentScopeLabel}
             </p>
           </div>
           <div className="min-w-0 rounded-2xl border border-slate-200/60 bg-white/50 px-3 py-3 dark:border-white/10 dark:bg-slate-950/30">
@@ -2049,6 +1043,9 @@ function DailyExpenseForm({
               ${todaySpentIdr > 0
                 ? formatCurrency(todaySpentIdr, normalizeCurrencyCode(baseCurrency))
                 : "-"}
+            </p>
+            <p className="mt-1 truncate text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+              Pengeluaran ${dailyCurrency} hari ini
             </p>
           </div>
         </div>
@@ -2080,12 +1077,12 @@ function DailyExpenseForm({
           <span className="mb-2 block text-sm font-medium">Jumlah (${dailyCurrency})</span>
           <input
             type="text"
-            inputMode="decimal"
+            inputMode=${dailyInputOptions.allowDecimal ? "decimal" : "numeric"}
             autoComplete="off"
             required
             value=${form.amount_thb}
             onChange=${(event) =>
-              updateField("amount_thb", formatNumericInput(event.target.value))}
+              updateField("amount_thb", formatNumericInput(event.target.value, dailyInputOptions))}
             placeholder="0"
             className=${GLASS_INPUT}
           />
@@ -2111,7 +1108,7 @@ function DailyExpenseForm({
         ${accountOptions.length
           ? html`
               <label className="block">
-                <span className="mb-2 block text-sm font-medium">Wallet / akun</span>
+                <span className="mb-2 block text-sm font-medium">Dompet</span>
                 <select
                   value=${form.source_account_id}
                   onChange=${(event) => updateField("source_account_id", event.target.value)}
@@ -2158,270 +1155,6 @@ function DailyExpenseForm({
             disabled=${submitDisabled}
           />
         </div>
-      </form>
-    </div>
-  `;
-}
-
-function DailyBudgetGuard({
-  budget,
-  todaySpentThb,
-  todaySpentIdr,
-  monthLabel,
-  currency = DEFAULT_BASE_CURRENCY,
-  todaySpentCurrency = todaySpentThb,
-}) {
-  const budgetCurrency = normalizeCurrencyCode(budget?.currency || currency);
-  const statusTone = !budget
-    ? "border-slate-300/20 bg-slate-400/10 text-slate-900 dark:border-slate-400/20 dark:bg-slate-500/10 dark:text-slate-200"
-    : budget.status === "over" || budget.todayRemainingSafe < 0
-      ? "border-rose-300/20 bg-rose-400/10 text-rose-900 dark:border-rose-400/20 dark:bg-rose-500/10 dark:text-rose-200"
-      : budget.status === "warning"
-        ? "border-amber-300/20 bg-amber-400/10 text-amber-900 dark:border-amber-400/20 dark:bg-amber-500/10 dark:text-amber-200"
-        : "border-emerald-300/20 bg-emerald-400/10 text-emerald-900 dark:border-emerald-400/20 dark:bg-emerald-500/10 dark:text-emerald-200";
-
-  const statusLabel = !budget
-    ? "Belum ada anggaran"
-    : budget.todayRemainingSafe < 0
-      ? "Lewat batas hari ini"
-      : budget.status === "warning"
-        ? "Mendekati batas"
-        : "Masih aman";
-
-  const todayLimit = budget ? formatCurrency(budget.dynamicDailyLimit, budgetCurrency) : "-";
-  const safeRemaining = budget
-    ? budget.todayRemainingSafe >= 0
-      ? formatCurrency(budget.todayRemainingSafe, budgetCurrency)
-      : `- ${formatCurrency(Math.abs(budget.todayRemainingSafe), budgetCurrency)}`
-    : "-";
-
-  return html`
-    <div className=${`${PREMIUM_PANEL} p-5 md:p-6`}>
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-      <div className="relative">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 className="font-display text-xl font-bold">Proteksi Harian</h3>
-            <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-              Ringkasan cepat supaya kamu langsung tahu ritme hari ini.
-            </p>
-          </div>
-          <div className="inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-600 backdrop-blur-xl dark:bg-slate-900/40 dark:text-slate-300">
-            ${monthLabel}
-          </div>
-        </div>
-
-        <div className=${`mt-5 inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusTone}`}>
-          ${statusLabel}
-        </div>
-
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-              Terpakai hari ini
-            </p>
-            <p className="mt-3 text-3xl font-black text-slate-950 dark:text-white">
-              ${formatCurrency(todaySpentCurrency, budgetCurrency)}
-            </p>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300/80">
-              ${todaySpentIdr > 0 ? formatCurrency(todaySpentIdr, "idr") : "Belum ada valuasi IDR"}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
-              Batas aman hari ini
-            </p>
-            <p className="mt-3 text-3xl font-black text-slate-950 dark:text-white">
-              ${todayLimit}
-            </p>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300/80">
-              ${budget
-                ? `Sisa aman ${safeRemaining}`
-                : "Atur anggaran bulanan supaya proteksi aktif."}
-            </p>
-          </div>
-        </div>
-
-        ${budget
-          ? html`
-              <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-4 backdrop-blur-xl dark:bg-slate-900/40">
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="text-slate-600 dark:text-slate-300/80">
-                    Anggaran bulan ini
-                  </span>
-                  <span className="font-semibold text-slate-900 dark:text-slate-100">
-                    ${formatCurrency(budget.spentAmount, budgetCurrency)} / ${formatCurrency(
-                      budget.limitAmount,
-                      budgetCurrency,
-                    )}
-                  </span>
-                </div>
-                <div className="mt-3 h-2 rounded-full bg-slate-200/70 dark:bg-slate-800">
-                  <div
-                    className=${`h-full rounded-full bg-gradient-to-r ${budget.barClass}`}
-                    style=${{
-                      width: `${Math.min(
-                        Math.max(budget.usage * 100, budget.spentAmount > 0 ? 8 : 0),
-                        100,
-                      )}%`,
-                    }}
-                  ></div>
-                </div>
-              </div>
-            `
-          : null}
-      </div>
-    </div>
-  `;
-}
-
-function BudgetForm({
-  onSubmit,
-  loading,
-  currentMonthKey,
-  currency: initialCurrency = getBaseCurrency(),
-  activeCurrencies = getActiveCurrencies(),
-  onCurrencyChange = null,
-  initialCategory = DEFAULT_CATEGORY,
-  embedded = false,
-}) {
-  const [monthKey, setMonthKey] = useState(currentMonthKey);
-  const [currency, setCurrency] = useState(normalizeCurrencyCode(initialCurrency));
-  const [category, setCategory] = useState(() =>
-    normalizeBudgetCategory(initialCategory, UNIVERSAL_BUDGET_GROUP),
-  );
-  const [limitAmount, setLimitAmount] = useState("");
-  const normalizedActiveCurrencies = normalizeCurrencyList(activeCurrencies);
-  const currencyOptions = getCurrencyOptions(normalizedActiveCurrencies);
-  const budgetCategoryOptions = CATEGORY_OPTIONS.map((item) => ({
-    value: item.value,
-    label: item.label,
-  }));
-
-  useEffect(() => {
-    setMonthKey(currentMonthKey);
-  }, [currentMonthKey]);
-
-  useEffect(() => {
-    setCategory(
-      normalizeBudgetCategory(
-        initialCategory || DEFAULT_CATEGORY,
-        UNIVERSAL_BUDGET_GROUP,
-      ),
-    );
-  }, [initialCategory]);
-
-  useEffect(() => {
-    const nextCurrency = normalizeCurrencyCode(initialCurrency);
-    setCurrency(
-      normalizedActiveCurrencies.includes(nextCurrency)
-        ? nextCurrency
-        : normalizedActiveCurrencies[0],
-    );
-  }, [initialCurrency, normalizedActiveCurrencies.join("|")]);
-
-  function handleCurrencyChange(value) {
-    const nextCurrency = normalizeCurrencyCode(value);
-    setCurrency(nextCurrency);
-    if (onCurrencyChange) onCurrencyChange(nextCurrency);
-  }
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    const ok = await onSubmit({
-      month_key: monthKey,
-      group_key: getDefaultGroupForCategory(category),
-      category,
-      currency,
-      limit_amount: normalizeNumericInput(limitAmount),
-    });
-    if (ok) {
-      setLimitAmount("");
-    }
-  }
-
-  return html`
-    <div className=${embedded ? "relative" : `${PREMIUM_PANEL} p-5 md:p-6`}>
-      ${embedded
-        ? null
-        : html`
-            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.12),transparent_50%)] opacity-80"></div>
-            <div className="relative">
-              <h3 className="font-display text-xl font-bold">Anggaran Uang Keluar Bulanan</h3>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-300/80">
-                Satu batas untuk mata uang yang sedang kamu kontrol.
-              </p>
-            </div>
-          `}
-
-      <form className=${embedded ? "relative grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1fr_1.15fr_1fr_auto] xl:items-end" : "relative mt-5 space-y-4"} onSubmit=${handleSubmit}>
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">Bulan</span>
-          <input
-            type="month"
-            value=${monthKey}
-            onChange=${(event) => setMonthKey(event.target.value)}
-            className=${GLASS_INPUT}
-          />
-        </label>
-
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">Mata uang anggaran</span>
-          <select
-            value=${currency}
-            onChange=${(event) => handleCurrencyChange(event.target.value)}
-            className=${GLASS_INPUT}
-          >
-            ${currencyOptions.map(
-              (option) => html`
-                <option key=${option.value} value=${option.value}>
-                  ${option.label}
-                </option>
-              `,
-            )}
-          </select>
-        </label>
-
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">Kategori</span>
-          <select
-            value=${category}
-            onChange=${(event) => setCategory(event.target.value)}
-            className=${GLASS_INPUT}
-          >
-            ${budgetCategoryOptions.map(
-              (option) => html`
-                <option key=${option.value} value=${option.value}>
-                  ${option.label}
-                </option>
-              `,
-            )}
-          </select>
-        </label>
-
-        <label className="block">
-          <span className="mb-2 block text-sm font-medium">Target (${currency})</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            autoComplete="off"
-            required
-            value=${limitAmount}
-            onChange=${(event) =>
-              setLimitAmount(formatNumericInput(event.target.value))}
-            placeholder="0"
-            className=${GLASS_INPUT}
-          />
-        </label>
-
-        <button
-          type="submit"
-          disabled=${loading}
-          className="history-action-primary min-h-12 w-full rounded-2xl px-5 py-3 text-sm font-black transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-60 xl:w-auto"
-        >
-          Simpan
-        </button>
       </form>
     </div>
   `;
@@ -3676,15 +2409,27 @@ function App() {
 
       if (payload.type === "income") {
         const currency = normalizeCurrencyCode(payload.currency);
-        const amount = Number(payload.amount || payload.amount_idr || payload.amount_thb);
+        const amount = readCurrencyAmount(
+          payload.amount || payload.amount_idr || payload.amount_thb,
+          currency,
+        );
         if (!amount || amount <= 0) {
           throw new Error(`Jumlah pemasukan ${currency} harus lebih besar dari 0.`);
         }
         record.currency = currency;
         record.amount = amount;
-        record.rate = null;
-        record.locked_rate = null;
-        record.base_amount = currency === getBaseCurrency() ? amount : null;
+        /* Pemasukan valas memakai jalur kurs yang sama dengan pengeluaran:
+           tanpa kurs tersimpan, nilainya hilang dari Kondisi keuanganmu. */
+        const rateInfo = resolveTransactionRateInfo({
+          currency,
+          baseCurrency: getBaseCurrency(),
+          occurredAt: new Date(payload.occurred_at),
+          transactions,
+          globalRateSnapshot,
+          explicitRate: Number(payload.exchange_rate || payload.rate || 0),
+          preferCustom: payload.rate_type === "custom",
+        });
+        applyTransactionRateToRecord(record, amount, rateInfo);
         record.amount_idr = currency === getBaseCurrency() ? amount : null;
         record.amount_thb = currency === "THB" ? amount : null;
         record.category = null;
@@ -3695,9 +2440,9 @@ function App() {
       if (payload.type === "exchange") {
         const fromCurrency = normalizeCurrencyCode(payload.from_currency);
         const toCurrency = normalizeCurrencyCode(payload.to_currency, "THB");
-        const fromAmountValue = normalizeNumericInput(payload.from_amount);
+        const fromAmountValue = normalizeNumericInput(payload.from_amount, getNumericInputOptions(payload.from_currency));
         const exchangeRateValue = serializeExchangeRate(payload.exchange_rate);
-        const feeAmountValue = normalizeNumericInput(payload.fee_amount) || "0";
+        const feeAmountValue = normalizeNumericInput(payload.fee_amount, getNumericInputOptions(payload.from_currency)) || "0";
         const fromAmount = Number(fromAmountValue);
         const feeAmount = Number(feeAmountValue);
         const rateBaseCurrency = normalizeCurrencyCode(
@@ -3832,7 +2577,10 @@ function App() {
 
       if (payload.type === "expense") {
         const expenseCurrency = normalizeCurrencyCode(payload.expense_currency || payload.currency);
-        const amount = Number(payload.amount || payload.amount_idr || payload.amount_thb);
+        const amount = readCurrencyAmount(
+          payload.amount || payload.amount_idr || payload.amount_thb,
+          expenseCurrency,
+        );
         const sourceAccountId = payload.source_account_id || null;
         const targetId = payload.target_id || null;
         const selectedGoal = targetId
@@ -3858,57 +2606,19 @@ function App() {
             `Dana tersedia pada ${selectedGoal.name} tidak mencukupi.`,
           );
         }
-        const explicitRate = Number(
-          payload.exchange_rate || payload.rate || 0,
-        );
-        const historicalRate =
-          expenseCurrency === getBaseCurrency()
-            ? 1
-            : getLatestRateForCurrencyUntil(
-                transactions,
-                expenseCurrency,
-                new Date(payload.occurred_at),
-                getBaseCurrency(),
-              );
-        const automaticRate =
-          expenseCurrency === getBaseCurrency()
-            ? 1
-            : getCurrentValuationRateForCurrency(
-                globalRateSnapshot,
-                expenseCurrency,
-                getBaseCurrency(),
-              ).rate;
-        const fallbackRate =
-          expenseCurrency === getBaseCurrency()
-            ? 1
-            : explicitRate || historicalRate || automaticRate;
-        const rateType =
-          expenseCurrency === getBaseCurrency()
-            ? "base"
-            : explicitRate > 0
-              ? payload.rate_type === "custom"
-                ? "custom"
-                : "realtime"
-              : historicalRate > 0
-                ? "historical"
-                : automaticRate > 0
-                  ? "realtime"
-                  : null;
+        const rateInfo = resolveTransactionRateInfo({
+          currency: expenseCurrency,
+          baseCurrency: getBaseCurrency(),
+          occurredAt: new Date(payload.occurred_at),
+          transactions,
+          globalRateSnapshot,
+          explicitRate: Number(payload.exchange_rate || payload.rate || 0),
+          preferCustom: payload.rate_type === "custom",
+        });
 
         record.currency = expenseCurrency;
         record.amount = amount;
-        record.rate =
-          expenseCurrency === getBaseCurrency() || !fallbackRate ? null : fallbackRate;
-        record.locked_rate =
-          expenseCurrency === getBaseCurrency() || !fallbackRate ? null : fallbackRate;
-        record.rate_type = rateType;
-        record.base_amount =
-          expenseCurrency === getBaseCurrency()
-            ? amount
-            : fallbackRate > 0
-              ? amount * fallbackRate
-              : null;
-        record.amount_idr = record.base_amount;
+        applyTransactionRateToRecord(record, amount, rateInfo);
         record.amount_thb = expenseCurrency === "THB" ? amount : null;
         record.category = payload.category;
         record.category_group = getDefaultGroupForCategory(payload.category);
@@ -4003,10 +2713,20 @@ function App() {
 
       const nextType = getTransactionFlow(transaction);
       const description = String(payload.description || "").trim();
-      const amount = Number(normalizeNumericInput(payload.amount));
-      const amountIdr = Number(normalizeNumericInput(payload.amount_idr));
-      const amountThb = Number(normalizeNumericInput(payload.amount_thb));
-      const fromAmountValue = normalizeNumericInput(payload.from_amount);
+      /* Nominal dibaca dengan aturan angka mata uangnya sendiri, sama seperti
+         saat dicatat, supaya "25.000" tidak pernah menyusut menjadi 25. */
+      const entryCurrency =
+        payload.expense_currency || payload.currency || transaction.currency;
+      const movementFromOptions = getNumericInputOptions(
+        payload.from_currency || transaction.from_currency,
+      );
+      const amount = readCurrencyAmount(payload.amount, entryCurrency);
+      const amountIdr = readCurrencyAmount(payload.amount_idr, "IDR");
+      const amountThb = readCurrencyAmount(payload.amount_thb, "THB");
+      const fromAmountValue = normalizeNumericInput(
+        payload.from_amount,
+        movementFromOptions,
+      );
       const fromAmount = Number(fromAmountValue);
       const lockedRate = Number(normalizeNumericInput(payload.locked_rate));
       const record = {
@@ -4051,10 +2771,23 @@ function App() {
         }
         record.currency = currency;
         record.amount = nextAmount;
-        record.rate = null;
-        record.locked_rate = null;
-        record.base_amount = currency === getBaseCurrency() ? nextAmount : null;
-        record.amount_idr = currency === getBaseCurrency() ? nextAmount : null;
+        /* Pemasukan valas ikut menyimpan kursnya seperti pengeluaran. Tanpa
+           itu nilainya kosong di analitik dan arus kas terbaca minus. */
+        const rateInfo = resolveTransactionRateInfo({
+          currency,
+          baseCurrency: getBaseCurrency(),
+          occurredAt,
+          transactions: transactions.filter((item) => item.id !== transaction.id),
+          globalRateSnapshot,
+          explicitRate: Number(payload.exchange_rate || payload.rate || 0),
+          lockedRate:
+            normalizeCurrencyCode(transaction.currency) === currency
+              ? Number(transaction.locked_rate || transaction.rate || 0)
+              : 0,
+          storedRateType: transaction.rate_type,
+          preferCustom: payload.rate_type === "custom",
+        });
+        applyTransactionRateToRecord(record, nextAmount, rateInfo);
         record.amount_thb = currency === "THB" ? nextAmount : null;
         record.destination_account_id =
           payload.destination_account_id !== undefined
@@ -4218,57 +2951,19 @@ function App() {
             `Dana tersedia pada ${selectedGoal.name} tidak mencukupi.`,
           );
         }
-        const historicalRate =
-          expenseCurrency === getBaseCurrency()
-            ? 1
-            : getLatestRateForCurrencyUntil(
-                transactions.filter((item) => item.id !== transaction.id),
-                expenseCurrency,
-                occurredAt,
-                getBaseCurrency(),
-              );
-        const automaticRate =
-          expenseCurrency === getBaseCurrency()
-            ? 1
-            : getCurrentValuationRateForCurrency(
-                globalRateSnapshot,
-                expenseCurrency,
-                getBaseCurrency(),
-              ).rate;
-        const autoRate =
-          expenseCurrency === getBaseCurrency()
-            ? 1
-            : lockedRate > 0
-              ? lockedRate
-              : historicalRate || automaticRate;
-        const rateType =
-          expenseCurrency === getBaseCurrency()
-            ? "base"
-            : lockedRate > 0
-              ? transaction.rate_type === "custom"
-                ? "custom"
-                : transaction.rate_type || "historical"
-              : historicalRate > 0
-                ? "historical"
-                : automaticRate > 0
-                  ? "realtime"
-                  : null;
+        const rateInfo = resolveTransactionRateInfo({
+          currency: expenseCurrency,
+          baseCurrency: getBaseCurrency(),
+          occurredAt,
+          transactions: transactions.filter((item) => item.id !== transaction.id),
+          globalRateSnapshot,
+          lockedRate,
+          storedRateType: transaction.rate_type,
+        });
 
         record.currency = expenseCurrency;
         record.amount = nextAmount;
-        record.rate =
-          expenseCurrency === getBaseCurrency() || !autoRate ? null : autoRate;
-        record.locked_rate =
-          expenseCurrency === getBaseCurrency() || !autoRate ? null : autoRate;
-        record.rate_type = rateType;
-        record.base_amount =
-          expenseCurrency === getBaseCurrency()
-            ? nextAmount
-            : autoRate > 0
-              ? nextAmount * autoRate
-              : null;
-        record.amount_idr = record.base_amount;
-        record.amount_thb = expenseCurrency === "THB" ? nextAmount : null;
+        applyTransactionRateToRecord(record, nextAmount, rateInfo);
         record.source_account_id =
           payload.source_account_id !== undefined
             ? payload.source_account_id || null
@@ -6094,12 +4789,26 @@ function App() {
       setTransactionEntryType("expense");
       writeAppStorage("transactionFabHintDismissed", true);
     }
+    /* Permintaan fokus kategori hanya berlaku untuk kunjungan itu. Dulu
+       kuncinya bertahan selamanya, sehingga halaman Jatah terus mengulang
+       permintaan lama setiap kali dibuka. */
+    if (tab !== "budget") setBudgetFocusCategoryKey(null);
     setActiveTab(tab);
     setMenuOpen(false);
     setQuickActionOpen(false);
   }
 
   function openBudgetWorkspace(categoryKey = null) {
+    /* Seksi Target tinggal di halaman Dompet, jadi permintaannya diarahkan
+       langsung ke sana. Sebelumnya "__goals__" disimpan sebagai fokus
+       kategori Jatah, lalu halaman Jatah mengalihkan dirinya sendiri ke
+       Dompet setiap kali dibuka sampai halaman dimuat ulang. */
+    if (categoryKey === "__goals__") {
+      setBudgetFocusCategoryKey(null);
+      navigateAppTab("investment");
+      scrollAppToTop();
+      return;
+    }
     setBudgetFocusCategoryKey(categoryKey || null);
     navigateAppTab("budget");
     scrollAppToTop();
@@ -6210,9 +4919,10 @@ function App() {
     .filter((item) => getLocalDayKey(item.occurred_at) === todayKey)
     .reverse()
     .slice(0, 5);
-  const latestTransactionRate = getLatestReportRateUntil(
+  /* Kurs cadangan mengikuti mata uang tiap transaksi, bukan satu kurs baht
+     untuk semuanya. */
+  const latestTransactionRate = createTransactionFallbackRate(
     transactions,
-    new Date(8640000000000000),
     walletBaseCurrency,
   );
   const activeContent = activeTab === "today"
@@ -6323,6 +5033,7 @@ function App() {
                   monthLabel=${metrics.currentMonthLabel}
                   monthlyIncome=${Number(metrics.monthlyIncomeIdr || 0)}
                   monthlyExpense=${Number(metrics.monthlyExpenseIdr || 0)}
+                  unvaluedCount=${Number(metrics.monthlyUnvaluedCount || 0)}
                   focusCategory=${historyFocusCategory}
                 />
               </section>

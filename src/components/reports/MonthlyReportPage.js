@@ -340,7 +340,7 @@ function MonthlyCurrencySummary({ report }) {
                       ${item.currency}
                     </p>
                     <span className="rounded-full border border-brand-300/25 bg-brand-500/10 px-2.5 py-1 text-[11px] font-black text-brand-700 dark:border-brand-300/20 dark:text-brand-200">
-                      Wallet
+                      Dompet
                     </span>
                   </div>
                   <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
