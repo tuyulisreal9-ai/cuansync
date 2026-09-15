@@ -10,6 +10,7 @@ import {
   exportMonthlyStatementPdf,
 } from "../../lib/monthlyStatementPdf.js";
 import { getProfileDisplayName } from "../../lib/profile.js";
+import { loadMonthlyStatementRates } from "../../lib/monthlyStatementRates.js";
 import {
   buildMonthlyStatement,
   getMonthlyStatementTransactions,
@@ -24,6 +25,7 @@ const INPUT_CLASS =
 
 function StatementSummary({ statement }) {
   const incomplete = !statement.summary.isValuationComplete;
+  const estimated = statement.summary.estimatedCount > 0;
   const items = [
     {
       label: "Transaksi",
@@ -31,17 +33,17 @@ function StatementSummary({ statement }) {
       tone: "var(--cs-ink)",
     },
     {
-      label: incomplete ? "Masuk tervaluasi" : "Uang masuk",
+      label: incomplete ? "Masuk terhitung" : estimated ? "Estimasi masuk" : "Uang masuk",
       value: formatCurrency(statement.summary.income, statement.baseCurrency),
       tone: "var(--cs-pos)",
     },
     {
-      label: incomplete ? "Keluar tervaluasi" : "Uang keluar",
+      label: incomplete ? "Keluar terhitung" : estimated ? "Estimasi keluar" : "Uang keluar",
       value: formatCurrency(statement.summary.expense, statement.baseCurrency),
       tone: "var(--cs-danger)",
     },
     {
-      label: incomplete ? "Bersih tervaluasi" : "Arus bersih",
+      label: incomplete ? "Bersih terhitung" : estimated ? "Estimasi bersih" : "Arus bersih",
       value: `${statement.summary.net >= 0 ? "+" : "-"}${formatCurrency(
         Math.abs(statement.summary.net),
         statement.baseCurrency,
@@ -97,6 +99,8 @@ export function MonthlyStatementExportSheet({
   const [monthKey, setMonthKey] = useState(() => getMonthKey(new Date()));
   const [monthTransactions, setMonthTransactions] = useState([]);
   const [loadingMonth, setLoadingMonth] = useState(false);
+  const [loadingRates, setLoadingRates] = useState(false);
+  const [rateSnapshot, setRateSnapshot] = useState(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadRevision, setLoadRevision] = useState(0);
   const [exporting, setExporting] = useState(false);
@@ -108,13 +112,18 @@ export function MonthlyStatementExportSheet({
     if (!isValidStatementMonthKey(monthKey)) {
       setMonthTransactions([]);
       setLoadingMonth(false);
+      setLoadingRates(false);
+      setRateSnapshot(null);
       setLoadFailed(false);
       setMessage("");
       setErrorMessage("");
       return undefined;
     }
     let active = true;
+    let historyLoaded = false;
     setLoadingMonth(true);
+    setLoadingRates(false);
+    setRateSnapshot(null);
     setLoadFailed(false);
     setMessage("");
     setErrorMessage("");
@@ -123,33 +132,39 @@ export function MonthlyStatementExportSheet({
     const hasCompleteLoader = typeof onLoadTransactions === "function";
     Promise.resolve()
       .then(() => (hasCompleteLoader ? onLoadTransactions(monthKey) : fallback))
-      .then((rows) => {
+      .then(async (rows) => {
         if (!active) return;
-        setMonthTransactions(
-          getMonthlyStatementTransactions(
-            Array.isArray(rows) ? rows : fallback,
-            monthKey,
-          ),
+        const completeRows = getMonthlyStatementTransactions(
+          Array.isArray(rows) ? rows : fallback, monthKey,
         );
+        historyLoaded = true;
+        setMonthTransactions(completeRows);
+        const draft = buildMonthlyStatement({ transactions: completeRows, monthKey, baseCurrency });
+        setLoadingRates(draft.summary.unvaluedCount > 0);
+        const snapshot = await loadMonthlyStatementRates(draft);
+        if (active) setRateSnapshot(snapshot);
       })
       .catch((error) => {
         if (!active) return;
-        setMonthTransactions(hasCompleteLoader ? [] : fallback);
-        setLoadFailed(hasCompleteLoader);
+        if (!historyLoaded) setMonthTransactions(hasCompleteLoader ? [] : fallback);
+        setLoadFailed(historyLoaded || hasCompleteLoader);
         setErrorMessage(
-          hasCompleteLoader
+          historyLoaded ? error.message : hasCompleteLoader
             ? "Riwayat lengkap bulan tersebut belum dapat dimuat. Coba lagi agar PDF tidak kehilangan transaksi."
             : error?.message || "Data bulan tersebut belum dapat dimuat.",
         );
       })
       .finally(() => {
-        if (active) setLoadingMonth(false);
+        if (active) {
+          setLoadingMonth(false);
+          setLoadingRates(false);
+        }
       });
 
     return () => {
       active = false;
     };
-  }, [open, monthKey, transactions, loadRevision]);
+  }, [open, monthKey, transactions, baseCurrency, loadRevision]);
 
   const statement = useMemo(
     () =>
@@ -160,9 +175,10 @@ export function MonthlyStatementExportSheet({
             monthKey,
             baseCurrency,
             ownerName: getProfileDisplayName(profile, user),
+            rateSnapshot,
           })
         : null,
-    [monthTransactions, assetAccounts, monthKey, baseCurrency, profile, user],
+    [monthTransactions, assetAccounts, monthKey, baseCurrency, profile, user, rateSnapshot],
   );
   const hasTransactions = Boolean(statement?.summary.transactionCount > 0);
   const native = isNativeMobileApp();
@@ -173,7 +189,24 @@ export function MonthlyStatementExportSheet({
     setMessage("");
     setErrorMessage("");
     try {
-      const result = await exportMonthlyStatementPdf(statement);
+      const now = new Date();
+      let exportRates = rateSnapshot;
+      // A sheet can stay open overnight. Re-check before exporting an old preview.
+      if (statement.summary.estimatedCount > 0 && (
+        !rateSnapshot?.fetchedAt ||
+        now - new Date(rateSnapshot.fetchedAt) > 60 * 60 * 1000 ||
+        now.toDateString() !== new Date(rateSnapshot.fetchedAt).toDateString()
+      )) {
+        const draft = buildMonthlyStatement({ transactions: monthTransactions, monthKey, baseCurrency });
+        exportRates = await loadMonthlyStatementRates(draft);
+        setRateSnapshot(exportRates);
+      }
+      const exportStatement = buildMonthlyStatement({
+        transactions: monthTransactions, assetAccounts, monthKey, baseCurrency,
+        ownerName: getProfileDisplayName(profile, user), rateSnapshot: exportRates,
+        generatedAt: now,
+      });
+      const result = await exportMonthlyStatementPdf(exportStatement);
       /* "share" datang dari aplikasi native, "web-share" dari lembar berbagi
          peramban yang dipakai iOS. Keduanya membuka lembar berbagi, bukan
          mengunduh, jadi pesannya tidak boleh mengaku sudah mengunduh. */
@@ -213,6 +246,7 @@ export function MonthlyStatementExportSheet({
             type="month"
             value=${monthKey}
             max=${getMonthKey(new Date())}
+            disabled=${exporting}
             onChange=${(event) => setMonthKey(event.target.value)}
             className=${INPUT_CLASS}
           />
@@ -240,7 +274,7 @@ export function MonthlyStatementExportSheet({
                 style=${{ color: "var(--cs-mut)" }}
               >
                 ${loadingMonth
-                  ? "Mengambil riwayat lengkap..."
+                  ? loadingRates ? "Melengkapi konversi dengan kurs terbaru..." : "Mengambil riwayat lengkap..."
                   : hasTransactions
                     ? `${statement.summary.transactionCount} transaksi siap dimasukkan ke PDF.`
                     : "Belum ada transaksi pada bulan ini."}
@@ -262,6 +296,21 @@ export function MonthlyStatementExportSheet({
                 <div className="mt-3">
                   <${StatementSummary} statement=${statement} />
                 </div>
+                ${statement.summary.byCurrency.length ? html`
+                  <div className="mt-4">
+                    <p className="mb-2 text-xs font-bold" style=${{ color: "var(--cs-ink)" }}>Nominal asli per mata uang</p>
+                    <div className="grid grid-cols-[3.5rem_minmax(0,1fr)_minmax(0,1fr)] gap-x-2 gap-y-2 text-[11px]" style=${{ color: "var(--cs-body)" }}>
+                      <span>Mata uang</span><span className="text-right">Masuk</span><span className="text-right">Keluar</span>
+                      ${statement.summary.byCurrency.map((item) => html`
+                        <${React.Fragment} key=${item.currency}>
+                          <span className="font-bold">${item.currency}</span>
+                          <span className="dc-num min-w-0 text-right [overflow-wrap:anywhere]" style=${{ color: "var(--cs-pos)" }}>${formatCurrency(item.income, item.currency)}</span>
+                          <span className="dc-num min-w-0 text-right font-bold [overflow-wrap:anywhere]" style=${{ color: "var(--cs-danger)" }}>${formatCurrency(item.expense, item.currency)}</span>
+                        <//>
+                      `)}
+                    </div>
+                  </div>
+                ` : null}
               `
             : null}
         </div>
@@ -279,7 +328,16 @@ export function MonthlyStatementExportSheet({
           transaksi tetap dihitung.
         </div>
 
-        ${statement?.summary.unvaluedCount > 0
+        ${!loadingMonth && statement?.summary.estimatedCount > 0 ? html`
+          <p className="text-xs leading-5" style=${{ color: "var(--cs-mut)" }}>
+            ${statement.summary.estimatedCount} transaksi tanpa kurs historis memakai estimasi kurs terbaru
+            (data ${new Date(statement.valuation.sourceDate).toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })} UTC).
+            Kurs historis yang sudah ada tetap dipakai. Data transaksi tidak diubah.
+            <a href="https://www.exchangerate-api.com" target="_blank" rel="noopener noreferrer" className="underline">Rates By Exchange Rate API</a>
+          </p>
+        ` : null}
+
+        ${!loadingMonth && statement?.summary.unvaluedCount > 0
           ? html`
               <p
                 className="rounded-2xl border px-3.5 py-3 text-xs leading-5"
@@ -289,10 +347,9 @@ export function MonthlyStatementExportSheet({
                   color: "var(--cs-warn)",
                 }}
               >
-                ${statement.summary.unvaluedCount} transaksi mata uang asing
-                tidak memiliki valuasi historis ${statement.baseCurrency}.
-                Nominal aslinya tetap muncul, sedangkan ringkasan hanya
-                mencakup transaksi yang dapat dinilai dengan benar.
+                Nominal asli sudah tersedia. Konversi ${statement.baseCurrency} untuk
+                ${statement.summary.unvaluedCount} transaksi masih memerlukan kurs terbaru.
+                Coba lagi sebelum mengekspor agar tidak ada nilai yang terlewat.
               </p>
             `
           : null}
@@ -337,6 +394,7 @@ export function MonthlyStatementExportSheet({
               loadingMonth ||
               exporting ||
               loadFailed ||
+              statement?.summary.unvaluedCount > 0 ||
               !isValidStatementMonthKey(monthKey) ||
               !hasTransactions
             }
