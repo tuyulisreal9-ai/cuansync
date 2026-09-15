@@ -5338,11 +5338,6 @@ function App() {
         initialAccountId=${quickEntryInitialAccountId}
         initialAmount=${quickEntryInitialAmount}
         requestKey=${quickEntryRequestKey}
-        ${/* Nominal yang sudah diketik ikut dibawa. Tanpa ini, pindah ke form
-              lengkap berarti mengetik ulang dari nol, dan itulah yang membuat
-              alurnya terasa seperti mencatat dua kali. */ null}
-        onOpenFullForm=${(entryType, amount) =>
-          openTransactionForm(entryType, null, amount)}
       />
     </main>
     <//>

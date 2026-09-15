@@ -210,15 +210,14 @@ test("catat uang memakai sheet keypad seperti desain", async () => {
   assert.match(main, /onAddTransaction=\$\{openQuickEntry\}/);
   assert.match(main, /function openQuickEntry\(\)/);
 
-  // Form lengkap tidak boleh hilang: tetap dapat dibuka dari dalam sheet untuk
-  // tanggal, dompet non-utama, transfer, dan tukar mata uang.
-  assert.match(sheet, /onOpenFullForm/);
-  /* Nominal yang sudah diketik wajib ikut ke form lengkap. Versi sebelumnya
-     hanya menerima entryType sehingga angkanya terbuang di perjalanan, dan
-     pengguna harus mengetik ulang dari nol — terasa seperti mencatat dua kali. */
-  assert.match(main, /onOpenFullForm=\$\{\(entryType, amount\) =>/);
-  assert.match(main, /openTransactionForm\(entryType, null, amount\)/);
-  assert.match(sheet, /onOpenFullForm\?\.\(entryType, amount\)/);
+  /* Tautan "Butuh transfer atau tukar mata uang?" di bawah tombol simpan
+     dihapus atas permintaan pengguna karena terasa mengganggu. Transfer dan
+     tukar mata uang sudah punya tombol sendiri di Beranda dan menu cepat,
+     sedangkan tanggal dan dompet non-utama diatur langsung di sheet ini. */
+  assert.doesNotMatch(sheet, /Butuh transfer atau tukar mata uang/);
+  assert.doesNotMatch(sheet, /onOpenFullForm/);
+  assert.doesNotMatch(main, /onOpenFullForm=/);
+  assert.match(main, /onExchange=\$\{\(\) => openMovementWorkspace\("exchange"\)\}/);
 
   // Tanggal diatur di dalam sheet, bukan dengan pindah ke form lain.
   assert.match(sheet, /type="date"/);

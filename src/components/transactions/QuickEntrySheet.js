@@ -76,13 +76,12 @@ function describeDate(dateValue, todayValue) {
 }
 
 /* Catat cepat: satu layar untuk pemasukan dan pengeluaran sederhana. Tanggal
-   mundur diatur langsung di sini; hanya tukar mata uang yang tetap butuh form
-   lengkap, karena itu jenis transaksi yang berbeda. */
+   mundur diatur langsung di sini. Transfer dan tukar mata uang punya pintu
+   sendiri di Beranda dan menu cepat, jadi sheet ini tidak menautkannya. */
 export function QuickEntrySheet({
   open,
   onClose,
   onSubmit,
-  onOpenFullForm,
   accounts = [],
   categories = [],
   baseCurrency = DEFAULT_BASE_CURRENCY,
@@ -560,21 +559,6 @@ export function QuickEntrySheet({
               : hasAmount
                 ? "Simpan catatan"
                 : "Isi jumlahnya dulu"}
-        </button>
-
-        ${/* Tinggal tukar mata uang yang butuh form lengkap, karena itu jenis
-              transaksi lain dengan dua dompet dan kurs. Nominal yang sudah
-              diketik ikut dibawa supaya tidak ada pencatatan dua kali. */ null}
-        <button
-          type="button"
-          onClick=${() => {
-            onClose();
-            onOpenFullForm?.(entryType, amount);
-          }}
-          className="min-h-10 text-[13px] font-medium lg:col-span-2"
-          style=${{ color: "var(--cs-link)" }}
-        >
-          Butuh transfer atau tukar mata uang?
         </button>
       </div>
     </div>
