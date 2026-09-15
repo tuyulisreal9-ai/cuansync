@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { buildMonthlyStatement } from "../src/components/transactions/monthlyStatement.js";
 import { createMonthlyStatementPdf } from "../src/lib/monthlyStatementPdf.js";
+import { loadMonthlyStatementRates } from "../src/lib/monthlyStatementRates.js";
 
 const accounts = [
   { id: "jago", name: "BANK JAGO", currency: "IDR", account_type: "bank" },
@@ -17,6 +18,22 @@ const categories = [
   "Kesehatan",
 ];
 const transactions = [
+  {
+    id: "foreign-income", type: "income", description: "Pengembalian belanja",
+    currency: "LKR", amount: 1600, destination_account_id: "lkr",
+    occurred_at: "2026-08-29T08:00:00Z",
+  },
+  {
+    id: "foreign-expense", type: "expense", description: "Belanja kebutuhan harian",
+    category: "Belanja", currency: "LKR", amount: 7500, source_account_id: "lkr",
+    occurred_at: "2026-08-29T06:00:00Z",
+  },
+  {
+    id: "historical-expense", type: "expense", description: "Langganan aplikasi kerja",
+    category: "Tagihan", currency: "USD", amount: 12,
+    base_currency: "IDR", base_amount: 192000, source_account_id: "sofian",
+    occurred_at: "2026-08-28T06:00:00Z",
+  },
   {
     id: "salary",
     type: "income",
@@ -83,14 +100,16 @@ const transactions = [
   }),
 ];
 
-const statement = buildMonthlyStatement({
+const statementOptions = {
   transactions,
   assetAccounts: accounts,
   monthKey: "2026-08",
   baseCurrency: "IDR",
-  ownerName: "Tuyul Isreal",
-  generatedAt: new Date("2026-09-02T11:30:00.000Z"),
-});
+  ownerName: "Pengguna Contoh - Data Demo",
+};
+const draft = buildMonthlyStatement(statementOptions);
+const rateSnapshot = await loadMonthlyStatementRates(draft);
+const statement = buildMonthlyStatement({ ...statementOptions, rateSnapshot });
 
 const icon = await readFile(path.resolve("public/icons/icon-192.webp"));
 const brandIconDataUrl = `data:image/webp;base64,${icon.toString("base64")}`;

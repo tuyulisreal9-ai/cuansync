@@ -7,8 +7,10 @@ import {
 } from "../../domain/transactions.js";
 import {
   DEFAULT_BASE_CURRENCY,
+  getCurrencyMeta,
   normalizeCurrencyCode,
 } from "../../lib/currency.js";
+import { getGlobalRateForCurrency } from "../../lib/exchangeRates.js";
 import {
   formatDay,
   formatLongDate,
@@ -119,7 +121,19 @@ function getStatementAmounts(transaction) {
   ];
 }
 
-function createStatementRow(transaction, accountById, baseCurrency) {
+function resolveStatementValuation(historicalValue, amount, currency, baseCurrency, rateSnapshot) {
+  if (historicalValue != null && Number.isFinite(historicalValue)) {
+    return { value: historicalValue, source: currency === baseCurrency ? "native" : "historical" };
+  }
+  // A report-only estimate: never write today's rate back to the transaction.
+  const { rate } = getGlobalRateForCurrency(rateSnapshot, currency, baseCurrency);
+  const value = Number(amount) * rate;
+  return Number.isFinite(rate) && rate > 0 && Number.isFinite(value) && value > 0
+    ? { value, source: "latest" }
+    : { value: null, source: null };
+}
+
+function createStatementRow(transaction, accountById, baseCurrency, rateSnapshot) {
   const flow = getTransactionFlow(transaction);
   const historicalValue =
     flow === "exchange"
@@ -129,10 +143,19 @@ function createStatementRow(transaction, accountById, baseCurrency) {
   const feeCurrency = normalizeCurrencyCode(
     transaction.fee_currency || transaction.from_currency,
   );
-  const feeBaseValue =
+  const feeHistoricalValue =
     flow === "exchange" && feeAmount > 0
       ? resolveTransactionFeeHistoricalBaseValue(transaction, baseCurrency)
       : 0;
+  const valuation = flow === "exchange"
+    ? { value: null, source: null }
+    : resolveStatementValuation(
+        historicalValue, getTransactionAmountValue(transaction),
+        getTransactionCurrency(transaction), baseCurrency, rateSnapshot,
+      );
+  const feeValuation = resolveStatementValuation(
+    feeHistoricalValue, feeAmount, feeCurrency, baseCurrency, rateSnapshot,
+  );
   const occurredAt = new Date(transaction.occurred_at);
 
   return {
@@ -156,12 +179,71 @@ function createStatementRow(transaction, accountById, baseCurrency) {
     accountLabel: getStatementAccountLabel(transaction, accountById),
     amounts: getStatementAmounts(transaction),
     historicalValue,
+    baseValue: valuation.value,
+    valuationSource: valuation.source,
     feeAmount,
     feeCurrency,
-    feeBaseValue,
+    feeBaseValue: feeValuation.value,
+    feeHistoricalValue,
+    feeValuationSource: feeValuation.source,
     usesSavings: Boolean(transaction.target_id),
     internalTransfer: isInternalAccountTransfer(transaction),
   };
+}
+
+function roundStatementAmount(value, currency) {
+  return Number(value.toFixed(getCurrencyMeta(currency).fractionDigits));
+}
+
+function summarizeOriginalCurrencies(rows, baseCurrency) {
+  const totals = new Map();
+  function add(currency, direction, amount, isFee = false) {
+    if (!Number.isFinite(amount) || amount <= 0) return;
+    if (!totals.has(currency)) {
+      totals.set(currency, { currency, income: 0, expense: 0, feeExpense: 0 });
+    }
+    const item = totals.get(currency);
+    item[direction] += amount;
+    if (isFee) item.feeExpense += amount;
+  }
+  rows.forEach((row) => {
+    if (row.flow !== "exchange") {
+      row.amounts.forEach((item) => add(
+        item.currency, item.direction === "in" ? "income" : "expense", item.amount,
+      ));
+    } else if (row.feeAmount > 0) {
+      add(row.feeCurrency, "expense", row.feeAmount, true);
+    }
+  });
+  return [...totals.values()].map((item) => ({
+    ...item,
+    income: roundStatementAmount(item.income, item.currency),
+    expense: roundStatementAmount(item.expense, item.currency),
+    feeExpense: roundStatementAmount(item.feeExpense, item.currency),
+    net: roundStatementAmount(item.income - item.expense, item.currency),
+  })).sort((a, b) => a.currency === baseCurrency ? -1
+    : b.currency === baseCurrency ? 1 : a.currency.localeCompare(b.currency));
+}
+
+export function getStatementMissingRateCurrencies(statement) {
+  const currencies = new Set();
+  statement.rows.forEach((row) => {
+    if (row.flow !== "exchange" && row.baseValue == null) {
+      currencies.add(row.amounts[0]?.currency);
+    }
+    if (row.flow === "exchange" && row.feeAmount > 0 && row.feeBaseValue == null) {
+      currencies.add(row.feeCurrency);
+    }
+  });
+  return [...currencies].filter(Boolean).sort();
+}
+
+export function formatStatementUtcOffset(value) {
+  const minutes = -new Date(value).getTimezoneOffset();
+  if (!Number.isFinite(minutes)) return "UTC";
+  const absolute = Math.abs(minutes);
+  const remainder = absolute % 60;
+  return `UTC${minutes >= 0 ? "+" : "-"}${Math.floor(absolute / 60)}${remainder ? `:${String(remainder).padStart(2, "0")}` : ""}`;
 }
 
 export function getMonthlyStatementTransactions(transactions, monthKey) {
@@ -208,6 +290,7 @@ export function buildMonthlyStatement({
   baseCurrency = DEFAULT_BASE_CURRENCY,
   ownerName = "Pengguna CUANSYNC",
   generatedAt = new Date(),
+  rateSnapshot = null,
 } = {}) {
   if (!isValidStatementMonthKey(monthKey)) {
     throw new Error("Bulan laporan tidak valid.");
@@ -222,16 +305,16 @@ export function buildMonthlyStatement({
     monthKey,
   );
   const rows = monthTransactions.map((transaction) =>
-    createStatementRow(transaction, accountById, normalizedBaseCurrency),
+    createStatementRow(transaction, accountById, normalizedBaseCurrency, rateSnapshot),
   );
   const summary = rows.reduce(
     (totals, row) => {
       if (row.flow === "income") {
-        if (row.historicalValue == null) totals.unvaluedCount += 1;
-        else totals.income += Number(row.historicalValue || 0);
+        if (row.baseValue == null) totals.unvaluedCount += 1;
+        else totals.income += Number(row.baseValue || 0);
       } else if (row.flow === "expense") {
-        if (row.historicalValue == null) totals.unvaluedCount += 1;
-        else totals.expense += Number(row.historicalValue || 0);
+        if (row.baseValue == null) totals.unvaluedCount += 1;
+        else totals.expense += Number(row.baseValue || 0);
       } else {
         totals.movementCount += 1;
         if (row.feeAmount > 0) {
@@ -242,6 +325,10 @@ export function buildMonthlyStatement({
           }
         }
       }
+      if (row.valuationSource === "latest" ||
+          (row.feeAmount > 0 && row.feeValuationSource === "latest")) {
+        totals.estimatedCount += 1;
+      }
       return totals;
     },
     {
@@ -250,11 +337,16 @@ export function buildMonthlyStatement({
       feeExpense: 0,
       movementCount: 0,
       unvaluedCount: 0,
+      estimatedCount: 0,
     },
   );
-  summary.net = summary.income - summary.expense;
+  summary.income = roundStatementAmount(summary.income, normalizedBaseCurrency);
+  summary.expense = roundStatementAmount(summary.expense, normalizedBaseCurrency);
+  summary.feeExpense = roundStatementAmount(summary.feeExpense, normalizedBaseCurrency);
+  summary.net = roundStatementAmount(summary.income - summary.expense, normalizedBaseCurrency);
   summary.transactionCount = rows.length;
   summary.isValuationComplete = summary.unvaluedCount === 0;
+  summary.byCurrency = summarizeOriginalCurrencies(rows, normalizedBaseCurrency);
 
   const groups = [];
   const groupByDay = new Map();
@@ -281,6 +373,12 @@ export function buildMonthlyStatement({
     ownerName: String(ownerName || "Pengguna CUANSYNC"),
     generatedAt: new Date(generatedAt),
     timeZone: resolvedTimeZone,
+    utcOffset: formatStatementUtcOffset(generatedAt),
+    valuation: summary.estimatedCount > 0 ? {
+      provider: rateSnapshot?.provider || null,
+      sourceDate: rateSnapshot?.sourceDate || null,
+      fetchedAt: rateSnapshot?.fetchedAt || null,
+    } : null,
     rows,
     groups,
     summary,

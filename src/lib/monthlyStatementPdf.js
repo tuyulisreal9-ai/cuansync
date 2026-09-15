@@ -134,13 +134,13 @@ function drawFirstPageHeader(doc, statement, brandIconDataUrl) {
   );
   setText(doc, [180, 202, 194], 6.7, "normal");
   doc.text(
-    pdfText(`Dibuat ${formatGeneratedAt(statement.generatedAt)}`),
+    pdfText(`Dibuat ${formatGeneratedAt(statement.generatedAt)} (${statement.utcOffset || "UTC"})`),
     pageWidth - 14,
     35.6,
     { align: "right" },
   );
   doc.text(
-    pdfText(`${statement.baseCurrency} | ${statement.timeZone}`),
+    pdfText(`Mata uang ringkasan: ${statement.baseCurrency}`),
     pageWidth - 14,
     40.2,
     { align: "right" },
@@ -154,6 +154,7 @@ function drawSummary(doc, statement) {
   const width = (pageWidth - margin * 2 - gap * 3) / 4;
   const top = 53;
   const incomplete = !statement.summary.isValuationComplete;
+  const estimated = statement.summary.estimatedCount > 0;
   const items = [
     {
       label: "TRANSAKSI",
@@ -161,17 +162,17 @@ function drawSummary(doc, statement) {
       color: COLORS.ink,
     },
     {
-      label: incomplete ? "MASUK TERVALUASI" : "UANG MASUK",
+      label: incomplete ? "MASUK TERHITUNG" : estimated ? "ESTIMASI MASUK*" : "UANG MASUK",
       value: formatPdfMoney(statement.summary.income, statement.baseCurrency),
       color: COLORS.positive,
     },
     {
-      label: incomplete ? "KELUAR TERVALUASI" : "UANG KELUAR",
+      label: incomplete ? "KELUAR TERHITUNG" : estimated ? "ESTIMASI KELUAR*" : "UANG KELUAR",
       value: formatPdfMoney(statement.summary.expense, statement.baseCurrency),
       color: COLORS.expense,
     },
     {
-      label: incomplete ? "BERSIH TERVALUASI" : "ARUS BERSIH",
+      label: incomplete ? "BERSIH TERHITUNG" : estimated ? "ESTIMASI BERSIH*" : "ARUS BERSIH",
       value: `${statement.summary.net >= 0 ? "+" : "-"}${formatPdfMoney(
         Math.abs(statement.summary.net),
         statement.baseCurrency,
@@ -223,7 +224,7 @@ function buildTableBody(statement) {
     if (row.usesSavings) metaParts.push("Menggunakan tabungan");
     const amountLines = row.amounts.map(
       (item) =>
-        `${item.direction === "in" ? "+" : "-"}${formatPdfMoney(
+        `${item.direction === "in" ? "Masuk +" : "Keluar -"}${formatPdfMoney(
           item.amount,
           item.currency,
         )}`,
@@ -235,18 +236,18 @@ function buildTableBody(statement) {
     }
     const originalCurrency = row.amounts[0]?.currency;
     const valuationLabel =
-      row.historicalValue != null &&
+      row.baseValue != null &&
       originalCurrency &&
       originalCurrency !== statement.baseCurrency
-        ? `Setara ${formatPdfMoney(
-            row.historicalValue,
+        ? `${row.valuationSource === "latest" ? "Estimasi" : "Setara"} ${formatPdfMoney(
+            row.baseValue,
             statement.baseCurrency,
-          )}`
+          )}${row.valuationSource === "latest" ? "*" : ""}`
         : null;
     if (valuationLabel) amountLines.push(valuationLabel);
     if (
       row.flow !== "exchange" &&
-      row.historicalValue == null &&
+      row.baseValue == null &&
       originalCurrency &&
       originalCurrency !== statement.baseCurrency
     ) {
@@ -259,6 +260,10 @@ function buildTableBody(statement) {
       row.feeCurrency !== statement.baseCurrency
     ) {
       amountLines.push(`Valuasi biaya ${statement.baseCurrency} tidak tersedia`);
+    }
+    if (row.flow === "exchange" && row.feeAmount > 0 &&
+        row.feeBaseValue != null && row.feeCurrency !== statement.baseCurrency) {
+      amountLines.push(`${row.feeValuationSource === "latest" ? "Est. biaya" : "Setara biaya"} ${formatPdfMoney(row.feeBaseValue, statement.baseCurrency)}${row.feeValuationSource === "latest" ? "*" : ""}`);
     }
 
     return [
@@ -361,19 +366,82 @@ export async function createMonthlyStatementPdf(
 
   drawFirstPageHeader(doc, statement, brandIconDataUrl);
   drawSummary(doc, statement);
-  const incomplete = !statement.summary.isValuationComplete;
-  if (incomplete) {
-    setText(doc, COLORS.expense, 6.7, "bold");
-    doc.text(
-      pdfText(
-        `* Ringkasan hanya mencakup transaksi dengan valuasi historis ${statement.baseCurrency}; nominal asli lainnya tetap tercantum.`,
-      ),
-      14,
-      77,
-      { maxWidth: 182 },
-    );
+  const paintedPages = new Set([1]);
+  const paintPage = () => {
+    const page = doc.internal.getCurrentPageInfo().pageNumber;
+    if (!paintedPages.has(page)) {
+      drawRunningHeader(doc, statement, brandIconDataUrl);
+      paintedPages.add(page);
+    }
+  };
+  let cursorY = 77;
+  function note(text, color = COLORS.muted) {
+    setText(doc, color, 7, "normal");
+    const lines = doc.splitTextToSize(pdfText(text), 182);
+    doc.text(lines, 14, cursorY);
+    cursorY += lines.length * 3.3 + 1.5;
   }
-  const historyTitleY = incomplete ? 85.5 : 80.5;
+  if (statement.summary.estimatedCount > 0) {
+    note(`* Ringkasan ${statement.baseCurrency} mencakup ${statement.summary.estimatedCount} transaksi dengan estimasi kurs terbaru. Kurs historis yang tersedia tetap dipakai; data transaksi tidak diubah.`);
+    const date = new Date(statement.valuation?.sourceDate);
+    const sourceDate = Number.isFinite(date.getTime())
+      ? date.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" })
+      : "tanggal tidak tersedia";
+    note(`Data kurs: ${sourceDate} (UTC). Estimasi bukan nilai tukar bank saat transaksi.`);
+    setText(doc, COLORS.movement, 6.7);
+    doc.textWithLink("Rates By Exchange Rate API", 14, cursorY, { url: "https://www.exchangerate-api.com" });
+    cursorY += 5;
+  } else {
+    note(`Ringkasan dalam ${statement.baseCurrency}. Nominal asli setiap mata uang dirinci di bawah.`);
+  }
+  if (!statement.summary.isValuationComplete) {
+    note(`Ringkasan belum lengkap: ${statement.summary.unvaluedCount} transaksi belum dapat dikonversi ke ${statement.baseCurrency}.`, COLORS.expense);
+  }
+
+  if (statement.summary.byCurrency?.length) {
+    cursorY += 3;
+    setText(doc, COLORS.ink, 10.5, "bold");
+    doc.text("Masuk & keluar per mata uang", 14, cursorY);
+    setText(doc, COLORS.muted, 7);
+    doc.text("Nominal asli, tanpa konversi. Keluar sudah termasuk biaya transaksi.", 14, cursorY + 4.8);
+    autoTable(doc, {
+      startY: cursorY + 8,
+      margin: { top: 27, right: 14, bottom: 20, left: 14 },
+      tableWidth: 182,
+      head: [[{ content: "MATA UANG", styles: { halign: "left" } }, "MASUK", "KELUAR", "BERSIH"]],
+      body: statement.summary.byCurrency.map((item) => [
+        { content: item.currency, styles: { fontStyle: "bold", textColor: COLORS.ink } },
+        { content: formatPdfMoney(item.income, item.currency), styles: { textColor: COLORS.positive } },
+        { content: formatPdfMoney(item.expense, item.currency), styles: { textColor: COLORS.expense, fontStyle: "bold" } },
+        { content: `${item.net < 0 ? "-" : item.net > 0 ? "+" : ""}${formatPdfMoney(Math.abs(item.net), item.currency)}` },
+      ]),
+      theme: "plain",
+      rowPageBreak: "avoid",
+      styles: {
+        font: "helvetica", fontSize: 8, textColor: COLORS.body,
+        fillColor: COLORS.surface, lineColor: COLORS.line,
+        lineWidth: { bottom: 0.18 }, cellPadding: 2.4, overflow: "linebreak",
+      },
+      headStyles: { fillColor: COLORS.soft, textColor: COLORS.muted, fontSize: 6.7, fontStyle: "bold", halign: "right" },
+      columnStyles: {
+        0: { cellWidth: 26, halign: "left" },
+        1: { cellWidth: 52, halign: "right" },
+        2: { cellWidth: 52, halign: "right" },
+        3: { cellWidth: 52, halign: "right" },
+      },
+      willDrawPage: paintPage,
+    });
+    cursorY = doc.lastAutoTable.finalY + 10;
+  } else {
+    cursorY += 5;
+  }
+  // Keep the history heading, table heading and first entry together.
+  if (cursorY + 38 > doc.internal.pageSize.getHeight() - 20) {
+    doc.addPage();
+    paintPage();
+    cursorY = 29;
+  }
+  const historyTitleY = cursorY;
   setText(doc, COLORS.ink, 10.5, "bold");
   doc.text("Riwayat transaksi", 14, historyTitleY);
   setText(doc, COLORS.muted, 7, "normal");
@@ -389,7 +457,7 @@ export async function createMonthlyStatementPdf(
     startY: historyTitleY + 9.5,
     margin: { top: 27, right: 14, bottom: 20, left: 14 },
     tableWidth: 182,
-    head: [["WAKTU", "TRANSAKSI", "DOMPET", "NOMINAL"]],
+    head: [["WAKTU", "TRANSAKSI", "DOMPET", "MASUK / KELUAR"]],
     body: buildTableBody(statement),
     theme: "plain",
     showHead: "everyPage",
@@ -417,15 +485,11 @@ export async function createMonthlyStatementPdf(
     },
     columnStyles: {
       0: { cellWidth: 23 },
-      1: { cellWidth: 76 },
-      2: { cellWidth: 43 },
-      3: { cellWidth: 40, halign: "right" },
+      1: { cellWidth: 69 },
+      2: { cellWidth: 40 },
+      3: { cellWidth: 50, halign: "right" },
     },
-    willDrawPage: (data) => {
-      if (data.pageNumber > 1) {
-        drawRunningHeader(doc, statement, brandIconDataUrl);
-      }
-    },
+    willDrawPage: paintPage,
   });
 
   drawFooter(doc, statement);
@@ -510,6 +574,9 @@ async function sharePdfInNativeApp(doc, filename) {
 }
 
 export async function exportMonthlyStatementPdf(statement) {
+  if (!statement.summary.isValuationComplete) {
+    throw new Error("Kurs terbaru belum lengkap. Coba lagi sebelum mengekspor PDF.");
+  }
   const brandIconDataUrl = await loadCuansyncBrandIcon();
   const doc = await createMonthlyStatementPdf(statement, {
     brandIconDataUrl,
