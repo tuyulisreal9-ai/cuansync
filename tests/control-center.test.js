@@ -294,8 +294,8 @@ test("coach mengarahkan pengguna melengkapi pemasukan setelah anggaran siap", ()
   const coach = buildControlCoach(summary);
   const readiness = getControlReadiness(summary);
 
-  assert.equal(coach.actionTarget, "income");
-  assert.equal(coach.actionLabel, "Catat pemasukan");
+  assert.equal(coach.actionTarget, "income_estimate");
+  assert.equal(coach.actionLabel, "Isi perkiraan pemasukan");
   assert.equal(readiness.readyCount, 1);
   assert.deepEqual(
     readiness.items.map((item) => [item.key, item.ready]),

@@ -50,10 +50,21 @@ function getCashFlowPresentation(cashFlow) {
       status: "Belum cukup data",
       metric: "Belum terbaca",
       progress: 0,
-      nudge: "Catat minimal satu pemasukan dan pengeluaran bulan ini.",
+      nudge: cashFlow.estimateUnvalued
+        ? `Kurs ${cashFlow.estimate.currency} belum tersedia, jadi perkiraan pemasukanmu belum bisa dipakai.`
+        : "Isi perkiraan pemasukan bulanan, atau catat pemasukan saat sudah masuk.",
     };
   }
 
+  const readable = getReadableCashFlowPresentation(cashFlow);
+  /* Angka dari perkiraan pemasukan tidak boleh terbaca seperti angka yang
+     sudah tercatat, jadi kalimat pendampingnya menyebut sumbernya. */
+  return cashFlow.incomeSource === "estimate"
+    ? { ...readable, nudge: `Berdasarkan perkiraan pemasukan. ${readable.nudge}` }
+    : readable;
+}
+
+function getReadableCashFlowPresentation(cashFlow) {
   const percentage = Math.round(cashFlow.savingsRatio * 100);
   if (cashFlow.netCashFlow < 0) {
     return {
@@ -281,8 +292,41 @@ function FoundationCard({
 
 const INCOMPLETE_VALUE_TEXT = "Belum dapat dinilai";
 
-function CashFlowDetails({ summary, visible }) {
+/* Pengeluaran yang dibandingkan dengan perkiraan pemasukan diperkirakan
+   untuk sebulan penuh. Catatan ini menyebut dasar perkiraannya. */
+const EXPENSE_BASIS_NOTES = {
+  pace: "Pengeluaran sebulan diperkirakan dari ritme belanja sejauh ini.",
+  budget: "Pengeluaran sebulan diperkirakan dari anggaran bulan ini.",
+  recorded: "Pengeluaran memakai yang sudah tercatat bulan ini.",
+};
+
+function getCashFlowEstimateNote(cashFlow, baseCurrency, visible) {
+  const estimate = cashFlow.estimate;
+  if (!estimate) return "";
+  if (cashFlow.incomeSource === "estimate") {
+    return [
+      estimate.currency !== baseCurrency
+        ? `Perkiraan ${formatControlMoney(estimate.amount, estimate.currency, visible)} dinilai dengan kurs terkini.`
+        : "",
+      EXPENSE_BASIS_NOTES[cashFlow.expenseBasisSource] ||
+        EXPENSE_BASIS_NOTES.recorded,
+      "Begitu pemasukan yang tercatat melampaui perkiraan, angka nyatanya yang dipakai.",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  }
+  if (cashFlow.estimateUnvalued) {
+    return `Kurs ${estimate.currency} belum tersedia, jadi perkiraan pemasukanmu belum dipakai.`;
+  }
+  return cashFlow.evaluable
+    ? "Pemasukan yang tercatat sudah melampaui perkiraanmu, jadi angka nyatanya yang dipakai."
+    : "";
+}
+
+function CashFlowDetails({ summary, visible, onEditIncomeEstimate }) {
   const { cashFlow, baseCurrency } = summary;
+  const usesEstimate = cashFlow.incomeSource === "estimate";
+  const estimateNote = getCashFlowEstimateNote(cashFlow, baseCurrency, visible);
   const ratio =
     cashFlow.savingsRatio == null
       ? "Belum tersedia"
@@ -302,15 +346,31 @@ function CashFlowDetails({ summary, visible }) {
   return html`
     <div className="divide-y divide-slate-200/90 dark:divide-slate-800">
       <${ControlSummaryLine}
-        label="Pemasukan"
+        label=${usesEstimate ? "Pemasukan tercatat" : "Pemasukan"}
         value=${formatFlow(cashFlow.income, incomeIncomplete)}
       />
+      ${usesEstimate
+        ? html`
+            <${ControlSummaryLine}
+              label="Perkiraan pemasukan (dipakai)"
+              value=${formatControlMoney(cashFlow.incomeBasis, baseCurrency, visible)}
+            />
+          `
+        : null}
       <${ControlSummaryLine}
-        label="Pengeluaran"
+        label=${usesEstimate ? "Pengeluaran tercatat" : "Pengeluaran"}
         value=${formatFlow(cashFlow.externalExpenses, expenseIncomplete)}
       />
+      ${usesEstimate && cashFlow.expenseBasisSource !== "recorded"
+        ? html`
+            <${ControlSummaryLine}
+              label="Perkiraan pengeluaran sebulan"
+              value=${formatFlow(cashFlow.expenseBasis, expenseIncomplete)}
+            />
+          `
+        : null}
       <${ControlSummaryLine}
-        label="Sisa bulan ini"
+        label=${usesEstimate ? "Perkiraan sisa bulan ini" : "Sisa bulan ini"}
         value=${formatFlow(cashFlow.netCashFlow, netIncomplete)}
         tone=${netIncomplete
           ? CONTROL_MUTED
@@ -319,6 +379,13 @@ function CashFlowDetails({ summary, visible }) {
             : "text-emerald-600 dark:text-emerald-300"}
       />
       <${ControlSummaryLine} label="Porsi yang tersisa" value=${ratio} />
+      ${estimateNote
+        ? html`
+            <p className=${`pt-3 text-[10px] leading-4 ${CONTROL_MUTED}`}>
+              ${estimateNote}
+            </p>
+          `
+        : null}
       <p className=${`pt-3 text-[10px] leading-4 ${CONTROL_MUTED}`}>
         Transfer antar-dompet dan pokok tukar valas tidak dihitung sebagai pemasukan atau pengeluaran.
       </p>
@@ -328,6 +395,19 @@ function CashFlowDetails({ summary, visible }) {
               ${cashFlow.missingValuationCount} transaksi belum dapat dihitung dalam ${baseCurrency}.
               Isi kursnya lewat Riwayat supaya arus kas bulan ini lengkap.
             </p>
+          `
+        : null}
+      ${onEditIncomeEstimate && cashFlow.estimate && !usesEstimate
+        ? html`
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick=${onEditIncomeEstimate}
+                className="inline-flex min-h-11 items-center text-[10px] font-black text-emerald-700 dark:text-emerald-300"
+              >
+                Ubah perkiraan pemasukan
+              </button>
+            </div>
           `
         : null}
     </div>
@@ -411,11 +491,19 @@ export function ControlPillars({
   onOpenBudget,
   onNavigate,
   onAddIncome,
+  onEditIncomeEstimate,
 }) {
   const [expandedKey, setExpandedKey] = useState(null);
   const cashFlow = getCashFlowPresentation(summary.cashFlow);
   const runway = getRunwayPresentation(summary.runway);
   const goal = getGoalPresentation(summary.goal);
+  /* Tombol kartu arus kas membuka perkiraan pemasukan ketika pemasukan belum
+     ada, atau ketika angkanya memang sedang memakai perkiraan. */
+  const cashFlowEstimateAction =
+    Boolean(onEditIncomeEstimate) &&
+    summary.cashFlow.blockedReason !== "missing_valuation" &&
+    (!summary.cashFlow.evaluable ||
+      summary.cashFlow.incomeSource === "estimate");
 
   function toggle(key) {
     setExpandedKey((current) => (current === key ? null : key));
@@ -444,19 +532,29 @@ export function ControlPillars({
           title="Arus kas"
           benefit="Menjawab apakah gaya pengeluaranmu benar-benar didukung oleh pemasukan—bukan sekadar melihat saldo hari ini."
           presentation=${cashFlow}
-          actionLabel=${summary.cashFlow.evaluable
-            ? "Lihat transaksi"
-            : summary.cashFlow.blockedReason === "missing_valuation"
-              ? "Buka riwayat"
-              : "Catat pemasukan"}
-          onAction=${summary.cashFlow.evaluable ||
-            summary.cashFlow.blockedReason === "missing_valuation"
-            ? () => onNavigate("history")
-            : onAddIncome}
+          actionLabel=${summary.cashFlow.blockedReason === "missing_valuation"
+            ? "Buka riwayat"
+            : cashFlowEstimateAction
+              ? summary.cashFlow.evaluable
+                ? "Ubah perkiraan"
+                : "Isi perkiraan pemasukan"
+              : summary.cashFlow.evaluable
+                ? "Lihat transaksi"
+                : "Catat pemasukan"}
+          onAction=${cashFlowEstimateAction
+            ? onEditIncomeEstimate
+            : summary.cashFlow.evaluable ||
+                summary.cashFlow.blockedReason === "missing_valuation"
+              ? () => onNavigate("history")
+              : onAddIncome}
           expanded=${expandedKey === "cashFlow"}
           onToggle=${() => toggle("cashFlow")}
         >
-          <${CashFlowDetails} summary=${summary} visible=${visible} />
+          <${CashFlowDetails}
+            summary=${summary}
+            visible=${visible}
+            onEditIncomeEstimate=${onEditIncomeEstimate}
+          />
         </${FoundationCard}>
 
         <${FoundationCard}

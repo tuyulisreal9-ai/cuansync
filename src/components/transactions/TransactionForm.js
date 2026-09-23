@@ -493,8 +493,16 @@ export function TransactionForm({
           ).rate ||
           0
       : 0;
+  /* Mode simpel hanya punya satu jatah untuk sebulan penuh, jadi sisa yang
+     ditampilkan di sini pun jatah bulan itu, bukan jatah per kategori. */
+  const monthlyBudgetInsight = budgetInsights.find(
+    (item) =>
+      item.scope === "month" &&
+      (item.currency === selectedCurrencyCode || item.currency === baseCurrency),
+  );
   const selectedBudgetInsight = isExpense
-    ? budgetInsights.find(
+    ? monthlyBudgetInsight ||
+      budgetInsights.find(
         (item) =>
           item.categoryKey ===
             getBudgetCategoryKey(form.category, UNIVERSAL_BUDGET_GROUP) &&
@@ -518,6 +526,19 @@ export function TransactionForm({
           0,
         )
       : 0;
+  /* Kalimatnya dirakit di sini, bukan dipecah di dalam template: htm memakan
+     pergantian barisnya dan kata-katanya menempel. */
+  const selectedBudgetWarning =
+    selectedBudgetInsight && selectedBudgetOverAmount > 0
+      ? `Transaksi ini melewati ${
+          selectedBudgetInsight.scope === "month"
+            ? "jatah bulan ini"
+            : `anggaran ${selectedBudgetInsight.categoryLabel}`
+        } sebesar ${formatCurrency(
+          selectedBudgetOverAmount,
+          selectedBudgetInsight.currency,
+        )}. Kamu tetap bisa simpan.`
+      : "";
   const movementReady =
     sourceAccount &&
     destinationAccount &&
@@ -2198,10 +2219,7 @@ export function TransactionForm({
             ${isExpense && selectedBudgetOverAmount > 0
               ? html`
                   <div key="entry-budget-warning" className="cs-entry-warning rounded-lg px-3 py-3 text-xs leading-5">
-                    Transaksi ini melewati anggaran ${selectedBudgetInsight.categoryLabel} sebesar ${formatCurrency(
-                      selectedBudgetOverAmount,
-                      selectedBudgetInsight.currency,
-                    )}. Kamu tetap bisa simpan.
+                    ${selectedBudgetWarning}
                   </div>
                 `
               : null}

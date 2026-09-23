@@ -340,6 +340,11 @@ function buildBudgetSummary(metrics, baseCurrency, monthMeta) {
   return {
     available: categories.length > 0,
     currency: baseCurrency,
+    /* Mode simpel hanya punya satu baris jatah untuk sebulan penuh, jadi
+       kalimat yang menghitung kategori tidak berlaku di sana. */
+    mode: categories.some((category) => category.scope === "month")
+      ? "simple"
+      : "category",
     categories,
     attentionCategories: attentionCategories.slice(0, 3),
     attentionCount: attentionCategories.length,
@@ -455,11 +460,65 @@ function getCashFlowScore(savingsRatio) {
   };
 }
 
+/* Perkiraan pemasukan hanya dipakai bila nilainya dalam mata uang dasar
+   diketahui. Perkiraan valas dinilai pemanggil dengan kurs terkini, karena
+   ini angka ke depan dan tidak punya kurs historis; tanpa kurs, perkiraannya
+   tetap tersimpan tetapi tidak ikut dihitung. */
+function normalizeIncomeEstimate(incomeEstimate, baseCurrency) {
+  const amount = Number(incomeEstimate?.amount);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const currency = normalizeCurrencyCode(incomeEstimate.currency, baseCurrency);
+  const convertedAmount = Number(incomeEstimate.baseAmount);
+  return {
+    amount,
+    currency,
+    baseAmount:
+      currency === baseCurrency
+        ? amount
+        : Number.isFinite(convertedAmount) && convertedAmount > 0
+          ? convertedAmount
+          : null,
+  };
+}
+
+/* Perkiraan pemasukan bernilai sebulan penuh, sedangkan pengeluaran yang
+   tercatat baru sampai hari ini. Dibandingkan apa adanya, awal bulan selalu
+   tampak sehat. Pengeluaran karena itu diperkirakan sampai akhir bulan
+   dengan syarat ritme yang sama dengan jatah kategori, dibatasi anggaran
+   supaya sewa di awal bulan tidak ikut dikalikan, dan tidak pernah di bawah
+   yang sudah tercatat. */
+function estimateMonthlyExpenses({
+  recordedExpenses,
+  expenseCount,
+  budgetLimit,
+  monthMeta,
+}) {
+  const recorded = Math.max(Number(recordedExpenses || 0), 0);
+  const limit = Math.max(Number(budgetLimit || 0), 0);
+  const enoughPaceData =
+    Boolean(monthMeta) &&
+    monthMeta.elapsedDays >= MIN_PACE_ELAPSED_DAYS &&
+    expenseCount >= MIN_PACE_TRANSACTION_COUNT &&
+    recorded > 0;
+  const paceProjection = enoughPaceData
+    ? (recorded / monthMeta.elapsedDays) * monthMeta.daysInMonth
+    : null;
+
+  if (paceProjection != null && (limit <= 0 || paceProjection <= limit)) {
+    return { amount: Math.max(recorded, paceProjection), source: "pace" };
+  }
+  if (limit > recorded) {
+    return { amount: limit, source: "budget" };
+  }
+  return { amount: recorded, source: "recorded" };
+}
+
 function buildCashFlowSummary(
   transactions,
   monthKey,
   baseCurrency,
   timeZone,
+  { incomeEstimate = null, monthMeta = null, budgetLimit = 0 } = {},
 ) {
   const totals = getHistoricalFlowTotals(
     transactions,
@@ -467,16 +526,32 @@ function buildCashFlowSummary(
     baseCurrency,
     timeZone,
   );
-  const netCashFlow = totals.income - totals.externalExpenses;
+  const estimate = normalizeIncomeEstimate(incomeEstimate, baseCurrency);
+  /* Perkiraan hanya dipakai selama pemasukan yang tercatat bulan ini masih
+     lebih kecil. Begitu pemasukan nyata melampauinya, hitungan kembali ke
+     angka tercatat seperti sebelumnya. Bulan-bulan lalu tidak memakainya. */
+  const usesEstimate =
+    estimate?.baseAmount != null && estimate.baseAmount > totals.income;
+  const incomeBasis = usesEstimate ? estimate.baseAmount : totals.income;
+  const expenseEstimate = usesEstimate
+    ? estimateMonthlyExpenses({
+        recordedExpenses: totals.externalExpenses,
+        expenseCount: totals.expenseCount + totals.feeCount,
+        budgetLimit,
+        monthMeta,
+      })
+    : { amount: totals.externalExpenses, source: "recorded" };
+  const expenseBasis = expenseEstimate.amount;
+  const netCashFlow = incomeBasis - expenseBasis;
   const savingsRatio =
-    totals.income > 0 ? netCashFlow / totals.income : null;
+    incomeBasis > 0 ? netCashFlow / incomeBasis : null;
   const complete = totals.missingValuationCount === 0;
-  const evaluable = complete && totals.income > 0;
+  const evaluable = complete && incomeBasis > 0;
   /* Dua sebab berbeda dulu dicampur menjadi satu: pemasukan yang memang
      belum tercatat, dan pemasukan yang sudah tercatat tetapi belum bisa
      dinilai dalam mata uang dasar. Sarannya pun jadi salah alamat. */
   const blockedReason = complete
-    ? totals.income > 0
+    ? incomeBasis > 0
       ? null
       : "no_income"
     : "missing_valuation";
@@ -492,6 +567,13 @@ function buildCashFlowSummary(
     evaluable,
     blockedReason,
     incomeRecorded,
+    incomeSource: usesEstimate ? "estimate" : "recorded",
+    incomeBasis,
+    estimate,
+    estimateUnvalued: Boolean(estimate) && estimate.baseAmount == null,
+    expenseBasis,
+    expenseBasisSource: expenseEstimate.source,
+    recordedNetCashFlow: totals.income - totals.externalExpenses,
     netCashFlow,
     savingsRatio,
     score: scored.score,
@@ -725,13 +807,18 @@ function getBudgetStatus(budget) {
 
 function getBudgetMetric(budget) {
   if (!budget.available) return "Belum ada anggaran";
+  const simple = budget.mode === "simple";
   if (budget.overCount > 0) {
-    return `${budget.overCount} kategori melewati batas`;
+    return simple
+      ? "Jatah bulan ini terlewati"
+      : `${budget.overCount} kategori melewati batas`;
   }
   if (budget.projectedOverCount > 0) {
-    return `${budget.projectedOverCount} kategori diproyeksikan lewat`;
+    return simple
+      ? "Diperkirakan lewat batas"
+      : `${budget.projectedOverCount} kategori diproyeksikan lewat`;
   }
-  return `${Math.round(budget.usage * 100)}% anggaran terpakai`;
+  return `${Math.round(budget.usage * 100)}% jatah terpakai`;
 }
 
 function getCashFlowMetric(cashFlow) {
@@ -796,7 +883,10 @@ function getRecommendation({
     return {
       code: "negative_cash_flow",
       title: "Perbaiki arus kas bulan ini",
-      body: "Pengeluaran bulan ini lebih besar daripada pemasukan.",
+      body:
+        cashFlow.incomeSource === "estimate"
+          ? "Perkiraan pengeluaran bulan ini lebih besar daripada perkiraan pemasukan."
+          : "Pengeluaran bulan ini lebih besar daripada pemasukan.",
       target: "history",
       categoryKey: null,
     };
@@ -869,6 +959,13 @@ function buildScoring({
     },
     {
       ...CONTROL_SCORING_SPEC.pillars.commitments,
+      /* Skema belum membedakan tagihan rutin dan remittance, jadi pilar ini
+         belum didukung sama sekali. Itu berbeda dari pilar yang didukung
+         tetapi datanya belum lengkap. */
+      supported: Boolean(
+        commitments.recurringSupported ||
+          commitments.externalRemittanceSupported,
+      ),
       evaluable: commitments.evaluable,
       score: commitments.score,
       status: commitments.status,
@@ -886,15 +983,37 @@ function buildScoring({
       (explicitTimezone ? completenessSpec.explicitTimezone : 0),
   );
   const allPillarsEvaluable = pillars.every((pillar) => pillar.evaluable);
-  const score = allPillarsEvaluable
-    ? Math.round(
-        pillars.reduce(
-          (sum, pillar) =>
-            sum + (pillar.score / 100) * pillar.weight,
-          0,
-        ),
-      )
-    : null;
+  /* Pilar yang belum didukung skema dulu membuat skor total mustahil muncul.
+     Selama semua pilar yang didukung sudah terbaca, skor sementara dihitung
+     dari pilar-pilar itu dengan bobot yang dibagi ulang. Pilar yang didukung
+     tetapi datanya kurang tetap menahan skor, karena kekurangannya bisa
+     dilengkapi pengguna. */
+  const supportedPillars = pillars.filter(
+    (pillar) => pillar.supported !== false,
+  );
+  const provisional =
+    !allPillarsEvaluable &&
+    supportedPillars.length > 0 &&
+    supportedPillars.length < pillars.length &&
+    supportedPillars.every((pillar) => pillar.evaluable);
+  const scoredPillars = allPillarsEvaluable
+    ? pillars
+    : provisional
+      ? supportedPillars
+      : [];
+  const scoredWeight = scoredPillars.reduce(
+    (sum, pillar) => sum + pillar.weight,
+    0,
+  );
+  const score =
+    scoredWeight > 0
+      ? Math.round(
+          scoredPillars.reduce(
+            (sum, pillar) => sum + pillar.score * pillar.weight,
+            0,
+          ) / scoredWeight,
+        )
+      : null;
 
   return {
     specificationVersion: CONTROL_SCORING_SPEC.version,
@@ -910,6 +1029,14 @@ function buildScoring({
             : "Perlu perhatian",
     completeness,
     allPillarsEvaluable,
+    provisional,
+    scoredPillarCount: scoredPillars.length,
+    totalPillarCount: pillars.length,
+    unscoredPillars: provisional
+      ? pillars
+          .filter((pillar) => !pillar.evaluable)
+          .map((pillar) => pillar.label)
+      : [],
   };
 }
 
@@ -929,6 +1056,7 @@ export function buildBudgetControlSummary({
   baseCurrency = DEFAULT_BASE_CURRENCY,
   currentDate = new Date(),
   timeZone = null,
+  incomeEstimate = null,
 } = {}) {
   const normalizedBaseCurrency = normalizeCurrencyCode(baseCurrency);
   const monthKey = getControlMonthKey(currentDate, timeZone);
@@ -951,6 +1079,11 @@ export function buildBudgetControlSummary({
     monthKey,
     normalizedBaseCurrency,
     timeZone,
+    {
+      incomeEstimate,
+      monthMeta,
+      budgetLimit: budget.limitAmount,
+    },
   );
   const runway = buildRunwaySummary({
     metrics: metrics || {},

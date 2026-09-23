@@ -59,10 +59,12 @@ export function SafeToSpendCard({ summary, visible }) {
 
 function getBudgetInsight(budget) {
   if (!budget.available) {
-    return "Mulai dari satu kategori penting. Batas yang realistis membantu uangmu bertahan sesuai rencana.";
+    return "Mulai dari satu batas bulanan. Batas yang realistis membantu uangmu bertahan sesuai rencana.";
   }
   if (budget.remainingAmount < 0) {
-    return "Batas bulan ini sudah terlewati. Tinjau kategori terbesar sebelum menambah pengeluaran baru.";
+    return budget.mode === "simple"
+      ? "Batas bulan ini sudah terlewati. Tinjau pengeluaran terbesar sebelum menambah pengeluaran baru."
+      : "Batas bulan ini sudah terlewati. Tinjau kategori terbesar sebelum menambah pengeluaran baru.";
   }
   if (budget.spentAmount === 0) {
     return "Anggaranmu sudah siap. Catat pengeluaran agar ritme bulan mulai terbaca—sisa anggaran bukan target untuk dihabiskan.";
@@ -76,6 +78,10 @@ function getBudgetInsight(budget) {
 export function BudgetOverview({ summary, visible, onOpenBudget }) {
   const { budget, baseCurrency } = summary;
   const progress = Math.min(Math.max(budget.usage * 100, 0), 100);
+  const cakupan =
+    budget.mode === "simple"
+      ? `Satu jatah untuk sebulan dalam ${baseCurrency}`
+      : `${budget.categories.length} kategori dalam ${baseCurrency}`;
 
   return html`
     <section className=${`${CONTROL_PANEL} overflow-hidden`}>
@@ -88,9 +94,7 @@ export function BudgetOverview({ summary, visible, onOpenBudget }) {
             <h2 className="text-sm font-black text-slate-950 dark:text-white">
               Anggaran bulan ini
             </h2>
-            <p className=${`text-[10px] ${CONTROL_MUTED}`}>
-              ${budget.categories.length} kategori dalam ${baseCurrency}
-            </p>
+            <p className=${`text-[10px] ${CONTROL_MUTED}`}>${cakupan}</p>
           </div>
         </div>
         <button
