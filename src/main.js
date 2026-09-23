@@ -8,6 +8,7 @@ import { AuthRecoveryScreen, AuthScreen } from "./components/auth/index.js";
 import { WealthGoalsPage } from "./components/assets/index.js";
 import { ControlCenterPage } from "./components/control/index.js";
 import { HomeDashboardPage } from "./components/home/index.js";
+import { BulkEntrySheet } from "./components/transactions/BulkEntrySheet.js";
 import { QuickEntrySheet } from "./components/transactions/QuickEntrySheet.js";
 import { DesktopRightPanel } from "./components/layout/index.js";
 import {
@@ -1388,6 +1389,7 @@ function App() {
   const [budgetFocusCategoryKey, setBudgetFocusCategoryKey] = useState(null);
   const [historyFocusCategory, setHistoryFocusCategory] = useState("");
   const [quickEntryOpen, setQuickEntryOpen] = useState(false);
+  const [bulkEntryOpen, setBulkEntryOpen] = useState(false);
   const [quickEntryRequestKey, setQuickEntryRequestKey] = useState(0);
   const [quickEntryInitialAccountId, setQuickEntryInitialAccountId] = useState("");
   const [quickEntryInitialAmount, setQuickEntryInitialAmount] = useState(0);
@@ -2836,6 +2838,256 @@ function App() {
       return true;
     } catch (error) {
       setMessage(error.message || "Terjadi kesalahan saat menyimpan transaksi.");
+      setMessageTone("error");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* Catat banyak menyimpan seluruh batch lewat jalur sendiri, bukan dengan
+     memanggil handleCreateTransaction berkali kali. Fungsi itu membaca daftar
+     transaksi dan saldo dari closure render, jadi panggilan kedua di dalam satu
+     perulangan akan menimpa hasil panggilan pertama di Demo Lokal. Di sini
+     semua record dibangun dari satu potret data, lalu disimpan sekali.
+
+     Batch ini hanya membuat pemasukan dan pengeluaran. Tidak ada transfer,
+     tukar mata uang, maupun pemakaian dana Target, sehingga seluruh cabang
+     rumit di handleCreateTransaction memang tidak berlaku di sini. */
+  async function handleCreateTransactionBatch(payloads = []) {
+    const savedRowIds = [];
+    const savedTransactions = [];
+
+    try {
+      setLoading(true);
+      setMessage("");
+      setToast(null);
+
+      const baseCurrency = getBaseCurrency();
+      const records = payloads.map((payload) => {
+        const occurredAt = validateTransactionOccurredAt(payload.occurred_at);
+        const currency = normalizeCurrencyCode(payload.currency);
+        const amount = readCurrencyAmount(payload.amount, currency);
+        const isExpense = payload.type === "expense";
+        if (!amount || amount <= 0) {
+          throw new Error(
+            `Nominal "${payload.description}" harus lebih besar dari 0.`,
+          );
+        }
+
+        const record = {
+          id: crypto.randomUUID(),
+          user_id: user.id,
+          type: isExpense ? "expense" : "income",
+          occurred_at: occurredAt.toISOString(),
+          description: payload.description,
+          category: isExpense ? payload.category : null,
+          category_group: isExpense
+            ? getDefaultGroupForCategory(payload.category)
+            : null,
+          amount_idr: !isExpense && currency === baseCurrency ? amount : null,
+          amount_thb: currency === "THB" ? amount : null,
+          locked_rate: null,
+          currency,
+          amount,
+          base_currency: baseCurrency,
+          base_amount: null,
+          from_currency: null,
+          to_currency: null,
+          from_amount: null,
+          to_amount: null,
+          rate: null,
+          rate_base_currency: null,
+          rate_quote_currency: null,
+          exchange_rate: null,
+          rate_type: null,
+          fee_amount: null,
+          fee_currency: null,
+          source_account_id: isExpense ? payload.source_account_id : null,
+          destination_account_id: isExpense
+            ? null
+            : payload.destination_account_id,
+          target_id: null,
+          client_request_id: crypto.randomUUID(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        /* Kurs tiap baris dicari dari data sebelum batch ini, jadi hasilnya
+           tidak bergantung pada urutan penyimpanan. Tanpa kurs, barisnya tetap
+           tersimpan tetapi belum dinilai, sama seperti transaksi satuan. */
+        applyTransactionRateToRecord(
+          record,
+          amount,
+          resolveTransactionRateInfo({
+            currency,
+            baseCurrency,
+            occurredAt,
+            transactions,
+            globalRateSnapshot,
+          }),
+        );
+        validateTransactionAccountLinks(record, assetAccounts);
+        return { rowId: payload.rowId, record };
+      });
+
+      /* Saldo diperiksa sekali untuk seluruh batch per dompet. Server memeriksa
+         baris demi baris, jadi tanpa hitungan kumulatif di sini batch bisa
+         berhenti di tengah dengan sebagian sudah masuk. */
+      const debitByAccount = new Map();
+      records.forEach(({ record }) => {
+        const accountId =
+          record.source_account_id || record.destination_account_id;
+        if (!accountId) return;
+        const effect =
+          record.type === "expense" ? Number(record.amount) : -Number(record.amount);
+        debitByAccount.set(
+          accountId,
+          Number(debitByAccount.get(accountId) || 0) + effect,
+        );
+      });
+      for (const [accountId, amount] of debitByAccount) {
+        if (amount <= 0) continue;
+        const debitCheck = evaluateAccountDebit({
+          allocationState: metrics.goalAllocationState,
+          accountId,
+          amount,
+        });
+        if (!debitCheck.allowed) throw new Error(debitCheck.message);
+      }
+
+      let failure = null;
+
+      if (mode === "demo") {
+        const rows = records.map(({ record }) => record);
+        const plan = buildAssetAccountBalancePlan(
+          assetAccounts,
+          rows.flatMap((record) => getTransactionAccountMovements(record)),
+        );
+        await persistDemoTransactions([...transactions, ...rows]);
+        await persistAssetAccountBalancePlan(plan);
+        records.forEach(({ rowId, record }) => {
+          savedTransactions.push(normalizeTransaction(record));
+          savedRowIds.push(rowId);
+        });
+      } else {
+        for (const item of records) {
+          try {
+            const { data, error } = await supabase.rpc("record_transaction_atomic", {
+              p_transaction: item.record,
+              p_reserved_action: null,
+            });
+            if (error) throw error;
+            savedTransactions.push(
+              normalizeTransaction(Array.isArray(data) ? data[0] : data),
+            );
+            savedRowIds.push(item.rowId);
+          } catch (error) {
+            failure = error;
+            break;
+          }
+        }
+        if (savedTransactions.length) {
+          const plan = buildAssetAccountBalancePlan(
+            assetAccounts,
+            savedTransactions.flatMap((record) =>
+              getTransactionAccountMovements(record),
+            ),
+          );
+          setAssetAccounts(applyAccountPrimaryPreferences(plan.nextAccounts));
+          setTransactions((current) =>
+            orderTransactions([...current, ...savedTransactions]),
+          );
+        }
+      }
+
+      if (failure) {
+        /* Baris yang sudah masuk tidak ditarik kembali: masing masing sudah
+           atomik di server. Yang tersisa tetap di daftar dan bisa dicoba lagi,
+           dan karena client_request_id-nya sama, percobaan ulang tidak pernah
+           menggandakan yang sudah tersimpan. */
+        const message = savedTransactions.length
+          ? `${savedTransactions.length} dari ${records.length} transaksi tersimpan. ${failure.message || ""}`.trim()
+          : failure.message || "Transaksi gagal disimpan.";
+        setMessage(message);
+        setMessageTone("error");
+        return { ok: false, savedRowIds, transactions: savedTransactions, message };
+      }
+
+      const nextTransactions = [...transactions, ...savedTransactions];
+      const budgetWarning = savedTransactions.reduce(
+        (found, record) =>
+          found ||
+          buildBudgetOverspendWarning(
+            record,
+            nextTransactions,
+            budgets,
+            baseCurrency,
+            globalRateSnapshot,
+          ),
+        null,
+      );
+      const berhasil = `${savedTransactions.length} transaksi berhasil disimpan.`;
+      setMessage(berhasil);
+      setMessageTone("success");
+      setToast({
+        message: budgetWarning?.message || berhasil,
+        tone: budgetWarning ? "warning" : "success",
+      });
+      return { ok: true, savedRowIds, transactions: savedTransactions, message: "" };
+    } catch (error) {
+      const message = error.message || "Terjadi kesalahan saat menyimpan transaksi.";
+      setMessage(message);
+      setMessageTone("error");
+      return { ok: false, savedRowIds, transactions: savedTransactions, message };
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* Batalkan semua di layar Selesai. Hanya transaksi dari batch itu yang
+     dihapus, dan saldonya dikembalikan dari gerakan transaksi itu sendiri,
+     bukan dari daftar di layar yang mungkin belum ikut terbarui. */
+  async function handleDeleteTransactionBatch(rows = []) {
+    const targets = (rows || []).filter((row) => row?.id);
+    if (!targets.length) return false;
+
+    try {
+      setLoading(true);
+      setMessage("");
+      setToast(null);
+
+      const idSet = new Set(targets.map((row) => row.id));
+      const plan = buildAssetAccountBalancePlan(
+        assetAccounts,
+        targets.flatMap((row) =>
+          getTransactionAccountMovements(row, { reverse: true }),
+        ),
+        { skipMissing: true },
+      );
+
+      if (mode === "demo") {
+        await persistDemoTransactions(
+          transactions.filter((row) => !idSet.has(row.id)),
+        );
+        await persistAssetAccountBalancePlan(plan);
+      } else {
+        for (const row of targets) {
+          const { error } = await supabase.rpc("delete_transaction_atomic", {
+            p_transaction_id: row.id,
+          });
+          if (error) throw error;
+        }
+        setAssetAccounts(applyAccountPrimaryPreferences(plan.nextAccounts));
+        setTransactions((current) => current.filter((row) => !idSet.has(row.id)));
+      }
+
+      setMessage(`${targets.length} transaksi dibatalkan.`);
+      setMessageTone("info");
+      setToast({ message: "Pencatatan dibatalkan." });
+      return true;
+    } catch (error) {
+      setMessage(error.message || "Gagal membatalkan pencatatan.");
       setMessageTone("error");
       return false;
     } finally {
@@ -5212,6 +5464,19 @@ function App() {
     setQuickEntryOpen(true);
   }
 
+  function openBulkEntry() {
+    if (!spendableAssetAccounts.length) {
+      setToast({
+        message: "Tambahkan dompet terlebih dahulu sebelum mencatat transaksi.",
+        tone: "warning",
+      });
+      openAssetFormFromQuickAction();
+      return;
+    }
+    dismissTransactionFabHint();
+    setBulkEntryOpen(true);
+  }
+
   function openTransactionForm(entryType = "expense", target = null, amount = 0) {
     if (!spendableAssetAccounts.length) {
       setToast({
@@ -5426,6 +5691,7 @@ function App() {
                     canTransfer=${hasTransferPair}
                     canExchange=${hasExchangePair}
                     onAddTransaction=${openQuickEntry}
+                    onAddBulkTransaction=${openBulkEntry}
                     onExchange=${(mode) => openMovementWorkspace(mode)}
                     onAddWallet=${openAssetFormFromQuickAction}
                   />
@@ -5697,6 +5963,18 @@ function App() {
         onAddTransaction=${openQuickEntry}
         onExchange=${() => openMovementWorkspace("exchange")}
         onAddWallet=${openAssetFormFromQuickAction}
+      />
+
+      <${BulkEntrySheet}
+        open=${bulkEntryOpen}
+        onClose=${() => setBulkEntryOpen(false)}
+        onSubmit=${handleCreateTransactionBatch}
+        onUndo=${handleDeleteTransactionBatch}
+        loading=${loading}
+        accounts=${spendableAssetAccounts}
+        categories=${CATEGORY_OPTIONS}
+        availability=${metrics.goalAllocationState?.accountAvailability || {}}
+        baseCurrency=${walletBaseCurrency}
       />
 
       <${QuickEntrySheet}

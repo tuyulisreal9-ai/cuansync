@@ -118,9 +118,11 @@ test("pemasukan rupiah tersimpan apa adanya", () => {
 test("pemasukan dan pengeluaran memakai jalur kurs yang sama", async () => {
   const main = await source("src/main.js");
 
-  // Empat cabang: catat dan edit, masing-masing untuk pemasukan dan pengeluaran.
+  // Lima cabang: catat dan edit, masing-masing untuk pemasukan dan
+  // pengeluaran, ditambah Catat banyak yang menyimpan batch lewat jalur
+  // sendiri tetapi tetap memakai resolusi kurs yang sama.
   const pemakaian = main.match(/applyTransactionRateToRecord\(/g) || [];
-  assert.equal(pemakaian.length, 4);
+  assert.equal(pemakaian.length, 5);
 
   // Cabang pemasukan dulu mengunci kursnya ke null.
   assert.doesNotMatch(main, /record\.rate = null;/);

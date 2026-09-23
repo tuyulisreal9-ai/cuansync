@@ -257,3 +257,34 @@ test("bisa dipakai tidak lagi sama dengan seluruh uang", async () => {
   assert.doesNotMatch(page, /reservedBase \|\| allocatedBase/);
   assert.doesNotMatch(page, /const allocatedBase =/);
 });
+
+test("catat banyak punya pintunya sendiri dan tidak menyentuh jalur satuan", async () => {
+  const sheet = await source("src/components/transactions/BulkEntrySheet.js");
+  const home = await source("src/components/home/HomeDashboardPage.js");
+  const main = await source("src/main.js");
+
+  // Tiga langkah desainnya: tulis, periksa, selesai.
+  assert.match(sheet, /Catat banyak/);
+  assert.match(sheet, /Periksa dulu/);
+  assert.match(sheet, /Satu transaksi per baris/);
+  assert.match(sheet, /transaksi tercatat/);
+  assert.match(sheet, /Batalkan semua/);
+
+  // Tile keempat di beranda dan baris keempat di kolom desktop.
+  assert.match(home, /label="Banyak"/);
+  assert.match(home, /Catat banyak sekaligus/);
+  assert.match(main, /onAddBulkTransaction=\$\{openBulkEntry\}/);
+  assert.match(main, /function openBulkEntry\(\)/);
+
+  /* Batch punya handler sendiri. Memanggil handleCreateTransaction berulang
+     kali akan menimpa hasil panggilan sebelumnya di Demo Lokal karena fungsi
+     itu membaca daftar transaksi dari closure render. */
+  assert.match(main, /async function handleCreateTransactionBatch\(/);
+  assert.doesNotMatch(sheet, /handleCreateTransaction\b/);
+
+  // Bulk tidak membuat transfer, tukar, maupun pemakaian dana target.
+  const domain = await source("src/domain/bulkEntry.js");
+  assert.doesNotMatch(sheet, /"exchange"/);
+  assert.match(domain, /target_id: null/);
+  assert.match(main, /p_reserved_action: null/);
+});

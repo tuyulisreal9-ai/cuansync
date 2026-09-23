@@ -292,7 +292,8 @@ test("beranda desktop tidak menggandakan aksi topbar", async () => {
   // jadi di desktop baris itu disembunyikan. Di ponsel tidak ada topbar,
   // sehingga baris pintasan tetap satu satunya jalan pintas.
   assert.match(header, /cs-topbar-action/);
-  assert.match(home, /className="grid grid-cols-3 gap-2 lg:hidden"/);
+  // Empat tile sejak Catat banyak punya pintunya sendiri di baris ini.
+  assert.match(home, /className="grid grid-cols-4 gap-2 lg:hidden"/);
 
   // Kolom kanan desktop mengisi ruang yang dulu kosong: jalan pintas,
   // kondisi keuangan, dan ringkasan dompet.

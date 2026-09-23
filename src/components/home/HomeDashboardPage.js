@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Eye,
   EyeOff,
+  ListPlus,
   Repeat2,
   ReceiptText,
   Send,
@@ -386,6 +387,7 @@ function QuickLinksCard({
   canTransfer,
   canExchange,
   onAddTransaction,
+  onAddBulkTransaction,
   onExchange,
 }) {
   return html`
@@ -396,6 +398,12 @@ function QuickLinksCard({
         title="Catat pengeluaran"
         hint="atau pemasukan"
         onClick=${() => onAddTransaction?.()}
+      />
+      <${QuickLinkRow}
+        icon=${ListPlus}
+        title="Catat banyak sekaligus"
+        hint="satu baris satu transaksi"
+        onClick=${() => onAddBulkTransaction?.()}
       />
       <${QuickLinkRow}
         icon=${Send}
@@ -612,6 +620,7 @@ export function HomeDashboardPage({
   canTransfer = false,
   canExchange = false,
   onAddTransaction,
+  onAddBulkTransaction,
   onExchange,
   onToggleVisible,
 }) {
@@ -651,11 +660,19 @@ export function HomeDashboardPage({
               103px di atas baris ini. Menampilkan keduanya membuat tombol yang
               sama muncul dua kali berdekatan, jadi di desktop baris ini
               disembunyikan. Di ponsel tidak ada topbar, jadi tetap tampil. */ null}
-        <div className="grid grid-cols-3 gap-2 lg:hidden">
+        ${/* Empat tile, bukan tiga. Labelnya tetap satu kata masing masing
+              supaya tidak ada yang pecah dua baris dan tinggi tile tetap
+              seragam 88px di layar 390px. */ null}
+        <div className="grid grid-cols-4 gap-2 lg:hidden">
           <${QuickAction}
             icon=${ReceiptText}
             label="Catat"
             onClick=${() => onAddTransaction?.()}
+          />
+          <${QuickAction}
+            icon=${ListPlus}
+            label="Banyak"
+            onClick=${() => onAddBulkTransaction?.()}
           />
           <${QuickAction}
             icon=${Send}
@@ -694,6 +711,7 @@ export function HomeDashboardPage({
           canTransfer=${canTransfer}
           canExchange=${canExchange}
           onAddTransaction=${onAddTransaction}
+          onAddBulkTransaction=${onAddBulkTransaction}
           onExchange=${onExchange}
         />
         <${FinancialHealthCard}
