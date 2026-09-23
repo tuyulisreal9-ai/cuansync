@@ -30,6 +30,9 @@ export function buildSpendingBreakdown({
   baseCurrency = DEFAULT_BASE_CURRENCY,
   monthKey = getMonthKey(new Date()),
   limit = 6,
+  /* Mode simpel memakai satu jatah untuk sebulan penuh, jadi di sana tidak
+     ada kategori yang "belum punya jatah". */
+  wholeMonthBudget = false,
 } = {}) {
   const base = normalizeCurrencyCode(baseCurrency);
   const berjatah = new Set(
@@ -69,7 +72,11 @@ export function buildSpendingBreakdown({
         label,
         amount: 0,
         count: 0,
-        hasBudget: tanpaKategori ? false : berjatah.has(key),
+        hasBudget: wholeMonthBudget
+          ? true
+          : tanpaKategori
+            ? false
+            : berjatah.has(key),
       });
     }
     const baris = ember.get(key);

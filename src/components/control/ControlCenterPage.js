@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import htm from "htm";
 import { ArrowLeft } from "lucide-react";
 import { CONTROL_MUTED } from "./ControlPrimitives.js";
@@ -14,6 +14,7 @@ import {
   buildControlCoach,
   getControlReadiness,
 } from "../../domain/controlGuidance.js";
+import { IncomeEstimateSheet } from "./IncomeEstimateSheet.js";
 
 const html = htm.bind(React.createElement);
 
@@ -80,10 +81,20 @@ function AdviceRow({ item, index, onAct, why }) {
    pertama di sini, jadi dua kartu berdampingan mengatakan hal yang sama
    dengan kata berbeda. Yang benar benar hanya dimiliki coach adalah chip
    kesiapan dan alasannya, dan keduanya diserap ke sini. */
-function SavingsAdviceCard({ summary, onNavigate, onOpenBudget, onAddIncome }) {
+function SavingsAdviceCard({
+  summary,
+  onNavigate,
+  onOpenBudget,
+  onAddIncome,
+  onEditIncomeEstimate,
+}) {
   const advice = buildSavingsAdvice(summary);
   const readiness = getControlReadiness(summary);
   const why = buildControlCoach(summary)?.why || "";
+  const sumberAngka =
+    summary?.cashFlow?.incomeSource === "estimate"
+      ? "catatanmu bulan ini dan perkiraan pemasukanmu"
+      : "catatanmu bulan ini";
 
   /* Rute aksi mengikuti pola yang sama dengan coach supaya tombol yang
      mengarah ke tempat yang sama tidak berperilaku berbeda. */
@@ -94,6 +105,13 @@ function SavingsAdviceCard({ summary, onNavigate, onOpenBudget, onAddIncome }) {
     }
     if (item.actionTarget === "goal") {
       onOpenBudget?.("__goals__");
+      return;
+    }
+    if (item.actionTarget === "income_estimate") {
+      /* Tanpa penyimpan perkiraan, ajakan ini jatuh kembali ke Catat
+         pemasukan supaya tombolnya tetap berbuat sesuatu. */
+      if (onEditIncomeEstimate) onEditIncomeEstimate();
+      else onAddIncome?.();
       return;
     }
     if (item.actionTarget === "income") {
@@ -154,7 +172,7 @@ function SavingsAdviceCard({ summary, onNavigate, onOpenBudget, onAddIncome }) {
               className="text-[11px] leading-[1.5]"
               style=${{ color: "var(--cs-faint)" }}
             >
-              Semua angka di atas dihitung dari catatanmu bulan ini, bukan saran
+              Semua angka di atas dihitung dari ${sumberAngka}, bukan saran
               investasi.
             </span>
           `
@@ -175,11 +193,30 @@ function SavingsAdviceCard({ summary, onNavigate, onOpenBudget, onAddIncome }) {
    panel ini hanya menampilkannya, tidak menghitung ulang apa pun. Ketika ada
    pilar yang datanya belum lengkap, buildScoring mengembalikan score null dan
    panel jujur menyatakan skor belum bisa dinilai. */
-function ScorePanel({ scoring }) {
+function ScorePanel({ scoring, cashFlow }) {
   const score = scoring?.score;
   const hasScore = Number.isFinite(score);
+  /* Skor sementara dihitung tanpa pilar yang belum didukung. Chip dan
+     penjelasannya menyebut itu, supaya angkanya tidak terbaca sebagai skor
+     penuh. */
+  const provisional = hasScore && Boolean(scoring?.provisional);
   const ratio = hasScore ? Math.min(Math.max(score / 100, 0), 1) : 0;
-  const pending = (scoring?.pillars || []).filter((pillar) => !pillar.evaluable);
+  /* Pilar yang belum didukung tidak disebut "belum lengkap", karena
+     pengguna tidak bisa melengkapinya. */
+  const pending = (scoring?.pillars || []).filter(
+    (pillar) => !pillar.evaluable && pillar.supported !== false,
+  );
+  const estimateNote =
+    cashFlow?.evaluable && cashFlow?.incomeSource === "estimate"
+      ? " Arus kas memakai perkiraan pemasukanmu."
+      : "";
+  const explanation = !hasScore
+    ? `Skor belum bisa dinilai karena ${pending
+        .map((pillar) => pillar.label)
+        .join(", ") || "sebagian data"} belum lengkap.`
+    : provisional
+      ? `Skor sementara: ${scoring.scoredPillarCount} dari ${scoring.totalPillarCount} pilar sudah dinilai. ${(scoring.unscoredPillars || []).join(", ")} belum bisa dinilai, jadi bobotnya dibagi ke pilar lain.${estimateNote}`
+      : `Kelengkapan data ${scoring.completeness}%. Skor dihitung dari anggaran, arus kas, daya tahan dana, dan tagihan rutin.${estimateNote}`;
 
   return html`
     <section className="dc-panel flex flex-col gap-[18px] p-[22px]">
@@ -200,7 +237,7 @@ function ScorePanel({ scoring }) {
             color: hasScore ? "var(--cs-pos)" : "#9c968b",
           }}
         >
-          ${scoring?.status || "Belum cukup data"}
+          ${scoring?.status || "Belum cukup data"}${provisional ? " · sementara" : ""}
         </span>
       </div>
       <div
@@ -213,11 +250,7 @@ function ScorePanel({ scoring }) {
         ></div>
       </div>
       <span className="text-[12.5px] leading-[1.5] text-[#9c968b]">
-        ${hasScore
-          ? `Kelengkapan data ${scoring.completeness}%. Skor dihitung dari anggaran, arus kas, daya tahan dana, dan tagihan rutin.`
-          : `Skor belum bisa dinilai karena ${pending
-              .map((pillar) => pillar.label)
-              .join(", ") || "sebagian data"} belum lengkap.`}
+        ${explanation}
       </span>
     </section>
   `;
@@ -229,7 +262,26 @@ export function ControlCenterPage({
   onNavigate,
   onOpenBudget,
   onAddIncome,
+  incomeEstimate = null,
+  activeCurrencies = [],
+  onSaveIncomeEstimate,
 }) {
+  const [estimateOpen, setEstimateOpen] = useState(false);
+  const [estimateSaving, setEstimateSaving] = useState(false);
+  /* Tanpa penyimpan, ajakan perkiraan jatuh kembali ke Catat pemasukan. */
+  const openEstimate = onSaveIncomeEstimate
+    ? () => setEstimateOpen(true)
+    : null;
+
+  async function saveEstimate(nextEstimate) {
+    setEstimateSaving(true);
+    try {
+      return Boolean(await onSaveIncomeEstimate?.(nextEstimate));
+    } finally {
+      setEstimateSaving(false);
+    }
+  }
+
   return html`
     ${/* max-w-md adalah lebar ponsel. Tanpa penyesuaian lg, halaman ini
           terkunci 448px di layar 1748px dan isinya yang sudah banyak terpaksa
@@ -250,13 +302,14 @@ export function ControlCenterPage({
           untuk dirapikan lebih dulu.
         </p>
 
-        <${ScorePanel} scoring=${summary.scoring} />
+        <${ScorePanel} scoring=${summary.scoring} cashFlow=${summary.cashFlow} />
 
         <${SavingsAdviceCard}
           summary=${summary}
           onNavigate=${onNavigate}
           onOpenBudget=${onOpenBudget}
           onAddIncome=${onAddIncome}
+          onEditIncomeEstimate=${openEstimate}
         />
 
 
@@ -285,6 +338,7 @@ export function ControlCenterPage({
           onOpenBudget=${onOpenBudget}
           onNavigate=${onNavigate}
           onAddIncome=${onAddIncome}
+          onEditIncomeEstimate=${openEstimate}
         />
         <${BudgetOverview}
           summary=${summary}
@@ -299,6 +353,18 @@ export function ControlCenterPage({
         />
         <${Exposure} summary=${summary} />
       </div>
+
+      ${/* Sheet dirender di dalam grid supaya halaman tetap satu akar.
+            Posisinya fixed, jadi tidak mengambil sel grid. */ null}
+      <${IncomeEstimateSheet}
+        open=${estimateOpen}
+        onClose=${() => setEstimateOpen(false)}
+        estimate=${incomeEstimate}
+        currencies=${activeCurrencies}
+        baseCurrency=${summary.baseCurrency}
+        onSave=${saveEstimate}
+        saving=${estimateSaving}
+      />
     </div>
   `;
 }

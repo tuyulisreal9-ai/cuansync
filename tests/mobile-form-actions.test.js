@@ -39,11 +39,14 @@ test("semua sheet formulir berisiko memakai action dock bersama", () => {
   }
 });
 
-test("form halaman anggaran dan catatan memakai tray aksi mobile", () => {
-  assert.match(
-    source("src/components/budget/BudgetWorkspacePage.js"),
-    /fixedOnMobile=\$\{true\}/,
-  );
+test("form jatah kategori memakai sheet, bukan tray aksi yang menumpuk", () => {
+  /* Sebelumnya form jatah muncul sebagai kartu di atas daftar beserta tray
+     aksinya sendiri, jadi satu layar berisi tiga permukaan bertumpuk.
+     Sekarang isiannya berada di dalam sheet bersama tombol simpannya. */
+  const page = source("src/components/budget/BudgetWorkspacePage.js");
+
+  assert.match(page, /<\$\{SheetShell\}/);
+  assert.doesNotMatch(page, /FormActionDock/);
   assert.match(
     source("src/components/shared/SubmitActionBar.js"),
     /fixedOnMobile=\$\{true\}/,

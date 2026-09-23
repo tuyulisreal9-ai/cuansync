@@ -168,10 +168,14 @@ test("Jatah memakai baris kategori yang bisa dibuka seperti desain", async () =>
   const page = await source("src/components/budget/BudgetWorkspacePage.js");
   const history = await source("src/components/transactions/TransactionHistoryPage.js");
 
-  // Header dan aksi mengikuti desain: "Per kategori" + tautan "Atur",
-  // serta "+ Tambah kategori" di dasar kartu.
-  assert.match(page, />Per kategori</);
+  // Judul jatah berada di dalam kartu seperti kartu mode simpel, supaya label
+  // segmen "Per kategori" di atasnya tidak terulang sebagai judul. Formnya
+  // pindah ke sheet, jadi tidak ada lagi kartu form beserta bilah tombolnya
+  // sendiri yang bertumpuk di atas daftar.
+  assert.match(page, />Jatah per kategori</);
   assert.match(page, /Tambah kategori/);
+  assert.match(page, /<\$\{BudgetCategorySheet\}/);
+  assert.doesNotMatch(page, /FormActionDock/);
   assert.doesNotMatch(page, /Batas Anggaran Bulanan/);
 
   // Baris kategori dapat dibuka dan memunculkan catatan beserta tiga aksi.

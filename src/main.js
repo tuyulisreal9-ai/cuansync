@@ -46,6 +46,7 @@ import {
 import {
   CATEGORY_OPTIONS,
   DEFAULT_CATEGORY,
+  MONTHLY_BUDGET_CATEGORY,
   UNIVERSAL_BUDGET_GROUP,
   buildBudgetOverspendWarning,
   calculateBudgetBaseAmount,
@@ -53,7 +54,9 @@ import {
   getBudgetCategoryKey,
   getBudgetCategoryLabel,
   getBudgetCategoryMeta,
+  getBudgetRowKey,
   getDefaultGroupForCategory,
+  isMonthlyBudget,
   normalizeBudgetCategory,
   normalizeBudgets,
 } from "./domain/budgets.js";
@@ -191,6 +194,8 @@ const STORAGE_KEYS = {
   hideBalances: "cuansync-hide-balances",
   currencySettings: "monefy-currency-settings",
   transactionFabHintDismissed: "cuansync-transaction-fab-hint-dismissed",
+  incomeEstimates: "cuansync-income-estimates",
+  budgetBillReserve: "cuansync-budget-bill-reserve",
   globalExchangeRates: GLOBAL_EXCHANGE_RATES_STORAGE_KEY,
 };
 
@@ -347,6 +352,14 @@ function isMissingDailyCurrencyColumn(error) {
   );
 }
 
+function isMissingIncomeEstimateColumn(error) {
+  const message = String(error?.message || "");
+  return (
+    message.includes("monthly_income_estimate") &&
+    (message.includes("schema cache") || error?.code === "PGRST204")
+  );
+}
+
 function isMissingTransactionRateTypeColumn(error) {
   const message = String(error?.message || "");
   return (
@@ -494,6 +507,7 @@ function normalizeProfile(row, user, fallback = {}) {
       row?.theme_mode || fallback.theme_mode || fallback.themeMode || readAppStorage("theme", "system"),
     ),
     hide_balances: hideBalances,
+    ...normalizeIncomeEstimateFields(row, fallback, baseCurrency),
     country_code: row?.country_code || fallback.country_code || fallback.countryCode || "",
     created_at: row?.created_at || fallback.created_at || new Date().toISOString(),
     updated_at: row?.updated_at || fallback.updated_at || new Date().toISOString(),
@@ -509,6 +523,7 @@ function readLocalProfile(user, currencySettings = null) {
       : null;
   return normalizeProfile(stored, user, {
     ...(currencySettings || {}),
+    ...(readLocalIncomeEstimate(user) || {}),
     hideBalances: !readBalanceVisiblePreference(),
   });
 }
@@ -520,6 +535,98 @@ function writeLocalProfile(user, profile) {
     ...(storedProfiles && typeof storedProfiles === "object" ? storedProfiles : {}),
     [storageId]: profile,
   });
+}
+
+/* Perkiraan pemasukan bulanan disimpan di profil. Nilai null di baris profil
+   berarti memang dikosongkan; kolom yang tidak ada berarti migration-nya
+   belum terpasang, dan nilainya diambil dari cadangan. */
+function normalizeIncomeEstimateFields(
+  row,
+  fallback = {},
+  baseCurrency = DEFAULT_BASE_CURRENCY,
+) {
+  const source =
+    row && Object.prototype.hasOwnProperty.call(row, "monthly_income_estimate")
+      ? row
+      : fallback || {};
+  const amount = Number(source.monthly_income_estimate);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return {
+      monthly_income_estimate: null,
+      monthly_income_estimate_currency: null,
+    };
+  }
+  return {
+    monthly_income_estimate: amount,
+    monthly_income_estimate_currency: normalizeCurrencyCode(
+      source.monthly_income_estimate_currency,
+      baseCurrency,
+    ),
+  };
+}
+
+/* Cadangan untuk akun Supabase yang migration perkiraan pemasukannya belum
+   terpasang. Isinya dianggap tertunda: begitu kolomnya ada, nilainya dikirim
+   sekali ke profil lalu dihapus dari perangkat. Mode demo tidak memakainya
+   karena profil demo memang tersimpan lokal. */
+function readLocalIncomeEstimate(user) {
+  const stored = readAppStorage("incomeEstimates", {});
+  const entry =
+    stored && typeof stored === "object" ? stored[getUserStorageId(user)] : null;
+  return entry && typeof entry === "object"
+    ? normalizeIncomeEstimateFields(entry)
+    : null;
+}
+
+function writeLocalIncomeEstimate(user, fields) {
+  const stored = readAppStorage("incomeEstimates", {});
+  const next = { ...(stored && typeof stored === "object" ? stored : {}) };
+  if (fields) {
+    next[getUserStorageId(user)] = {
+      monthly_income_estimate: fields.monthly_income_estimate,
+      monthly_income_estimate_currency: fields.monthly_income_estimate_currency,
+    };
+  } else {
+    delete next[getUserStorageId(user)];
+  }
+  writeAppStorage("incomeEstimates", next);
+}
+
+function upsertIncomeEstimate(user, fields) {
+  return supabase.from("profiles").upsert(
+    {
+      id: user.id,
+      monthly_income_estimate: fields.monthly_income_estimate,
+      monthly_income_estimate_currency: fields.monthly_income_estimate_currency,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "id" },
+  );
+}
+
+/* Perkiraan valas dinilai dengan kurs terkini, karena ini angka ke depan dan
+   bukan transaksi yang punya kurs historis. Tanpa kurs, nilai dasarnya null
+   dan Kondisi keuanganmu menyebutnya alih-alih menebak. */
+function resolveIncomeEstimate(profile, rateSnapshot, baseCurrency) {
+  const fields = normalizeIncomeEstimateFields(profile, {}, baseCurrency);
+  if (fields.monthly_income_estimate == null) return null;
+  const base = normalizeCurrencyCode(baseCurrency);
+  const currency = normalizeCurrencyCode(
+    fields.monthly_income_estimate_currency,
+    base,
+  );
+  const rate =
+    currency === base
+      ? 1
+      : Number(
+          getCurrentValuationRateForCurrency(rateSnapshot, currency, base)?.rate ||
+            0,
+        );
+  return {
+    amount: fields.monthly_income_estimate,
+    currency,
+    baseAmount: rate > 0 ? fields.monthly_income_estimate * rate : null,
+  };
 }
 
 function inferCurrenciesFromTransactions(rows = []) {
@@ -1234,6 +1341,12 @@ function App() {
   const [authRecoveryAttempt, setAuthRecoveryAttempt] = useState(0);
   const [transactions, setTransactions] = useState([]);
   const [budgets, setBudgets] = useState([]);
+  /* Mode simpel menyisihkan perkiraan tagihan rutin dari jatah harian.
+     Pilihannya hanya memengaruhi tampilan, jadi cukup disimpan di perangkat
+     ini seperti preferensi tampilan lainnya. */
+  const [reserveBills, setReserveBills] = useState(
+    () => readAppStorage("budgetBillReserve", true) !== false,
+  );
   const [goals, setGoals] = useState([]);
   const [goalActivities, setGoalActivities] = useState([]);
   const [goalFundingAccounts, setGoalFundingAccounts] = useState([]);
@@ -2024,6 +2137,33 @@ function App() {
             ? !settingsResult.data.balance_visible
             : !balanceVisible,
       });
+      /* Sebelum migration perkiraan pemasukan terpasang, baris profil belum
+         punya kolomnya, jadi perkiraan dari perangkat yang dipakai. Setelah
+         kolomnya ada, perkiraan yang tertunda dikirim sekali ke profil,
+         kecuali profil sudah punya nilai yang lebih baru. */
+      const pendingIncomeEstimate = readLocalIncomeEstimate(user);
+      const incomeEstimateColumnReady =
+        !profileResult.error &&
+        Boolean(profileResult.data) &&
+        Object.prototype.hasOwnProperty.call(
+          profileResult.data,
+          "monthly_income_estimate",
+        );
+      if (pendingIncomeEstimate && !incomeEstimateColumnReady) {
+        Object.assign(nextProfile, pendingIncomeEstimate);
+      } else if (
+        pendingIncomeEstimate?.monthly_income_estimate != null &&
+        nextProfile.monthly_income_estimate == null
+      ) {
+        Object.assign(nextProfile, pendingIncomeEstimate);
+        Promise.resolve(upsertIncomeEstimate(user, pendingIncomeEstimate))
+          .then(({ error }) => {
+            if (!error) writeLocalIncomeEstimate(user, null);
+          })
+          .catch(() => {});
+      } else if (pendingIncomeEstimate) {
+        writeLocalIncomeEstimate(user, null);
+      }
 
       setCurrencySettings(nextSettings);
       setRuntimeCurrencySettings(nextSettings);
@@ -3161,9 +3301,18 @@ function App() {
         baseCurrency,
         planningRate,
       });
-      const category = normalizeBudgetCategory(payload.category, payload.group_key);
-      const groupKey = payload.group_key || getDefaultGroupForCategory(category);
-      const categoryKey = getBudgetCategoryKey(category, groupKey);
+      /* Jatah mode simpel memakai kategori penanda yang tidak boleh ikut
+         dinormalkan, karena akan jatuh ke kategori "Lainnya". */
+      const monthlyPlan = isMonthlyBudget(payload);
+      const category = monthlyPlan
+        ? MONTHLY_BUDGET_CATEGORY
+        : normalizeBudgetCategory(payload.category, payload.group_key);
+      const groupKey = monthlyPlan
+        ? UNIVERSAL_BUDGET_GROUP
+        : payload.group_key || getDefaultGroupForCategory(category);
+      const categoryKey = monthlyPlan
+        ? MONTHLY_BUDGET_CATEGORY
+        : getBudgetCategoryKey(category, groupKey);
       if (!inputAmount || inputAmount <= 0) {
         throw new Error("Batas pengeluaran bulanan harus lebih besar dari 0.");
       }
@@ -3178,7 +3327,7 @@ function App() {
       const matchingBudgets = budgets.filter(
         (item) =>
           item.month_key === payload.month_key &&
-          getBudgetCategoryKey(item.category, item.group_key) === categoryKey,
+          getBudgetRowKey(item) === categoryKey,
       );
       if (
         matchingBudgets.length > 1 ||
@@ -3227,7 +3376,7 @@ function App() {
             (item) =>
               !(
                 item.month_key === payload.month_key &&
-                getBudgetCategoryKey(item.category, item.group_key) === categoryKey
+                getBudgetRowKey(item) === categoryKey
               ),
           ),
           record,
@@ -3285,7 +3434,11 @@ function App() {
         });
       }
 
-      setMessage(`Anggaran ${getBudgetCategoryLabel(category, groupKey)} berhasil disimpan.`);
+      setMessage(
+        monthlyPlan
+          ? "Jatah bulan ini berhasil disimpan."
+          : `Jatah ${getBudgetCategoryLabel(category, groupKey)} berhasil disimpan.`,
+      );
       setMessageTone("success");
       return true;
     } catch (error) {
@@ -3297,9 +3450,154 @@ function App() {
     }
   }
 
+  /* Menyetel seluruh jatah satu bulan sekaligus: satu baris untuk mode simpel
+     atau satu baris per kategori untuk mode rinci. Dipisahkan dari
+     handleSaveBudget karena menyimpan baris satu per satu di dalam perulangan
+     akan memakai daftar anggaran yang sudah basi dari render sebelumnya,
+     sehingga baris pertama tertimpa baris berikutnya. */
+  async function handleSaveBudgetPlan({
+    mode: nextMode,
+    monthKey,
+    totalAmount = 0,
+    rows = [],
+  }) {
+    try {
+      setLoading(true);
+      setMessage("");
+
+      const baseCurrency = getBaseCurrency();
+      const monthly = nextMode === "simple";
+      const entries = monthly
+        ? [
+            {
+              category: MONTHLY_BUDGET_CATEGORY,
+              amount: Number(totalAmount || 0),
+            },
+          ]
+        : rows.map((row) => ({
+            category: normalizeBudgetCategory(row.category),
+            amount: Number(row.amount || 0),
+          }));
+      if (entries.some((entry) => !(entry.amount > 0))) {
+        throw new Error("Jatah bulanan harus lebih besar dari 0.");
+      }
+
+      const monthRows = budgets.filter(
+        (item) =>
+          item.month_key === monthKey &&
+          normalizeCurrencyCode(item.base_currency || item.currency) ===
+            baseCurrency,
+      );
+      const now = new Date().toISOString();
+      const records = entries.map((entry) => {
+        const isMonthlyEntry = entry.category === MONTHLY_BUDGET_CATEGORY;
+        const groupKey = isMonthlyEntry
+          ? UNIVERSAL_BUDGET_GROUP
+          : getDefaultGroupForCategory(entry.category);
+        const entryKey = isMonthlyEntry
+          ? MONTHLY_BUDGET_CATEGORY
+          : getBudgetCategoryKey(entry.category, groupKey);
+        const existing = monthRows.find(
+          (item) => getBudgetRowKey(item) === entryKey,
+        );
+        return {
+          id: existing?.id || crypto.randomUUID(),
+          user_id: user.id,
+          month_key: monthKey,
+          group_key: groupKey,
+          category: entry.category,
+          input_amount: entry.amount,
+          input_currency: baseCurrency,
+          base_amount: entry.amount,
+          base_currency: baseCurrency,
+          planning_rate: 1,
+          rate_source: "base",
+          rate_date: now.slice(0, 10),
+          rate_from_currency: baseCurrency,
+          rate_to_currency: baseCurrency,
+          currency: baseCurrency,
+          limit_amount: entry.amount,
+          limit_thb: baseCurrency === "THB" ? entry.amount : 0,
+          created_at: existing?.created_at || now,
+          updated_at: now,
+        };
+      });
+
+      /* Dua mode tidak boleh hidup berdampingan di satu bulan, jadi baris
+         lama yang tidak terpakai lagi dihapus setelah yang baru tersimpan. */
+      const keptIds = new Set(records.map((record) => record.id));
+      const removedIds = [
+        ...new Set(
+          monthRows
+            .flatMap((item) => [item.id, ...(item.sourceBudgetIds || [])])
+            .filter((id) => Boolean(id) && !keptIds.has(id)),
+        ),
+      ];
+
+      if (mode === "demo") {
+        const dropped = new Set([...removedIds, ...keptIds]);
+        await persistDemoBudgets([
+          ...budgets.filter((item) => !dropped.has(item.id)),
+          ...records,
+        ]);
+      } else {
+        if (removedIds.length) {
+          const { error } = await supabase
+            .from("budgets")
+            .delete()
+            .eq("user_id", user.id)
+            .in("id", removedIds);
+          if (error) throw error;
+        }
+        let saved = [];
+        if (records.length) {
+          const { data, error } = await supabase
+            .from("budgets")
+            .upsert(records, { onConflict: "id" })
+            .select();
+          if (error) throw error;
+          saved = data || records;
+        }
+        const dropped = new Set([...removedIds, ...keptIds]);
+        setBudgets((current) =>
+          normalizeBudgets(
+            [...current.filter((item) => !dropped.has(item.id)), ...saved],
+            baseCurrency,
+          ).sort((a, b) =>
+            String(a.month_key).localeCompare(String(b.month_key)),
+          ),
+        );
+      }
+
+      setMessage(
+        !records.length
+          ? "Jatah satu bulan penuh dilepas. Sekarang atur batas per kategori."
+          : monthly
+            ? "Jatah bulan ini berhasil disimpan."
+            : "Jatah per kategori berhasil disimpan.",
+      );
+      setMessageTone("success");
+      return true;
+    } catch (error) {
+      setMessage(error.message || "Gagal menyimpan jatah.");
+      setMessageTone("error");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleToggleReserveBills() {
+    setReserveBills((current) => {
+      const next = !current;
+      writeAppStorage("budgetBillReserve", next);
+      return next;
+    });
+  }
+
   async function handleDeleteBudget(budget) {
     const confirmation = window.confirm(
-      `Hapus anggaran ${budget.categoryLabel || getBudgetCategoryLabel(budget.category, budget.group_key)} untuk ${formatMonthKey(budget.month_key)}?`,
+      `Hapus jatah ${budget.categoryLabel || getBudgetCategoryLabel(budget.category, budget.group_key)} untuk ${formatMonthKey(budget.month_key)}?`,
     );
     if (!confirmation) return;
 
@@ -3334,7 +3632,7 @@ function App() {
         );
       }
 
-      setMessage("Anggaran dihapus.");
+      setMessage("Jatah dihapus.");
       setMessageTone("info");
     } catch (error) {
       setMessage(error.message || "Gagal menghapus anggaran.");
@@ -4521,10 +4819,16 @@ function App() {
     ),
   );
   const walletBaseCurrency = dashboardCurrencySettings.baseCurrency;
+  const incomeEstimate = resolveIncomeEstimate(
+    profile,
+    globalRateSnapshot,
+    walletBaseCurrency,
+  );
   const controlSummary = buildBudgetControlSummary({
     metrics,
     transactions,
     baseCurrency: walletBaseCurrency,
+    incomeEstimate,
   });
   const activeBudgetInsight =
     metrics.budgetInsights.find((item) => item.currency === dailyExpenseCurrency) || null;
@@ -4696,6 +5000,68 @@ function App() {
       setMessageTone(error?.code === "42P01" ? "info" : "error");
       return error?.code === "42P01";
     }
+  }
+
+  /* Perkiraan pemasukan bulanan untuk Kondisi keuanganmu. Ini bukan
+     transaksi, jadi saldo tidak berubah. Kalau kolomnya belum ada karena
+     migration belum terpasang, perkiraan tetap berlaku di perangkat ini dan
+     dikirim ke profil setelah kolomnya tersedia. */
+  async function handleSaveIncomeEstimate(nextEstimate) {
+    const fields = normalizeIncomeEstimateFields(
+      {
+        monthly_income_estimate: nextEstimate?.amount ?? null,
+        monthly_income_estimate_currency: nextEstimate?.currency ?? null,
+      },
+      {},
+      walletBaseCurrency,
+    );
+    const savedText =
+      fields.monthly_income_estimate == null
+        ? "Perkiraan pemasukan dihapus."
+        : "Perkiraan pemasukan disimpan.";
+    const previousProfile = profile;
+    const nextProfile = normalizeProfile(
+      { ...(profile || {}), ...fields },
+      user,
+      {
+        ...(currencySettings || normalizeCurrencySettings(null)),
+        theme_mode: theme,
+        hideBalances: !balanceVisible,
+      },
+    );
+    setProfile(nextProfile);
+
+    if (mode === "demo") {
+      writeLocalProfile(user, nextProfile);
+      setMessage(savedText);
+      setMessageTone("success");
+      return true;
+    }
+
+    let error = null;
+    try {
+      ({ error } = await upsertIncomeEstimate(user, fields));
+    } catch (caught) {
+      error = caught;
+    }
+    if (!error) {
+      writeLocalIncomeEstimate(user, null);
+      setMessage(savedText);
+      setMessageTone("success");
+      return true;
+    }
+    if (isMissingIncomeEstimateColumn(error)) {
+      writeLocalIncomeEstimate(user, fields);
+      setMessage(
+        "Perkiraan tersimpan di perangkat ini. Pasang migration terbaru supaya ikut tersinkron.",
+      );
+      setMessageTone("info");
+      return true;
+    }
+    setProfile(previousProfile);
+    setMessage(error?.message || "Perkiraan pemasukan gagal disimpan.");
+    setMessageTone("error");
+    return false;
   }
 
   /* Ekspor bulanan mengambil ulang transaksi pada rentang yang dipilih. Array
@@ -4954,12 +5320,16 @@ function App() {
               metrics=${metrics}
               controlSummary=${controlSummary}
               transactions=${transactions}
+              budgets=${budgets}
               activeCurrencies=${dashboardActiveCurrencies}
               baseCurrency=${walletBaseCurrency}
               globalRateSnapshot=${globalRateSnapshot}
               loading=${loading}
               onBudgetDelete=${handleDeleteBudget}
               onBudgetSubmit=${handleSaveBudget}
+              onSaveBudgetPlan=${handleSaveBudgetPlan}
+              reserveBills=${reserveBills}
+              onToggleReserveBills=${handleToggleReserveBills}
               focusCategoryKey=${budgetFocusCategoryKey}
               onNavigate=${navigateAppTab}
               onOpenCategoryHistory=${(budget) => {
@@ -5070,6 +5440,9 @@ function App() {
                       onNavigate=${navigateAppTab}
                       onOpenBudget=${openBudgetWorkspace}
                       onAddIncome=${() => openTransactionForm("income")}
+                      incomeEstimate=${incomeEstimate}
+                      activeCurrencies=${dashboardActiveCurrencies}
+                      onSaveIncomeEstimate=${handleSaveIncomeEstimate}
                     />
                   </section>
                 `

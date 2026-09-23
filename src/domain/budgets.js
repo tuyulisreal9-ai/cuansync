@@ -28,6 +28,29 @@ export {
 
 export const getCategoryMeta = getExpenseCategoryMeta;
 
+/* Mode simpel menyimpan jatah sebulan penuh sebagai satu baris anggaran
+   dengan kategori penanda. Kolom category di database berupa teks bebas dan
+   kunci uniknya per pengguna, bulan, dan kategori, jadi baris ini punya
+   tempatnya sendiri tanpa menabrak kategori mana pun. */
+export const MONTHLY_BUDGET_CATEGORY = "__bulanan__";
+export const MONTHLY_BUDGET_LABEL = "Jatah bulan ini";
+
+export function isMonthlyBudget(row) {
+  return (
+    String(row?.category ?? "")
+      .trim()
+      .toLowerCase() === MONTHLY_BUDGET_CATEGORY
+  );
+}
+
+/* Kunci baris jatah yang aman untuk kedua mode: baris bulanan punya kuncinya
+   sendiri dan tidak jatuh ke kategori "Lainnya". */
+export function getBudgetRowKey(row) {
+  return isMonthlyBudget(row)
+    ? MONTHLY_BUDGET_CATEGORY
+    : getBudgetCategoryKey(row?.category, row?.group_key);
+}
+
 export function normalizeBudgetCategory(
   category,
   groupKey = UNIVERSAL_BUDGET_GROUP,
@@ -165,9 +188,19 @@ export function normalizeBudget(
           : 0),
   );
   const sourceCategory = row.category || row.group_key;
-  const category = normalizeBudgetCategory(sourceCategory, row.group_key);
-  const groupKey = getDefaultGroupForCategory(category);
-  const categoryKey = getBudgetCategoryKey(category, groupKey);
+  /* Penanda jatah bulanan tidak boleh ikut dinormalkan jadi kategori, karena
+     normalizeBudgetCategory akan menjatuhkannya ke "Lainnya" dan jatah satu
+     bulan berubah menjadi jatah satu kategori. */
+  const monthly = isMonthlyBudget(row);
+  const category = monthly
+    ? MONTHLY_BUDGET_CATEGORY
+    : normalizeBudgetCategory(sourceCategory, row.group_key);
+  const groupKey = monthly
+    ? UNIVERSAL_BUDGET_GROUP
+    : getDefaultGroupForCategory(category);
+  const categoryKey = monthly
+    ? MONTHLY_BUDGET_CATEGORY
+    : getBudgetCategoryKey(category, groupKey);
   const hasExplicitPlanningFields =
     row.input_amount != null ||
     row.inputAmount != null ||
@@ -191,7 +224,10 @@ export function normalizeBudget(
     group_key: groupKey,
     category,
     categoryKey,
-    categoryLabel: getBudgetCategoryLabel(category, groupKey),
+    scope: monthly ? "month" : "category",
+    categoryLabel: monthly
+      ? MONTHLY_BUDGET_LABEL
+      : getBudgetCategoryLabel(category, groupKey),
     currency: officialBaseCurrency,
     legacy_currency: legacyCurrency,
     input_currency: inputCurrency,
@@ -384,16 +420,20 @@ export function computeBudgetInsights(
     )
     .map((budget) => {
       const currency = normalizedBaseCurrency;
-      const budgetCategoryKey = getBudgetCategoryKey(
-        budget.category,
-        budget.group_key,
-      );
+      const monthlyScope = budget.scope === "month";
+      const budgetCategoryKey = monthlyScope
+        ? MONTHLY_BUDGET_CATEGORY
+        : getBudgetCategoryKey(budget.category, budget.group_key);
+      /* Jatah bulanan menampung seluruh pengeluaran bulan itu, termasuk yang
+         tidak berkategori. Justru itu yang menutup lubang lama: belanja tanpa
+         kategori tidak pernah masuk jatah mana pun. */
       const budgetActivities = monthlyExpenses.filter(
         (item) =>
           ["expense", "exchange"].includes(item.type) &&
-          Boolean(item.category) &&
-          getBudgetCategoryKey(item.category, item.category_group) ===
-            budgetCategoryKey &&
+          (monthlyScope ||
+            (Boolean(item.category) &&
+              getBudgetCategoryKey(item.category, item.category_group) ===
+                budgetCategoryKey)) &&
           resolveBudgetActivityAmount(
             item,
             currency,
@@ -487,13 +527,16 @@ export function computeBudgetInsights(
       return {
         ...budget,
         group_key:
-          budget.group_key || getDefaultGroupForCategory(budget.category),
+          budget.group_key ||
+          (monthlyScope
+            ? UNIVERSAL_BUDGET_GROUP
+            : getDefaultGroupForCategory(budget.category)),
         category: budget.category,
         categoryKey: budgetCategoryKey,
-        categoryLabel: getBudgetCategoryLabel(
-          budget.category,
-          budget.group_key,
-        ),
+        scope: monthlyScope ? "month" : "category",
+        categoryLabel: monthlyScope
+          ? MONTHLY_BUDGET_LABEL
+          : getBudgetCategoryLabel(budget.category, budget.group_key),
         currency,
         limitAmount,
         spentAmount,
@@ -541,12 +584,7 @@ export function buildBudgetOverspendWarning(
   baseCurrency = DEFAULT_BASE_CURRENCY,
   globalRateSnapshot = null,
 ) {
-  if (
-    !["expense", "exchange"].includes(transaction?.type) ||
-    !transaction.category
-  ) {
-    return null;
-  }
+  if (!["expense", "exchange"].includes(transaction?.type)) return null;
   const monthKey = getMonthKey(transaction.occurred_at);
   const categoryKey = getBudgetCategoryKey(
     transaction.category,
@@ -564,11 +602,14 @@ export function buildBudgetOverspendWarning(
     normalizedBaseCurrency,
     globalRateSnapshot,
   );
+  /* Mode simpel hanya punya satu jatah untuk seluruh bulan, dan pengeluaran
+     tanpa kategori pun mengurangi jatah itu. */
   const budget = insights.find(
     (item) =>
-      item.categoryKey === categoryKey &&
       item.currency === normalizedBaseCurrency &&
-      item.remainingAmount < 0,
+      item.remainingAmount < 0 &&
+      (item.scope === "month" ||
+        (Boolean(transaction.category) && item.categoryKey === categoryKey)),
   );
   if (!budget) return null;
   return {

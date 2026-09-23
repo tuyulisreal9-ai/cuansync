@@ -423,8 +423,12 @@ function buildHealthSentence(summary) {
   const bagian = [];
   const ratio = summary?.cashFlow?.savingsRatio;
   if (summary?.cashFlow?.evaluable && Number.isFinite(ratio)) {
+    /* Rasio yang memakai perkiraan pemasukan disebut sebagai perkiraan,
+       supaya tidak terbaca seperti angka yang sudah tercatat. */
     bagian.push(
-      `Bulan ini kamu menyisihkan ${Math.round(ratio * 100)}% pemasukan`,
+      summary.cashFlow.incomeSource === "estimate"
+        ? `Bulan ini kamu diperkirakan menyisihkan ${Math.round(ratio * 100)}% pemasukan`
+        : `Bulan ini kamu menyisihkan ${Math.round(ratio * 100)}% pemasukan`,
     );
   }
   const attention = Number(summary?.budget?.attentionCount || 0);
@@ -506,7 +510,7 @@ function FinancialHealthCard({ summary, onOpen }) {
                 ? html`<${HealthChip} key="tips">${attention} tips baru<//>`
                 : null}
               ${Number.isFinite(score)
-                ? html`<${HealthChip} key="skor">Skor ${score}<//>`
+                ? html`<${HealthChip} key="skor">${summary?.scoring?.provisional ? "Skor sementara" : "Skor"} ${score}<//>`
                 : null}
             </span>
           `

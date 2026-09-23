@@ -83,16 +83,32 @@ export function buildControlCoach(summary) {
   }
 
   if (!summary?.cashFlow?.evaluable) {
+    const why =
+      "Saldo menunjukkan apa yang kamu punya sekarang; arus kas menjelaskan apakah kebiasaan bulan ini bisa bertahan.";
+    /* Pemasukan valas yang kursnya belum diisi sudah tercatat. Mengajak
+       mengisi perkiraan pemasukan di situ salah alamat. */
+    if (summary?.cashFlow?.blockedReason === "missing_valuation") {
+      return {
+        tone: "progress",
+        eyebrow: "Lengkapi gambaranmu",
+        title: "Lengkapi kurs transaksi valas",
+        body:
+          "Arus kas bulan ini menunggu kurs transaksi mata uang asing. Isi kursnya lewat Riwayat agar sisa uang dan rasio tabungan bisa dihitung.",
+        why,
+        actionLabel: "Buka riwayat",
+        actionTarget: "history",
+        categoryKey: null,
+      };
+    }
     return {
       tone: "progress",
       eyebrow: "Lengkapi gambaranmu",
       title: "Ceritakan dari mana uangmu datang",
       body:
-        "Catat pemasukan bulan ini agar sisa uang, rasio tabungan, dan kemampuan mencapai target tidak lagi sekadar perkiraan.",
-      why:
-        "Saldo menunjukkan apa yang kamu punya sekarang; arus kas menjelaskan apakah kebiasaan bulan ini bisa bertahan.",
-      actionLabel: "Catat pemasukan",
-      actionTarget: "income",
+        "Isi perkiraan pemasukan bulanan, atau catat pemasukan bulan ini, agar sisa uang, rasio tabungan, dan kemampuan mencapai target bisa dihitung.",
+      why,
+      actionLabel: "Isi perkiraan pemasukan",
+      actionTarget: "income_estimate",
       categoryKey: null,
     };
   }

@@ -4,11 +4,11 @@ import {
   ArrowRight,
   House,
   Moon,
+  PieChart,
   Plus,
   ReceiptText,
   Repeat2,
   Sun,
-  Target,
   WalletCards,
   X,
 } from "lucide-react";
@@ -21,7 +21,10 @@ const html = htm.bind(React.createElement);
 const PRIMARY_NAV_ITEMS = [
   { key: "overview", label: "Beranda", icon: House },
   { key: "investment", label: "Dompet", icon: WalletCards },
-  { key: "budget", label: "Jatah", icon: Target },
+  /* Jatah memakai PieChart, porsi dari satu keseluruhan. Sebelumnya ikonnya
+     Target, sama persis dengan ikon Target keuangan, jadi dua hal berbeda
+     memakai lambang yang sama. */
+  { key: "budget", label: "Jatah", icon: PieChart },
   { key: "history", label: "Riwayat", icon: ReceiptText },
 ];
 

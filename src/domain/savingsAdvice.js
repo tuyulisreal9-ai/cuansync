@@ -85,19 +85,26 @@ function adviceFromSavingsRatio(summary, currency) {
   if (!cashFlow?.evaluable) return null;
 
   const ratio = Number(cashFlow.savingsRatio);
-  const income = Number(cashFlow.income || 0);
+  /* Rasio dihitung dari pemasukan yang dipakai arus kas: yang tercatat, atau
+     perkiraan pemasukan selama pemasukan nyata belum melampauinya. */
+  const income = Number(cashFlow.incomeBasis ?? cashFlow.income ?? 0);
   if (!Number.isFinite(ratio) || income <= 0) return null;
   if (ratio >= SAVINGS_RATIO_BENCHMARK) return null;
 
   const selisih = (SAVINGS_RATIO_BENCHMARK - ratio) * income;
   if (!(selisih > 0)) return null;
 
+  const sumber =
+    cashFlow.incomeSource === "estimate"
+      ? `Dari perkiraan pemasukan ${uang(income, currency)} per bulan.`
+      : `Dari pemasukan ${uang(income, currency)} bulan ini.`;
+
   return {
     key: "savings_ratio",
     rank: 3,
     tone: ratio < 0 ? "danger" : "warn",
     title: `Rasio menabungmu ${bulat(ratio * 100)}%`,
-    detail: `Dari pemasukan ${uang(income, currency)} bulan ini. Menyisihkan ${uang(
+    detail: `${sumber} Menyisihkan ${uang(
       selisih,
       currency,
     )} lagi membuatnya menyentuh ${bulat(SAVINGS_RATIO_BENCHMARK * 100)}%.`,
@@ -158,7 +165,7 @@ function adviceFromGoal(summary, currency) {
       tone: "info",
       title: `${goal.name} kurang ${uang(kurang, goal.currency || currency)}`,
       detail:
-        "Catat pemasukan bulan ini supaya perkiraan kapan target tercapai bisa dihitung.",
+        "Isi perkiraan pemasukan atau catat pemasukan bulan ini supaya perkiraan kapan target tercapai bisa dihitung.",
       actionLabel: "Kelola target",
       actionTarget: "goal",
       categoryKey: null,
@@ -166,6 +173,7 @@ function adviceFromGoal(summary, currency) {
   }
 
   const bulan = Math.ceil(kurang / sisaBulanan);
+  const dariPerkiraan = cashFlow?.incomeSource === "estimate";
   return {
     key: "goal",
     rank: 5,
@@ -174,7 +182,7 @@ function adviceFromGoal(summary, currency) {
     detail: `Dengan sisa ${uang(
       sisaBulanan,
       currency,
-    )} per bulan seperti bulan ini, kira-kira ${bulan} bulan lagi.`,
+    )} per bulan ${dariPerkiraan ? "menurut perkiraan pemasukanmu" : "seperti bulan ini"}, kira-kira ${bulan} bulan lagi.`,
     actionLabel: "Kelola target",
     actionTarget: "goal",
     categoryKey: null,
@@ -221,9 +229,9 @@ function adviceFromMissingData(summary) {
         tone: "info",
         title: "Pemasukan bulan ini belum tercatat",
         detail:
-          "Rasio menabung dan perkiraan kapan target tercapai keduanya dihitung dari pemasukan.",
-        actionLabel: "Catat pemasukan",
-        actionTarget: "income",
+          "Isi perkiraan pemasukan bulanan supaya arus kas dan perkiraan kapan target tercapai langsung terbaca. Pemasukan yang tercatat nanti tetap dipakai kalau lebih besar.",
+        actionLabel: "Isi perkiraan pemasukan",
+        actionTarget: "income_estimate",
         categoryKey: null,
       });
     }
