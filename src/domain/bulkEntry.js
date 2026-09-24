@@ -1,0 +1,646 @@
+import {
+  formatCurrency,
+  getCurrencyMeta,
+  getNumericInputOptions,
+  normalizeCurrencyCode,
+  normalizeNumericInput,
+} from "../lib/currency.js";
+import {
+  UNIVERSAL_BUDGET_GROUP,
+  getExpenseCategoryLabel,
+  normalizeExpenseCategory,
+} from "./categories.js";
+
+/* Catat banyak: satu baris teks menjadi satu transaksi.
+
+   Modul ini murni dan tidak menyentuh jaringan. Semua yang berbau nominal
+   diserahkan ke aturan angka mata uang yang sudah dipakai seluruh form,
+   sehingga "25.000" tidak pernah menyusut menjadi 25 di jalur baru ini. */
+
+export const BULK_ENTRY_MAX_LINES = 80;
+
+/* Kata yang menandai pemasukan. Sengaja pendek dan spesifik: kata umum
+   seperti "bayar" atau "masuk" muncul di kalimat pengeluaran juga, dan
+   salah arah jauh lebih merugikan daripada satu baris yang perlu dibalik
+   sendiri di langkah Periksa. */
+const INCOME_KEYWORDS = [
+  "gaji",
+  "bonus",
+  "thr",
+  "cashback",
+  "refund",
+  "freelance",
+  "komisi",
+  "honor",
+  "dividen",
+  "jual",
+  "penjualan",
+  "omzet",
+  "insentif",
+  "tunjangan",
+];
+
+/* Kata kunci dipetakan ke kategori yang benar benar ada di aplikasi.
+   "Jajan" milik desain tidak dipakai karena kategori itu tidak ada di sini;
+   kopi dan camilan masuk Makan Harian, yang deskripsinya memang mencakup
+   minuman dan makan di luar. */
+const CATEGORY_KEYWORDS = [
+  [
+    "Makan",
+    [
+      "makan",
+      "sarapan",
+      "brunch",
+      "lunch",
+      "makan siang",
+      "makan malam",
+      "dinner",
+      "nasi",
+      "nasi padang",
+      "padang",
+      "warteg",
+      "bakso",
+      "soto",
+      "sate",
+      "mie",
+      "bakmi",
+      "ayam",
+      "geprek",
+      "seblak",
+      "pecel",
+      "gado gado",
+      "sushi",
+      "pizza",
+      "burger",
+      "kfc",
+      "mcd",
+      "gofood",
+      "grabfood",
+      "shopeefood",
+      "katering",
+      "catering",
+      "kopi",
+      "ngopi",
+      "starbucks",
+      "boba",
+      "teh",
+      "es teh",
+      "jus",
+      "jajan",
+      "snack",
+      "camilan",
+      "roti",
+      "donat",
+      "martabak",
+      "cilok",
+      "gorengan",
+      "sayur",
+      "beras",
+      "telur",
+      "daging",
+      "buah",
+      "bumbu",
+      "minum",
+    ],
+  ],
+  [
+    "Transportasi",
+    [
+      "gojek",
+      "grab",
+      "ojek",
+      "ojol",
+      "maxim",
+      "taksi",
+      "bluebird",
+      "bensin",
+      "pertamax",
+      "pertalite",
+      "solar",
+      "isi bensin",
+      "parkir",
+      "tol",
+      "e-toll",
+      "etoll",
+      "krl",
+      "mrt",
+      "lrt",
+      "busway",
+      "transjakarta",
+      "angkot",
+      "kereta",
+      "travel",
+      "pesawat",
+      "tiket pesawat",
+      "servis motor",
+      "servis mobil",
+      "oli",
+      "tambal ban",
+    ],
+  ],
+  [
+    "Tagihan",
+    [
+      "listrik",
+      "token listrik",
+      "token",
+      "pln",
+      "pdam",
+      "air",
+      "pulsa",
+      "kuota",
+      "paket data",
+      "internet",
+      "wifi",
+      "indihome",
+      "bpjs",
+      "asuransi",
+      "cicilan",
+      "angsuran",
+      "iuran",
+      "langganan",
+      "tagihan",
+    ],
+  ],
+  [
+    "Belanja",
+    [
+      "belanja",
+      "indomaret",
+      "alfamart",
+      "minimarket",
+      "superindo",
+      "hypermart",
+      "transmart",
+      "pasar",
+      "shopee",
+      "tokopedia",
+      "tokped",
+      "lazada",
+      "blibli",
+      "tiktok shop",
+      "sabun",
+      "sampo",
+      "shampo",
+      "deterjen",
+      "tisu",
+      "popok",
+      "galon",
+      "gas",
+      "peralatan",
+      "perabot",
+    ],
+  ],
+  [
+    "Kesehatan",
+    [
+      "obat",
+      "apotek",
+      "apotik",
+      "dokter",
+      "klinik",
+      "rumah sakit",
+      "vitamin",
+      "periksa",
+      "kontrol",
+      "lab",
+      "vaksin",
+      "gigi",
+      "terapi",
+    ],
+  ],
+  [
+    "Tempat Tinggal",
+    [
+      "sewa",
+      "kos",
+      "kost",
+      "ngekos",
+      "kontrakan",
+      "kontrak",
+      "kpr",
+      "ipl",
+      "iuran warga",
+      "renovasi",
+      "tukang",
+    ],
+  ],
+  [
+    "Hiburan & Gaya Hidup",
+    [
+      "netflix",
+      "spotify",
+      "disney",
+      "youtube",
+      "bioskop",
+      "nonton",
+      "film",
+      "konser",
+      "game",
+      "steam",
+      "mobile legends",
+      "karaoke",
+      "salon",
+      "barbershop",
+      "potong rambut",
+      "skincare",
+      "gym",
+      "fitness",
+      "hobi",
+      "liburan",
+      "wisata",
+      "hotel",
+      "kado",
+      "hadiah",
+    ],
+  ],
+];
+
+/* Kata depan yang biasa mendahului nama dompet, dibuang dari judul supaya
+   "parkir 5000 pakai gopay" tidak tersimpan sebagai "Parkir pakai". */
+const WALLET_PREPOSITIONS = ["pakai", "pake", "pk", "via", "lewat", "dari", "ke", "di"];
+
+const YESTERDAY_PATTERN = /\bkemarin\b/i;
+
+/* Nominal: angka terakhir pada baris, boleh berawalan rp dan bersufiks
+   satuan ribuan atau jutaan. Angka terakhir dipilih karena judul transaksi
+   sering memuat angka lain lebih dulu ("makan 2 orang 50rb"). */
+const AMOUNT_PATTERN = /(?:rp\.?\s*)?(\d+(?:[.,]\d+)*)\s*(rb|ribu|k|jt|juta)?(?![a-z0-9])/gi;
+
+const SUFFIX_MULTIPLIER = {
+  rb: 1000,
+  ribu: 1000,
+  k: 1000,
+  jt: 1000000,
+  juta: 1000000,
+};
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function roundToCurrency(value, currency) {
+  const digits = Number(getCurrencyMeta(currency).fractionDigits ?? 2);
+  const factor = 10 ** (Number.isFinite(digits) ? digits : 2);
+  return Math.round(Number(value || 0) * factor) / factor;
+}
+
+/* Angka bersufiks selalu dibaca sebagai pecahan: "63,5rb" berarti 63.500,
+   bukan 635.000. Aturan ribuan mata uang tidak berlaku di sini karena
+   sufiksnya sendiri yang menyatakan skalanya. */
+function readSuffixedNumber(token) {
+  const cleaned = String(token).replace(/[^\d.,]/g, "");
+  const lastDot = cleaned.lastIndexOf(".");
+  const lastComma = cleaned.lastIndexOf(",");
+  const separatorIndex = Math.max(lastDot, lastComma);
+  if (separatorIndex === -1) return Number(cleaned);
+
+  const decimalPart = cleaned.slice(separatorIndex + 1).replace(/[^\d]/g, "");
+  const integerPart = cleaned.slice(0, separatorIndex).replace(/[^\d]/g, "");
+  const repeatsSeparator = lastDot !== -1 && lastComma !== -1;
+  /* Tiga angka di belakang pemisah tetap pola ribuan ("1.500rb"), selebihnya
+     pecahan biasa. */
+  if (repeatsSeparator || decimalPart.length === 3) {
+    return Number(`${integerPart}${decimalPart}`);
+  }
+  return Number(`${integerPart}.${decimalPart}`);
+}
+
+export function readBulkAmount(token, suffix, currency) {
+  const code = normalizeCurrencyCode(currency);
+  const multiplier = SUFFIX_MULTIPLIER[String(suffix || "").toLowerCase()] || 0;
+  if (multiplier) {
+    return roundToCurrency(readSuffixedNumber(token) * multiplier, code);
+  }
+  /* Tanpa sufiks, angkanya dibaca dengan aturan mata uangnya sendiri lewat
+     fungsi yang sama dengan semua kolom nominal di aplikasi. */
+  const numeric = Number(
+    normalizeNumericInput(token, getNumericInputOptions(code)) || 0,
+  );
+  return roundToCurrency(numeric, code);
+}
+
+function findWalletMatch(text, accounts) {
+  let best = null;
+  accounts.forEach((account) => {
+    const name = String(account?.name || "").trim();
+    if (name.length < 2) return;
+    const pattern = new RegExp(`\\b${escapeRegExp(name)}\\b`, "i");
+    const found = pattern.exec(text);
+    if (!found) return;
+    /* Nama terpanjang menang supaya "BCA Digital" tidak kalah oleh "BCA". */
+    if (!best || name.length > best.name.length) {
+      best = { account, name, index: found.index, length: found[0].length };
+    }
+  });
+  return best;
+}
+
+function detectCategory(text) {
+  let best = null;
+  CATEGORY_KEYWORDS.forEach(([category, keywords]) => {
+    keywords.forEach((keyword) => {
+      const pattern = new RegExp(`\\b${escapeRegExp(keyword)}\\b`, "i");
+      if (!pattern.test(text)) return;
+      /* Kata kunci terpanjang menang: "grabfood" adalah Makan, bukan
+         Transportasi seperti "grab" di dalamnya. */
+      if (!best || keyword.length > best.keyword.length) {
+        best = { category, keyword };
+      }
+    });
+  });
+  return best ? best.category : null;
+}
+
+function cleanDescription(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .replace(/^[\s,.;:+\-•*]+/, "")
+    .replace(/[\s,.;:+\-]+$/, "")
+    .trim();
+}
+
+function toSentenceCase(value) {
+  const text = cleanDescription(value);
+  if (!text) return "";
+  return text.charAt(0).toLocaleUpperCase("id-ID") + text.slice(1);
+}
+
+export function getBulkRowTitle(row) {
+  if (row?.description) return row.description;
+  if (row?.type === "income") return "Pemasukan";
+  return row?.category ? getExpenseCategoryLabel(row.category) : "Pengeluaran";
+}
+
+function pickDefaultAccount(accounts, baseCurrency) {
+  const base = normalizeCurrencyCode(baseCurrency);
+  const sameCurrency = accounts.filter(
+    (account) => normalizeCurrencyCode(account.currency) === base,
+  );
+  const pool = sameCurrency.length ? sameCurrency : accounts;
+  return pool.find((account) => account.isPrimary || account.is_primary) || pool[0] || null;
+}
+
+export function resolveBulkDefaultAccount(accounts = [], baseCurrency) {
+  return pickDefaultAccount(accounts, baseCurrency);
+}
+
+function shiftDateKey(dateKey, days) {
+  const [year, month, day] = String(dateKey || "").split("-").map(Number);
+  if (!year || !month || !day) return dateKey;
+  const moved = new Date(year, month - 1, day + days);
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${moved.getFullYear()}-${pad(moved.getMonth() + 1)}-${pad(moved.getDate())}`;
+}
+
+/* Satu baris teks menjadi satu calon transaksi. Baris yang nominalnya tidak
+   terbaca tidak dibuang diam diam: ia tetap muncul sebagai baris dilewati,
+   supaya pengguna tahu persis apa yang tidak ikut tersimpan. */
+export function parseBulkEntryLine(raw, context = {}) {
+  const {
+    accounts = [],
+    defaultAccountId = "",
+    defaultDateKey = "",
+    baseCurrency,
+  } = context;
+
+  const original = String(raw || "");
+  if (!original.trim()) return null;
+
+  const fallbackAccount =
+    accounts.find((account) => account.id === defaultAccountId) ||
+    pickDefaultAccount(accounts, baseCurrency);
+
+  let working = original.trim();
+  const incomeMarked = /^\+/.test(working);
+  working = working.replace(/^[+\-•*·]\s*/, "");
+
+  const walletMatch = findWalletMatch(working, accounts);
+  const account = walletMatch ? walletMatch.account : fallbackAccount;
+  const currency = normalizeCurrencyCode(account?.currency || baseCurrency);
+
+  if (walletMatch) {
+    const before = working.slice(0, walletMatch.index);
+    const after = working.slice(walletMatch.index + walletMatch.length);
+    const prepositionPattern = new RegExp(
+      `\\s(?:${WALLET_PREPOSITIONS.join("|")})\\s*$`,
+      "i",
+    );
+    working = `${before.replace(prepositionPattern, " ")} ${after}`;
+  }
+
+  const dateKey = YESTERDAY_PATTERN.test(working)
+    ? shiftDateKey(defaultDateKey, -1)
+    : defaultDateKey;
+  working = working.replace(YESTERDAY_PATTERN, " ");
+
+  AMOUNT_PATTERN.lastIndex = 0;
+  const matches = [...working.matchAll(AMOUNT_PATTERN)];
+  const match = matches[matches.length - 1] || null;
+  const amount = match ? readBulkAmount(match[1], match[2], currency) : 0;
+  if (match) {
+    working = `${working.slice(0, match.index)} ${working.slice(match.index + match[0].length)}`;
+  }
+
+  const haystack = ` ${original.toLocaleLowerCase("id-ID")} `;
+  const type =
+    incomeMarked || INCOME_KEYWORDS.some((keyword) => new RegExp(`\\b${keyword}`, "i").test(haystack))
+      ? "income"
+      : "expense";
+  const category = type === "income" ? null : detectCategory(haystack);
+
+  return {
+    raw: original,
+    type,
+    description: toSentenceCase(working),
+    amount,
+    currency,
+    accountId: account?.id || "",
+    accountName: account?.name || "",
+    dateKey,
+    category,
+    skipped: !(amount > 0),
+    skipReason: amount > 0 ? "" : "Nominal tidak terbaca, baris dilewati",
+  };
+}
+
+export function parseBulkEntryText(text, context = {}) {
+  const lines = String(text || "").split(/\r?\n/).slice(0, BULK_ENTRY_MAX_LINES);
+  const rows = [];
+  lines.forEach((line, index) => {
+    const parsed = parseBulkEntryLine(line, context);
+    if (!parsed) return;
+    rows.push({ ...parsed, id: `bulk-${index + 1}`, lineNumber: index + 1 });
+  });
+  return rows;
+}
+
+export function isBulkRowIncomplete(row) {
+  if (!row) return true;
+  if (!(Number(row.amount) > 0)) return true;
+  if (!row.accountId) return true;
+  return row.type === "expense" && !row.category;
+}
+
+/* Ringkasan tidak pernah menjumlahkan dua mata uang menjadi satu angka.
+   Totalnya dikelompokkan per mata uang, persis seperti sisa aplikasi. */
+export function summarizeBulkEntryRows(rows = []) {
+  const usable = rows.filter((row) => !row.skipped);
+  const totals = new Map();
+  usable.forEach((row) => {
+    const code = normalizeCurrencyCode(row.currency);
+    const entry = totals.get(code) || { currency: code, income: 0, expense: 0 };
+    if (row.type === "income") entry.income += Number(row.amount || 0);
+    else entry.expense += Number(row.amount || 0);
+    totals.set(code, entry);
+  });
+
+  return {
+    readyCount: usable.length,
+    skippedCount: rows.length - usable.length,
+    incompleteCount: usable.filter((row) => isBulkRowIncomplete(row)).length,
+    totals: [...totals.values()],
+  };
+}
+
+/* Rekap layar Selesai: satu baris per kategori, pemasukan dikumpulkan
+   terpisah karena di aplikasi ini pemasukan memang tidak berkategori. */
+export function groupBulkEntryRows(rows = []) {
+  const groups = new Map();
+  rows.forEach((row) => {
+    const currency = normalizeCurrencyCode(row.currency);
+    const key =
+      row.type === "income"
+        ? `income|${currency}`
+        : `${normalizeExpenseCategory(row.category, "Lainnya")}|${currency}`;
+    const entry = groups.get(key) || {
+      key,
+      type: row.type,
+      currency,
+      label:
+        row.type === "income"
+          ? "Pemasukan"
+          : getExpenseCategoryLabel(row.category),
+      count: 0,
+      total: 0,
+    };
+    entry.count += 1;
+    entry.total += Number(row.amount || 0);
+    groups.set(key, entry);
+  });
+
+  return [...groups.values()].sort((a, b) => {
+    if (a.type !== b.type) return a.type === "income" ? 1 : -1;
+    return b.total - a.total;
+  });
+}
+
+/* Waktu kejadian mengikuti urutan ketikan: baris pertama paling awal,
+   baris terakhir paling dekat dengan sekarang. Tanpa ini semua baris
+   berbagi satu detik yang sama dan urutannya di Riwayat jadi acak. */
+function buildOccurredAt(dateKey, now, offsetSeconds) {
+  const [year, month, day] = String(dateKey || "").split("-").map(Number);
+  const reference = new Date(now);
+  if (!year || !month || !day) return new Date(reference.getTime() - offsetSeconds * 1000);
+  const moment = new Date(
+    year,
+    month - 1,
+    day,
+    reference.getHours(),
+    reference.getMinutes(),
+    reference.getSeconds(),
+  );
+  const shifted = new Date(moment.getTime() - offsetSeconds * 1000);
+  return shifted.getTime() > reference.getTime() ? reference : shifted;
+}
+
+/* Pemeriksaan saldo dilakukan per dompet untuk seluruh batch sekaligus.
+   Server memeriksa saldo baris demi baris, jadi tanpa hitungan kumulatif di
+   sini penyimpanan bisa berhenti di tengah dengan sebagian sudah masuk. */
+export function planBulkEntrySave(rows = [], context = {}) {
+  const { now = new Date(), accounts = [], availability = {} } = context;
+  const usable = rows.filter((row) => !row.skipped);
+
+  if (!usable.length) {
+    return { ok: false, message: "Belum ada baris yang bisa disimpan.", payloads: [] };
+  }
+
+  const incomplete = usable.filter((row) => isBulkRowIncomplete(row));
+  if (incomplete.length) {
+    return {
+      ok: false,
+      message: `${incomplete.length} baris belum lengkap.`,
+      payloads: [],
+    };
+  }
+
+  const accountMap = new Map(accounts.map((account) => [account.id, account]));
+  for (const row of usable) {
+    const account = accountMap.get(row.accountId);
+    if (!account) {
+      return { ok: false, message: "Ada baris yang dompetnya tidak tersedia.", payloads: [] };
+    }
+    if (normalizeCurrencyCode(account.currency) !== normalizeCurrencyCode(row.currency)) {
+      return {
+        ok: false,
+        message: `Mata uang baris "${getBulkRowTitle(row)}" tidak sesuai dompetnya.`,
+        payloads: [],
+      };
+    }
+  }
+
+  const netByAccount = new Map();
+  usable.forEach((row) => {
+    const current = Number(netByAccount.get(row.accountId) || 0);
+    const effect = row.type === "income" ? -Number(row.amount || 0) : Number(row.amount || 0);
+    netByAccount.set(row.accountId, current + effect);
+  });
+
+  for (const [accountId, needed] of netByAccount) {
+    if (needed <= 0) continue;
+    const account = accountMap.get(accountId);
+    const summary = availability[accountId];
+    const available = Number(
+      summary ? summary.availableBalance : (account?.availableBalance ?? account?.balance_amount ?? 0),
+    );
+    if (needed > available + 0.0001) {
+      const short = roundToCurrency(needed - available, account?.currency);
+      return {
+        ok: false,
+        message: `Dana tersedia ${account?.name || "dompet"} kurang ${formatCurrency(short, account?.currency)}.`,
+        payloads: [],
+        shortfall: { accountId, amount: short, currency: normalizeCurrencyCode(account?.currency) },
+      };
+    }
+  }
+
+  const payloads = usable.map((row, index) => {
+    const isExpense = row.type === "expense";
+    const occurredAt = buildOccurredAt(row.dateKey, now, usable.length - index);
+    return {
+      rowId: row.id,
+      type: row.type,
+      occurred_at: occurredAt.toISOString(),
+      description: getBulkRowTitle(row),
+      category: isExpense ? normalizeExpenseCategory(row.category, "Lainnya") : null,
+      category_group: isExpense ? UNIVERSAL_BUDGET_GROUP : null,
+      currency: normalizeCurrencyCode(row.currency),
+      amount: String(row.amount),
+      expense_currency: isExpense ? normalizeCurrencyCode(row.currency) : null,
+      source_account_id: isExpense ? row.accountId : null,
+      destination_account_id: isExpense ? null : row.accountId,
+      target_id: null,
+    };
+  });
+
+  /* Pemasukan disimpan lebih dulu supaya pengeluaran yang memang ditutup oleh
+     pemasukan di batch yang sama tidak ditolak server karena saldo sesaat.
+     Waktu kejadian sudah dihitung di atas, jadi urutan simpan tidak mengubah
+     urutan di Riwayat. */
+  const ordered = [
+    ...payloads.filter((item) => item.type === "income"),
+    ...payloads.filter((item) => item.type !== "income"),
+  ];
+
+  return { ok: true, message: "", payloads: ordered };
+}
