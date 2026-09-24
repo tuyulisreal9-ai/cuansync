@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  detectBulkCategory,
+  getBulkCategoryKeywords,
   groupBulkEntryRows,
   isBulkRowIncomplete,
   parseBulkEntryText,
@@ -8,6 +10,7 @@ import {
   readBulkAmount,
   summarizeBulkEntryRows,
 } from "../src/domain/bulkEntry.js";
+import { CATEGORY_OPTIONS, isFinalExpenseCategory } from "../src/domain/categories.js";
 
 const DOMPET = [
   {
@@ -228,4 +231,102 @@ test("rekap akhir dikelompokkan per kategori dan per mata uang", () => {
   assert.equal(makan.count, 2);
   assert.equal(makan.total, 50000);
   assert.equal(grup[grup.length - 1].label, "Pemasukan");
+});
+
+test("kata sehari hari di luar makanan ikut dikenali", () => {
+  const harapan = [
+    ["uber ke kantor", "Transportasi"],
+    ["indriver ke stasiun", "Transportasi"],
+    ["isi bensin", "Transportasi"],
+    ["beli baju", "Belanja"],
+    ["sepatu sekolah", "Belanja"],
+    ["laundry seminggu", "Belanja"],
+    ["ongkir jne", "Belanja"],
+    ["beli hp", "Belanja"],
+    ["bayar listrik", "Tagihan"],
+    ["kuota internet", "Tagihan"],
+    ["spp anak", "Tagihan"],
+    ["kartu kredit", "Tagihan"],
+    ["obat batuk", "Kesehatan"],
+    ["kontrol ke dokter gigi", "Kesehatan"],
+    ["bayar kos", "Tempat Tinggal"],
+    ["beli semen", "Tempat Tinggal"],
+    ["langganan netflix", "Hiburan & Gaya Hidup"],
+    ["potong rambut", "Hiburan & Gaya Hidup"],
+    ["top up game", "Hiburan & Gaya Hidup"],
+    ["rokok sebungkus", "Hiburan & Gaya Hidup"],
+    ["zakat", "Lainnya"],
+    ["kondangan", "Lainnya"],
+  ];
+
+  harapan.forEach(([teks, kategori]) => {
+    assert.equal(detectBulkCategory(teks), kategori, teks);
+  });
+});
+
+test("kata majemuk mengalahkan kata pendek di dalamnya", () => {
+  /* Pasangan ini yang paling mudah salah: satu kata kunci berada persis di
+     dalam kata kunci lain, tetapi kategorinya berbeda. */
+  const pasangan = [
+    ["pasta gigi", "Belanja", "sakit gigi", "Kesehatan"],
+    ["obat nyamuk", "Belanja", "obat demam", "Kesehatan"],
+    ["servis ac", "Tempat Tinggal", "servis motor", "Transportasi"],
+    ["cuci baju", "Belanja", "cuci motor", "Transportasi"],
+    ["air mineral", "Makan", "tagihan air", "Tagihan"],
+    ["sepeda motor", "Transportasi", "sepeda lipat", "Hiburan & Gaya Hidup"],
+    ["tiket pesawat", "Transportasi", "tiket konser", "Hiburan & Gaya Hidup"],
+    ["pajak motor", "Transportasi", "pajak rumah", "Tempat Tinggal"],
+    ["sewa motor", "Transportasi", "sewa rumah", "Tempat Tinggal"],
+    ["makanan kucing", "Belanja", "makanan ringan", "Makan"],
+    ["grabfood ayam", "Makan", "grabcar ke mall", "Transportasi"],
+    ["air galon", "Belanja", "es teh", "Makan"],
+  ];
+
+  pasangan.forEach(([kiriTeks, kiriKategori, kananTeks, kananKategori]) => {
+    assert.equal(detectBulkCategory(kiriTeks), kiriKategori, kiriTeks);
+    assert.equal(detectBulkCategory(kananTeks), kananKategori, kananTeks);
+  });
+});
+
+test("kamus kata kunci tidak punya kata ganda dan semuanya kategori nyata", () => {
+  const terpakai = new Map();
+  getBulkCategoryKeywords().forEach(([category, keywords]) => {
+    /* Kategori harus yang benar benar ada di aplikasi, bukan nama karangan:
+       kategori asing akan berubah menjadi Lainnya saat disimpan. */
+    assert.ok(isFinalExpenseCategory(category), category);
+    keywords.forEach((keyword) => {
+      assert.equal(
+        terpakai.get(keyword),
+        undefined,
+        `"${keyword}" ada di ${terpakai.get(keyword)} dan ${category}`,
+      );
+      assert.equal(keyword, keyword.toLocaleLowerCase("id-ID"), keyword);
+      terpakai.set(keyword, category);
+    });
+  });
+
+  // Tiap kategori pengeluaran punya kata kuncinya sendiri.
+  const berkategori = new Set(getBulkCategoryKeywords().map(([category]) => category));
+  CATEGORY_OPTIONS.forEach((option) => {
+    assert.ok(berkategori.has(option.value), option.value);
+  });
+});
+
+test("nama dompet tidak ikut menentukan kategori", () => {
+  /* Kategori dibaca dari sisa baris setelah nama dompet dibuang. Tanpa itu,
+     dompet bernama "Belanja" akan membuat setiap barisnya jadi Belanja. */
+  const dompetBelanja = [
+    { id: "acc-belanja", name: "Belanja", currency: "IDR", is_primary: true, balance_amount: 1000000 },
+    { id: "acc-tunai2", name: "Tunai", currency: "IDR", balance_amount: 1000000 },
+  ];
+  const [baris] = parseBulkEntryText("makan siang 32rb pakai belanja", {
+    accounts: dompetBelanja,
+    defaultAccountId: "acc-tunai2",
+    defaultDateKey: "2026-09-24",
+    baseCurrency: "IDR",
+  });
+
+  assert.equal(baris.accountId, "acc-belanja");
+  assert.equal(baris.category, "Makan");
+  assert.equal(baris.description, "Makan siang");
 });
