@@ -4,7 +4,7 @@ import htm from "htm";
 import { createClient } from "@supabase/supabase-js";
 import { APP_NAME, SUPABASE_ANON_KEY, SUPABASE_URL } from "./config.js";
 import { BudgetWorkspacePage } from "./components/budget/index.js";
-import { AuthRecoveryScreen, AuthScreen } from "./components/auth/index.js";
+import { AuthLinkErrorScreen, AuthRecoveryScreen, AuthScreen, PasswordRecoveryScreen } from "./components/auth/index.js";
 import { WealthGoalsPage } from "./components/assets/index.js";
 import { ControlCenterPage } from "./components/control/index.js";
 import { HomeDashboardPage } from "./components/home/index.js";
@@ -148,12 +148,16 @@ import {
 } from "./lib/theme.js";
 import { createSupabaseSessionRecovery } from "./lib/authSession.js";
 import {
+  cleanAuthCallbackUrl, createAuthCallbackHandler, createEmailAuth,
+  getEmailAuthError, getEmailAuthRedirect, hasAuthCallback,
+  readPasswordRecovery, savePasswordRecovery,
+} from "./lib/emailAuth.js";
+import {
   NATIVE_AUTH_REDIRECT_URL,
   addNativeAppStateListener,
   addNativeBackButtonListener,
   addNativeUrlListener,
   closeNativeAuthBrowser,
-  getAuthCallbackFromUrl,
   getNativeAppState,
   getNativeLaunchUrl,
   isNativeMobileApp,
@@ -294,7 +298,9 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: !isNativeMobileApp(),
+      // Web dan native memakai handler eksplisit yang mempertahankan jenis
+      // callback recovery, termasuk pada SDK PKCE yang belum mengirim event-nya.
+      detectSessionInUrl: false,
       flowType: "pkce",
       storage: nativeAuthStorage,
     },
@@ -302,6 +308,22 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) {
       fetch: supabaseSessionRecovery.fetch,
     },
   });
+}
+
+const emailAuth = createEmailAuth({
+  getClient: () => supabase,
+  getRedirect: (recovery) => getEmailAuthRedirect({
+    native: isNativeMobileApp(), origin: window.location.origin, recovery,
+  }),
+});
+const completeAuthCallback = createAuthCallbackHandler({
+  exchangeCode: (code) => supabase.auth.exchangeCodeForSession(code),
+  setSession: (session) => supabase.auth.setSession(session),
+});
+let pendingWebAuthUrl = !isNativeMobileApp() && hasAuthCallback(window.location.href)
+  ? window.location.href : null;
+function recoveryStorage() {
+  try { return window.sessionStorage; } catch { return null; }
 }
 
 function readBalanceVisiblePreference() {
@@ -1340,6 +1362,8 @@ function App() {
   const [mode, setMode] = useState("loading");
   const [authRecoveryError, setAuthRecoveryError] = useState("");
   const [authRecoveryAttempt, setAuthRecoveryAttempt] = useState(0);
+  const [passwordRecoveryUserId, setPasswordRecoveryUserId] = useState("");
+  const [authLinkError, setAuthLinkError] = useState("");
   const [transactions, setTransactions] = useState([]);
   const [budgets, setBudgets] = useState([]);
   /* Mode simpel menyisihkan perkiraan tagihan rutin dari jatah harian.
@@ -1478,23 +1502,26 @@ function App() {
 
       if (!supabaseReady || handledNativeAuthUrlsRef.current.has(url)) return;
       try {
-        const callback = getAuthCallbackFromUrl(url);
-        if (!callback) return;
         handledNativeAuthUrlsRef.current.add(url);
-        const { error } = callback.type === "pkce"
-          ? await supabase.auth.exchangeCodeForSession(callback.code)
-          : await supabase.auth.setSession(callback.session);
-        if (error) throw error;
+        const result = await completeAuthCallback(url);
+        if (!result) return;
         await closeNativeAuthBrowser();
         if (!active) return;
+        writeAppStorage("demoAuth", false);
+        const recoveryId = result.recovery ? result.session.user.id : "";
+        savePasswordRecovery(recoveryStorage(), recoveryId);
+        setPasswordRecoveryUserId(recoveryId);
+        setAuthLinkError("");
         setAuthRecoveryError("");
-        setMessage("Login Google berhasil. Selamat datang di CUANSYNC.");
+        // Pasang kembali listener bila callback masuk ketika demo lokal aktif.
+        setMode("loading");
+        setAuthRecoveryAttempt((current) => current + 1);
+        setMessage(result.recovery ? "" : "Login berhasil. Selamat datang di CUANSYNC.");
         setMessageTone("success");
       } catch (error) {
         await closeNativeAuthBrowser();
         if (!active) return;
-        setMessage(error.message || "Login Google di aplikasi gagal diselesaikan.");
-        setMessageTone("error");
+        setAuthLinkError(getEmailAuthError(error, "callback"));
       }
     };
 
@@ -1654,7 +1681,7 @@ function App() {
 
   useEffect(() => {
     const demoAuth = readAppStorage("demoAuth", false);
-    if (demoAuth) {
+    if (demoAuth && !pendingWebAuthUrl) {
       setUser(DEMO_USER);
       setMode("demo");
       return undefined;
@@ -1687,11 +1714,36 @@ function App() {
         setRuntimeCurrencySettings(null);
       }
       setUser(sessionUser);
+      setPasswordRecoveryUserId((current) =>
+        sessionUser && (current === sessionUser.id || readPasswordRecovery(recoveryStorage(), sessionUser.id))
+          ? sessionUser.id : "",
+      );
       setMode(sessionUser ? "supabase" : "signed-out");
     };
 
-    supabaseSessionRecovery
-      .restoreSession()
+    const restoreAfterCallback = async () => {
+      const callbackUrl = pendingWebAuthUrl;
+      if (callbackUrl) {
+        try {
+          const result = await completeAuthCallback(callbackUrl);
+          if (result) {
+            writeAppStorage("demoAuth", false);
+            const recoveryId = result.recovery ? result.session.user.id : "";
+            savePasswordRecovery(recoveryStorage(), recoveryId);
+            if (active) setPasswordRecoveryUserId(recoveryId);
+          }
+        } catch (error) {
+          if (active) setAuthLinkError(getEmailAuthError(error, "callback"));
+        } finally {
+          pendingWebAuthUrl = null;
+          // Hapus token / kode sekali-pakai dari URL setelah ditangani.
+          window.history.replaceState(window.history.state, "", cleanAuthCallbackUrl(window.location.href));
+        }
+      }
+      return supabaseSessionRecovery.restoreSession();
+    };
+
+    restoreAfterCallback()
       .then(({ data, error }) => {
         if (!active) return;
         sessionRestored = true;
@@ -1756,6 +1808,14 @@ function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!active) return;
+      if (_event === "PASSWORD_RECOVERY" && session?.user?.id) {
+        savePasswordRecovery(recoveryStorage(), session.user.id);
+        setPasswordRecoveryUserId(session.user.id);
+      }
+      if (_event === "SIGNED_OUT") {
+        savePasswordRecovery(recoveryStorage(), "");
+        setPasswordRecoveryUserId("");
+      }
       if (!sessionRestored) {
         if (_event !== "INITIAL_SESSION") {
           queuedAuthSession = session;
@@ -2247,18 +2307,29 @@ function App() {
     });
 
     if (error) {
-      setMessage(error.message);
-      setMessageTone("error");
-      return;
+      throw error;
     }
     if (nativeLogin && data?.url) {
-      try {
-        await openNativeAuthBrowser(data.url);
-      } catch (nativeError) {
-        setMessage(nativeError.message || "Browser login Google tidak dapat dibuka.");
-        setMessageTone("error");
-      }
+      await openNativeAuthBrowser(data.url);
     }
+  }
+
+  async function handleSaveAccountPassword(values) {
+    if (mode !== "supabase" || !user?.id) {
+      throw Object.assign(new Error("Sesi akun tidak tersedia."), { code: "session_not_found" });
+    }
+    await emailAuth.updatePassword({ ...values, expectedUserId: user.id });
+  }
+
+  function finishPasswordRecovery() {
+    savePasswordRecovery(recoveryStorage(), "");
+    setPasswordRecoveryUserId("");
+  }
+
+  async function cancelPasswordRecovery() {
+    const { error } = await supabase.auth.signOut({ scope: "local" });
+    if (error) throw error;
+    finishPasswordRecovery();
   }
 
   function handleDemoLogin() {
@@ -2312,6 +2383,9 @@ function App() {
       setProfile(null);
       setCurrencySettings(null);
       setRuntimeCurrencySettings(null);
+      // Demo melewati listener auth saat startup. Aktifkan kembali sebelum
+      // pengguna mencoba masuk dengan email tanpa memuat ulang halaman.
+      setAuthRecoveryAttempt((current) => current + 1);
       return;
     }
 
@@ -5012,6 +5086,17 @@ function App() {
     return html`<${AppLoadingScreen} appName=${APP_NAME} />`;
   }
 
+  if (authLinkError) {
+    return html`<${AuthLinkErrorScreen} error=${authLinkError} onContinue=${() => setAuthLinkError("")} />`;
+  }
+
+  if (mode === "supabase" && user?.id === passwordRecoveryUserId) {
+    return html`<${PasswordRecoveryScreen}
+      key=${user.id} appName=${APP_NAME} email=${user.email}
+      onSave=${handleSaveAccountPassword} onDone=${finishPasswordRecovery} onCancel=${cancelPasswordRecovery}
+    />`;
+  }
+
   if (mode === "session-error") {
     return html`
       <${AuthRecoveryScreen}
@@ -5031,6 +5116,7 @@ function App() {
       <${AuthScreen}
         onGoogleLogin=${handleGoogleLogin}
         onDemoLogin=${handleDemoLogin}
+        emailAuth=${emailAuth}
         supabaseReady=${supabaseReady}
         appName=${APP_NAME}
       />
@@ -5743,6 +5829,7 @@ function App() {
                         nativeWidgetAvailable=${isNativeWidgetAvailable()}
                         onRequestNativeWidget=${requestPinNativeWidget}
                         onSaveProfile=${handleSaveProfile}
+                        onSavePassword=${mode === "supabase" ? handleSaveAccountPassword : null}
                         onSignOut=${handleSignOut}
                       />
                     </section>

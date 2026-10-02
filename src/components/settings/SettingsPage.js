@@ -21,12 +21,15 @@ import {
   INSTALL_STATE,
   detectInstallPlatform,
   getInstallGuide,
+  getInstallPresentation,
   getInstallState,
   promptInstall,
   subscribeInstallPrompt,
 } from "../../lib/installApp.js";
 import { isNativeMobileApp, isStandaloneWebApp } from "../../lib/mobile.js";
 import { MonthlyStatementExportSheet } from "./MonthlyStatementExportSheet.js";
+import { PasswordForm } from "../auth/EmailAuth.js";
+import { getAccountLoginInfo } from "../../lib/emailAuth.js";
 
 const html = htm.bind(React.createElement);
 const INPUT_CLASS =
@@ -65,6 +68,7 @@ function SettingsRow({
   danger = false,
   disabled = false,
   stacked = false,
+  wrapHelper = false,
 }) {
   const rowClass = stacked
     ? "flex min-h-14 w-full min-w-0 flex-col items-stretch gap-2 overflow-hidden px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
@@ -84,7 +88,7 @@ function SettingsRow({
         ${helper
           ? html`
               <span
-                className="mt-0.5 block truncate text-xs"
+                className=${`mt-0.5 block text-xs ${wrapHelper ? "leading-relaxed" : "truncate"}`}
                 style=${{ color: "var(--cs-mut)" }}
               >
                 ${helper}
@@ -143,15 +147,11 @@ function SettingsRow({
 /* Desain memakai judul seksi 15px/700 dengan padding 0 2px, lalu kartu
    radius 24. Gaya lama memakai kapital kecil 11px bertracking lebar yang
    tidak ada di artifact. */
-/* Pemasangan aplikasi dari Pengaturan.
-
-   Tombolnya satu, tetapi perilakunya berbeda karena iOS tidak punya API
-   pemasangan sama sekali. Di Android tombol ini benar benar memanggil dialog
-   pemasangan peramban; di iPhone yang bisa dilakukan hanyalah menunjukkan
-   langkahnya, karena menu Tambahkan ke Layar Utama hanya ada di Safari dan
-   tidak dapat dipicu dari halaman. */
-function InstallAppSheet({ open, onClose, platform }) {
+/* Panduan tetap mengikuti perangkat; tawaran baru dari peramban juga langsung
+   terlihat jika datang ketika panel ini sedang terbuka. */
+function InstallAppSheet({ open, onClose, platform, installState, onInstall }) {
   const panduan = getInstallGuide(platform);
+  const status = getInstallPresentation(installState, platform);
 
   return html`
     <${SheetShell}
@@ -161,6 +161,21 @@ function InstallAppSheet({ open, onClose, platform }) {
       helper=${panduan.catatan}
       labelledBy="install-app-title"
     >
+      <div
+        role="status"
+        className="mb-3 rounded-[14px] border p-3 text-[13px] leading-[1.5]"
+        style=${{ background: "var(--cs-chip)", borderColor: "var(--cs-line)", color: "var(--cs-body)" }}
+      >
+        ${status.detail}
+        ${installState === INSTALL_STATE.SIAP
+          ? html`<button
+              type="button"
+              onClick=${onInstall}
+              className="dc-press mt-3 min-h-11 w-full rounded-xl px-4 text-sm font-semibold"
+              style=${{ background: "var(--cs-acc)", color: "var(--cs-on-acc)" }}
+            >Pasang CUANSYNC</button>`
+          : null}
+      </div>
       <ol className="flex flex-col gap-2.5">
         ${panduan.langkah.map(
           (langkah, index) => html`
@@ -193,8 +208,14 @@ function InstallAppSheet({ open, onClose, platform }) {
         className="mt-3.5 px-0.5 text-[11.5px] leading-[1.5]"
         style=${{ color: "var(--cs-faint)" }}
       >
-        Setelah terpasang, CUANSYNC terbuka layar penuh tanpa bilah peramban dan
-        muncul di daftar aplikasi seperti aplikasi lain.
+        ${panduan.bantuan}
+      </p>
+      <p
+        className="mt-2 px-0.5 text-[11.5px] leading-[1.5]"
+        style=${{ color: "var(--cs-mut)" }}
+      >
+        Pintasan dapat tetap terbuka di peramban, berbeda dari aplikasi web yang
+        terpasang. Anda tetap dapat menggunakan CUANSYNC lewat web.
       </p>
     <//>
   `;
@@ -864,15 +885,18 @@ export function SettingsPage({
   balanceVisible,
   onToggleBalanceVisibility,
   onSaveProfile,
+  onSavePassword = null,
   onSignOut,
   nativeWidgetAvailable = false,
   onRequestNativeWidget = null,
 }) {
   const [profileSheetOpen, setProfileSheetOpen] = useState(false);
+  const [passwordSheetOpen, setPasswordSheetOpen] = useState(false);
   const [statementSheetOpen, setStatementSheetOpen] = useState(false);
   const [logoutSheetOpen, setLogoutSheetOpen] = useState(false);
   const [installSheetOpen, setInstallSheetOpen] = useState(false);
   const [widgetSheetOpen, setWidgetSheetOpen] = useState(false);
+  const loginInfo = getAccountLoginInfo(user);
 
   /* beforeinstallprompt ditembakkan sekali dan bisa datang sebelum halaman ini
      dibuka, jadi installApp.js mencegatnya saat modul dimuat. Di sini kita
@@ -893,8 +917,9 @@ export function SettingsPage({
           nativeApp: isNativeMobileApp(),
         }),
       );
+    const unsubscribe = subscribeInstallPrompt(perbarui);
     perbarui();
-    return subscribeInstallPrompt(perbarui);
+    return unsubscribe;
   }, []);
 
   const installPlatform = detectInstallPlatform({
@@ -903,12 +928,16 @@ export function SettingsPage({
     maxTouchPoints:
       typeof navigator === "undefined" ? 0 : navigator.maxTouchPoints,
   });
+  const installPresentation = getInstallPresentation(installState, installPlatform);
 
   async function handleInstall() {
-    /* Di iOS tidak ada yang bisa dipanggil, jadi langsung ke panduan. Di
-       Android prompt() harus dipanggil dari sentuhan pengguna, dan itulah
-       yang terjadi di sini. */
-    if (installState === INSTALL_STATE.SIAP) {
+    // Recheck the live state: a double tap must not consume the same offer twice.
+    const currentState = getInstallState({
+      standalone: isStandaloneWebApp(), nativeApp: isNativeMobileApp(),
+    });
+    if (currentState === INSTALL_STATE.TERPASANG || currentState === INSTALL_STATE.KONFIRMASI) return;
+    // The browser prompt must be called from a user gesture, never an effect.
+    if (currentState === INSTALL_STATE.SIAP) {
       const hasil = await promptInstall();
       if (hasil === "accepted") return;
       if (hasil === "dismissed") return;
@@ -952,28 +981,13 @@ export function SettingsPage({
         />
       <//>
 
-      ${/* Satu baris, tiga keadaan. Di iOS tidak ada API pemasangan sama
-            sekali, jadi barisnya membuka panduan; di Android ia benar benar
-            memanggil dialog pemasangan peramban. Kalau sudah terpasang, tidak
-            ada lagi yang perlu ditawarkan. */ null}
       <${SettingsSection} title="Aplikasi">
         <${SettingsRow}
-          label=${installState === INSTALL_STATE.TERPASANG
-            ? "Aplikasi sudah terpasang"
-            : "Pasang aplikasi"}
-          helper=${installState === INSTALL_STATE.TERPASANG
-            ? "Berjalan layar penuh"
-            : installState === INSTALL_STATE.SIAP
-              ? "Tanpa lewat toko aplikasi"
-              : installPlatform.ios
-                ? "Lihat caranya lewat Safari"
-                : "Lihat caranya di peramban ini"}
-          value=${installState === INSTALL_STATE.TERPASANG
-            ? "Terpasang"
-            : installState === INSTALL_STATE.SIAP
-              ? "Pasang"
-              : "Caranya"}
-          disabled=${installState === INSTALL_STATE.TERPASANG}
+          label=${installPresentation.label}
+          helper=${installPresentation.helper}
+          wrapHelper=${true}
+          value=${installPresentation.value}
+          disabled=${installPresentation.disabled}
           onClick=${installState === INSTALL_STATE.TERPASANG
             ? null
             : handleInstall}
@@ -999,6 +1013,31 @@ export function SettingsPage({
         />
       <//>
 
+      ${onSavePassword ? html`
+        <${SettingsSection} title="Metode masuk">
+          ${loginInfo.googleConnected ? html`
+            <${SettingsRow}
+              label="Google"
+              helper="Tetap bisa dipakai setelah membuat kata sandi"
+              wrapHelper=${true}
+              value="Terhubung"
+            />
+          ` : null}
+          <${SettingsRow}
+            label="Email & kata sandi"
+            helper=${!loginInfo.email
+              ? "Akun ini belum memiliki alamat email untuk masuk"
+              : loginInfo.googleConnected
+                ? "Buat kata sandi untuk akun Google ini, tanpa daftar ulang"
+                : "Buat atau ubah kata sandi CUANSYNC Anda"}
+            wrapHelper=${true}
+            value=${loginInfo.email ? "Atur" : null}
+            disabled=${!loginInfo.email}
+            onClick=${() => setPasswordSheetOpen(true)}
+          />
+        <//>
+      ` : null}
+
       <${SettingsSection} title="Keamanan & privasi">
         <${SettingsRow}
           label="Kunci aplikasi"
@@ -1023,6 +1062,8 @@ export function SettingsPage({
         open=${installSheetOpen}
         onClose=${() => setInstallSheetOpen(false)}
         platform=${installPlatform}
+        installState=${installState}
+        onInstall=${handleInstall}
       />
       <${NativeWidgetSheet}
         open=${widgetSheetOpen}
@@ -1038,6 +1079,21 @@ export function SettingsPage({
         onClose=${() => setProfileSheetOpen(false)}
         onSave=${onSaveProfile}
       />
+      <${SheetShell}
+        open=${passwordSheetOpen}
+        onClose=${() => setPasswordSheetOpen(false)}
+        title="Email & kata sandi"
+        helper=${loginInfo.googleConnected
+          ? "Tambahkan kata sandi ke akun Google Anda. Tidak perlu membuat akun baru."
+          : "Atur kata sandi untuk masuk ke akun yang sama dari perangkat lain."}
+        labelledBy="account-password-title"
+      >
+        ${passwordSheetOpen ? html`<${PasswordForm}
+          key=${user?.id} email=${loginInfo.email}
+          googleConnected=${loginInfo.googleConnected}
+          onSave=${onSavePassword} onDone=${() => setPasswordSheetOpen(false)}
+        />` : null}
+      <//>
       <${MonthlyStatementExportSheet}
         open=${statementSheetOpen}
         onClose=${() => setStatementSheetOpen(false)}

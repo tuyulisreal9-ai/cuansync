@@ -112,6 +112,43 @@
 
 /* Komponen dasar redesign. Dipakai halaman yang sudah dirombak; halaman lama
    tetap jalan lewat pemetaan nama --cs-* di atas. */
+.auth-shell {
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.cs-auth-input {
+  border: 1px solid var(--cs-line);
+  background: var(--cs-soft);
+  color: var(--cs-ink);
+  box-shadow: none;
+}
+
+.cs-auth-input::placeholder {
+  color: var(--cs-mut);
+  font-weight: 400;
+}
+
+.cs-auth-input::-ms-reveal {
+  display: none;
+}
+
+.cs-auth-input:focus {
+  border-color: var(--cs-link);
+  outline: 2px solid var(--cs-link);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+html.is-native-app .auth-shell {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
 .dc-panel {
   border-radius: var(--cs-r-panel);
   background: var(--cs-panel);
