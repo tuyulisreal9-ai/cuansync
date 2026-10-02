@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+# Sitemap: ganti dengan alamat sebenarnya setelah domain ditentukan.
+# Sitemap: https://contoh-domain.com/sitemap.xml

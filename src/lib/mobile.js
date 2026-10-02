@@ -69,47 +69,7 @@ export const nativeAuthStorage = isNativeMobileApp()
     }
   : undefined;
 
-function getCallbackParams(url) {
-  const parsed = new URL(url);
-  const params = new URLSearchParams(parsed.search);
-  const hashParams = new URLSearchParams(parsed.hash.replace(/^#/, ""));
-  for (const [key, value] of hashParams.entries()) {
-    if (!params.has(key)) params.set(key, value);
-  }
-  return params;
-}
-
-export function getAuthSessionFromCallback(url) {
-  const params = getCallbackParams(url);
-  const errorDescription =
-    params.get("error_description") || params.get("error");
-  if (errorDescription) {
-    throw new Error(decodeURIComponent(errorDescription.replaceAll("+", " ")));
-  }
-
-  const accessToken = params.get("access_token");
-  const refreshToken = params.get("refresh_token");
-  if (!accessToken || !refreshToken) return null;
-  return {
-    access_token: accessToken,
-    refresh_token: refreshToken,
-  };
-}
-
-export function getAuthCallbackFromUrl(url) {
-  const params = getCallbackParams(url);
-  const errorDescription =
-    params.get("error_description") || params.get("error");
-  if (errorDescription) {
-    throw new Error(decodeURIComponent(errorDescription.replaceAll("+", " ")));
-  }
-
-  const code = params.get("code");
-  if (code) return { type: "pkce", code };
-
-  const session = getAuthSessionFromCallback(url);
-  return session ? { type: "tokens", session } : null;
-}
+export { getAuthSessionFromCallback, getAuthCallbackFromUrl } from "./emailAuth.js";
 
 export async function openNativeAuthBrowser(url) {
   await Browser.open({

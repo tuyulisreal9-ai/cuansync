@@ -1,3 +1,6 @@
+// Capture the browser's one-shot install offer before the main bundle loads.
+import "./lib/installApp.js";
+
 function renderBootstrapError(error) {
   const root = document.getElementById("root");
   const details = error?.message || String(error || "Masalah tidak diketahui");
@@ -43,11 +46,20 @@ import("./main.js")
       "serviceWorker" in navigator &&
       !document.documentElement.classList.contains("is-native-app")
     ) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/sw.js").catch((error) => {
-          console.warn("Service worker CUANSYNC tidak dapat didaftarkan", error);
-        });
-      });
+      const registerServiceWorker = () => {
+        // A registration error must not replace an otherwise working app.
+        Promise.resolve()
+          .then(() => navigator.serviceWorker.register("/sw.js"))
+          .catch((error) => {
+            console.warn("Service worker CUANSYNC tidak dapat didaftarkan", error);
+          });
+      };
+      // Dynamic imports may finish after load has already fired.
+      if (document.readyState === "complete") {
+        registerServiceWorker();
+      } else {
+        window.addEventListener("load", registerServiceWorker, { once: true });
+      }
     }
   })
   .catch((error) => {

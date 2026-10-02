@@ -1,0 +1,739 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>CUANSYNC — Catat Uang Harian</title>
+    <meta
+      name="description"
+      content="Sering bingung uangmu habis ke mana? Catat pengeluaranmu sekali duduk, atur jatah bulanan, dan pisahkan tabungan. Rekening, e-wallet, tunai, sampai mata uang asing, semuanya di satu tempat."
+    />
+    <!-- Halaman ini selalu krem, apa pun setelan perangkat pengunjung, jadi
+         hanya ada satu warna bilah peramban. -->
+    <meta name="theme-color" content="#faf7f1" />
+
+    <!-- Alamat aplikasi yang dituju semua tombol di halaman ini. Ini satu-
+         satunya tempat yang perlu diubah kalau aplikasinya pindah alamat.
+         Saat dibuka dari localhost, alamat ini diabaikan dan tombolnya
+         menunjuk ke server pengembangan di porta 5173. -->
+    <meta name="cuansync-app-url" content="GANTI_DENGAN_ALAMAT_APLIKASI" />
+
+    <!-- Tampilan saat tautannya dibagikan di WhatsApp, Telegram, atau X.
+
+         WhatsApp dan X hanya membaca alamat gambar yang lengkap, bukan alamat
+         relatif, dan perayap tidak menjalankan JavaScript. Jadi keempat
+         penanda GANTI_DENGAN_ALAMAT_HALAMAN_INI di bawah harus diisi alamat
+         penuh halaman ini, tanpa garis miring di akhir, begitu domainnya jadi.
+         Contoh: https://cuansync-landing.vercel.app -->
+    <link rel="canonical" href="GANTI_DENGAN_ALAMAT_HALAMAN_INI/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CUANSYNC" />
+    <meta property="og:locale" content="id_ID" />
+    <meta property="og:url" content="GANTI_DENGAN_ALAMAT_HALAMAN_INI/" />
+    <meta property="og:title" content="CUANSYNC — Catat Uang Harian" />
+    <meta
+      property="og:description"
+      content="Sering bingung uangmu habis ke mana? Catat pengeluaranmu sekali duduk, atur jatah bulanan, dan pisahkan tabungan."
+    />
+    <meta
+      property="og:image"
+      content="GANTI_DENGAN_ALAMAT_HALAMAN_INI/branding/og-cuansync.png"
+    />
+    <meta property="og:image:width" content="1774" />
+    <meta property="og:image:height" content="887" />
+    <meta property="og:image:alt" content="CUANSYNC" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="CUANSYNC — Catat Uang Harian" />
+    <meta
+      name="twitter:description"
+      content="Sering bingung uangmu habis ke mana? Catat pengeluaranmu sekali duduk, atur jatah bulanan, dan pisahkan tabungan."
+    />
+    <meta
+      name="twitter:image"
+      content="GANTI_DENGAN_ALAMAT_HALAMAN_INI/branding/og-cuansync.png"
+    />
+
+    <link rel="icon" type="image/png" href="./branding/logo-mark-96.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="./branding/apple-touch-icon-180.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=DM+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="i-wallet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <rect width="18" height="18" x="3" y="3" rx="2" />
+          <path d="M3 9a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2" />
+          <path d="M3 11h3c.8 0 1.6.3 2.1.9l1.1.9c1.6 1.6 4.1 1.6 5.7 0l1.1-.9c.5-.5 1.3-.9 2.1-.9H21" />
+        </symbol>
+        <symbol id="i-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11 12H3" />
+          <path d="M16 6H3" />
+          <path d="M16 18H3" />
+          <path d="M18 9v6" />
+          <path d="M21 12h-6" />
+        </symbol>
+        <symbol id="i-target" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <circle cx="12" cy="12" r="6" />
+          <circle cx="12" cy="12" r="2" />
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6 9 17l-5-5" />
+        </symbol>
+        <symbol id="i-doc" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M15 12h-5" />
+          <path d="M15 8h-5" />
+          <path d="M19 17V5a2 2 0 0 0-2-2H4" />
+          <path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3" />
+        </symbol>
+        <symbol id="i-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12h14" />
+          <path d="m12 5 7 7-7 7" />
+        </symbol>
+        <symbol id="i-out" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M7 7h10v10" />
+          <path d="M7 17 17 7" />
+        </symbol>
+        <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+          <path d="m21.854 2.147-10.94 10.939" />
+        </symbol>
+        <symbol id="i-repeat" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m2 9 3-3 3 3" />
+          <path d="M13 18H7a2 2 0 0 1-2-2V6" />
+          <path d="m22 15-3 3-3-3" />
+          <path d="M11 6h6a2 2 0 0 1 2 2v10" />
+        </symbol>
+        <symbol id="i-hide" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" />
+          <path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" />
+          <path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" />
+          <path d="m2 2 20 20" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9" />
+          <path d="M20 3v4" />
+          <path d="M22 5h-4" />
+        </symbol>
+        <symbol id="i-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 6h18" />
+          <path d="M7 12h10" />
+          <path d="M10 18h4" />
+        </symbol>
+        <symbol id="i-trend" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+          <polyline points="16 7 22 7 22 13" />
+        </symbol>
+      </defs>
+    </svg>
+
+    <header class="nav" id="nav">
+      <div class="wrap nav__inner">
+        <a class="brand" href="#atas">
+          <img src="./branding/logo-mark-96.png" alt="" width="28" height="28" />
+          <span>CUANSYNC</span>
+        </a>
+        <nav class="nav__links" aria-label="Bagian halaman">
+          <a class="nav__link" href="#fitur">Fitur</a>
+          <a class="nav__link" href="#cara-kerja">Cara kerja</a>
+        </nav>
+        <a class="btn btn--plain" data-app-link href="#">Masuk</a>
+        <a class="btn btn--primary" data-app-link href="#">Mulai mencatat</a>
+      </div>
+    </header>
+
+    <main id="atas">
+      <!-- 1. HERO -------------------------------------------------------- -->
+      <section class="wrap hero">
+        <div class="hero__grid">
+          <div>
+            <p class="eyebrow">Pencatat uang harian</p>
+            <h1 class="h1">Sering bingung uangmu habis ke mana?</h1>
+            <p class="lead">
+              Catat pengeluaranmu sekali duduk, lihat sisa jatah bulan ini, dan tahu mana
+              uang yang memang sudah disiapkan buat tabungan. Rekening, e-wallet, tunai,
+              sampai mata uang asing, semuanya di satu tempat.
+            </p>
+            <div class="hero__actions">
+              <a class="btn btn--primary btn--lg" data-app-link href="#">Mulai mencatat</a>
+              <a class="btn btn--ghost btn--lg" href="#cara-kerja">Lihat cara kerjanya</a>
+            </div>
+            <p class="hero__note">
+              Kamu yang catat, CUANSYNC yang rapikan. Tidak ada rekening yang perlu
+              disambungkan.
+            </p>
+            <ul class="badges">
+              <li class="badge"><svg><use href="#i-wallet" /></svg>19 mata uang</li>
+              <li class="badge"><svg><use href="#i-list" /></svg>Catat banyak sekaligus</li>
+              <li class="badge"><svg><use href="#i-target" /></svg>Tabungan jelas asalnya</li>
+            </ul>
+          </div>
+
+          <!-- Peraga hero sengaja bukan seluruh dashboard, melainkan satu hal
+               yang paling menjelaskan gunanya: dompet dengan nominal aslinya,
+               dan beda antara yang bisa dipakai dan yang sudah disisihkan. -->
+          <div class="ui ui--lift">
+            <div class="ui__bar">
+              <span class="ui__title">Dompetmu</span>
+              <span class="tag">Contoh</span>
+            </div>
+            <div class="total">
+              <span class="total__label">Nilai setara semua dompet</span>
+              <span class="total__value">
+                <span class="total__symbol">Rp</span>
+                <span class="total__number num">19.142.000</span>
+              </span>
+            </div>
+            <div class="row">
+              <span class="row__icon"><svg><use href="#i-wallet" /></svg></span>
+              <span class="row__body">
+                <span class="row__title">BCA</span>
+                <span class="row__meta">Rupiah</span>
+              </span>
+              <span class="row__amount">
+                <span class="row__value num">Rp15.000.000</span>
+                <span class="row__equiv num">bisa dipakai Rp5.000.000</span>
+              </span>
+            </div>
+            <div class="row">
+              <span class="row__icon"><svg><use href="#i-wallet" /></svg></span>
+              <span class="row__body">
+                <span class="row__title">Tunai</span>
+                <span class="row__meta">Rupiah</span>
+              </span>
+              <span class="row__amount"><span class="row__value num">Rp750.000</span></span>
+            </div>
+            <div class="row">
+              <span class="row__icon"><svg><use href="#i-wallet" /></svg></span>
+              <span class="row__body">
+                <span class="row__title">Cash THB</span>
+                <span class="row__meta">Baht</span>
+              </span>
+              <span class="row__amount">
+                <span class="row__value num">฿6.400</span>
+                <span class="row__equiv num">≈ Rp3.392.000</span>
+              </span>
+            </div>
+            <p class="ui__foot">
+              Nominal asli tiap dompet tetap terlihat. Nilai setara dihitung dari kurs
+              yang tersedia di aplikasi, bukan kurs transaksi bank.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. DEMONSTRASI UTAMA ------------------------------------------- -->
+      <section class="section section--soft" id="cara-kerja">
+        <div class="wrap">
+          <div class="section__head">
+            <h2 class="h2">Telat mencatat tiga hari? Tulis semuanya sekali jalan.</h2>
+            <p class="lead">
+              Satu baris satu transaksi, persis seperti kamu menulis di catatan HP.
+              CUANSYNC membacanya jadi calon transaksi, dan kamu periksa dulu sebelum ada
+              satu pun yang tersimpan.
+            </p>
+          </div>
+
+          <div class="demo">
+            <div class="ui">
+              <div class="ui__bar">
+                <span class="ui__title">Yang kamu tulis</span>
+                <span class="tag">Contoh</span>
+              </div>
+              <p class="typed">makan 25000 BCA
+parkir 5000 Tunai
+kopi 60 Cash THB</p>
+              <p class="ui__foot">
+                Sebut nama dompet di barisnya kalau berbeda dari dompet bawaan yang kamu
+                pilih. Nominal boleh ditulis 25rb, dan kata “kemarin” memundurkan
+                tanggalnya.
+              </p>
+            </div>
+
+            <div class="demo__arrow" aria-hidden="true">
+              <svg><use href="#i-arrow" /></svg>
+            </div>
+
+            <div class="ui">
+              <div class="ui__bar">
+                <span class="ui__title">Periksa dulu</span>
+                <span class="ui__hint">3 baris terbaca</span>
+              </div>
+              <div class="row">
+                <span class="row__icon"><svg><use href="#i-out" /></svg></span>
+                <span class="row__body">
+                  <span class="row__title">Makan</span>
+                  <span class="row__meta">BCA · Rupiah</span>
+                </span>
+                <span class="row__amount"><span class="row__value num">Rp25.000</span></span>
+              </div>
+              <div class="row">
+                <span class="row__icon"><svg><use href="#i-out" /></svg></span>
+                <span class="row__body">
+                  <span class="row__title">Parkir</span>
+                  <span class="row__meta">Tunai · Rupiah</span>
+                </span>
+                <span class="row__amount"><span class="row__value num">Rp5.000</span></span>
+              </div>
+              <div class="row">
+                <span class="row__icon"><svg><use href="#i-out" /></svg></span>
+                <span class="row__body">
+                  <span class="row__title">Kopi</span>
+                  <span class="row__meta">Cash THB · Baht</span>
+                </span>
+                <span class="row__amount"><span class="row__value num">฿60</span></span>
+              </div>
+              <div class="check">
+                <span class="check__totals">
+                  <span class="num">2 transaksi · Rp30.000</span>
+                  <span class="num">1 transaksi · ฿60</span>
+                </span>
+                <span>Belum tersimpan</span>
+              </div>
+              <p class="ui__foot">
+                Tiap baris masih bisa diperbaiki: nama, nominal, kategori, dompet, dan
+                tanggalnya. Rupiah dan baht dihitung terpisah, tidak dijumlahkan menjadi
+                satu angka.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. HASILNYA ------------------------------------------------------
+           Satu-satunya bidang gelap selebar layar di halaman ini. Sengaja:
+           bagian inilah puncaknya, dan bentuknya meniru panel saldo di
+           aplikasi supaya orang mengenali tampilannya begitu masuk. -->
+      <section class="band">
+        <div class="wrap">
+          <div class="band__head">
+            <p class="eyebrow eyebrow--on-band">Setelah sebulan mencatat</p>
+            <h2 class="h2">Habis mencatat sebulan, kamu dapat apa?</h2>
+            <p class="lead lead--on-band">
+              Bukan cuma daftar pengeluaran. Catatanmu dihitung jadi satu gambaran
+              kondisi keuangan, lengkap dengan hal yang paling berguna kamu bereskan
+              lebih dulu.
+            </p>
+          </div>
+
+          <div class="band__panel">
+            <div class="band__score">
+              <div>
+                <span class="band__label">Skor keuanganmu</span>
+                <span class="band__value">
+                  <span class="num" data-count>94</span>
+                  <span class="band__max">dari 100</span>
+                </span>
+              </div>
+              <span class="pill pill--ok">Sehat</span>
+            </div>
+
+            <p class="band__line">
+              Bulan ini kamu menyisihkan <strong class="num">Rp5.000.000</strong> dari
+              <strong class="num">Rp8.200.000</strong> yang masuk.
+            </p>
+
+            <div class="stats">
+              <div class="stat">
+                <span class="stat__label">Sisa aman bulan ini</span>
+                <span class="stat__value num">Rp2.800.000</span>
+                <span class="stat__note">Panduan belanja, bukan saldo total</span>
+              </div>
+              <div class="stat">
+                <span class="stat__label">Dana cadangan</span>
+                <span class="stat__value num">3,1 bulan</span>
+                <span class="stat__note">Kalau pemasukan berhenti hari ini</span>
+              </div>
+              <div class="stat">
+                <span class="stat__label">Arus kas</span>
+                <span class="stat__value num ok">61% tersisa</span>
+                <span class="stat__track"><span style="width: 61%"></span></span>
+              </div>
+            </div>
+
+            <p class="band__foot">
+              Semua angka di atas dihitung dari catatanmu sendiri bulan itu, bukan saran
+              investasi. Tiap angka bisa dibuka untuk melihat cara menghitungnya.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. DOMPET DAN TABUNGAN ----------------------------------------- -->
+      <section class="section" id="fitur">
+        <div class="wrap duo">
+          <div class="duo__text">
+            <h2 class="h2">Pisahkan dulu yang buat tabungan, sebelum kepakai.</h2>
+            <p>
+              Tandai sebagian isi dompetmu untuk satu tujuan, dan sisanya baru terhitung
+              sebagai uang yang bisa dipakai. Sumbernya tetap kelihatan, dan totalmu tidak
+              ikut membengkak karena uangnya memang tidak ke mana-mana.
+            </p>
+            <ul class="list">
+              <li>Satu tujuan bisa ditopang satu dompet, dan dompet itu tetap menunjukkan saldo aslinya.</li>
+              <li>Ada alurnya sendiri untuk memakai dana tabungan atau melepas alokasinya kembali.</li>
+              <li>Ini penandaan di dalam aplikasi, bukan penguncian dana di rekening bankmu.</li>
+            </ul>
+            <p class="quote">Uangnya tetap di rekeningmu. Tujuannya lebih jelas di CUANSYNC.</p>
+          </div>
+
+          <div class="duo__visual">
+            <div class="ui">
+              <div class="ui__bar">
+                <span class="ui__title">BCA</span>
+                <span class="tag">Contoh</span>
+              </div>
+              <div class="ui__body">
+                <div class="meter">
+                  <div class="meter__line">
+                    <span>Saldo tercatat</span>
+                    <strong class="num">Rp15.000.000</strong>
+                  </div>
+                  <div class="split" role="img" aria-label="Sepuluh juta disisihkan, lima juta bisa dipakai">
+                    <span class="split__saved" style="width: 66.6%"></span>
+                    <span class="split__free" style="width: 33.4%"></span>
+                  </div>
+                  <ul class="legend">
+                    <li><i></i>Disisihkan Rp10.000.000</li>
+                    <li><i></i>Bisa dipakai Rp5.000.000</li>
+                  </ul>
+                </div>
+              </div>
+              <div class="row">
+                <span class="row__icon"><svg><use href="#i-target" /></svg></span>
+                <span class="row__body">
+                  <span class="row__title">Dana Darurat</span>
+                  <span class="row__meta">Sumber: BCA</span>
+                </span>
+                <span class="row__amount"><span class="row__value num">Rp10.000.000</span></span>
+              </div>
+              <p class="ui__foot">
+                Rp10.000.000 itu bagian dari saldo BCA, bukan tambahan yang membuat
+                totalmu jadi Rp25.000.000.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. JATAH -------------------------------------------------------- -->
+      <section class="section section--soft">
+        <div class="wrap duo duo--flip">
+          <div class="duo__text">
+            <h2 class="h2">Belum tanggal 20, uangnya sudah menipis?</h2>
+            <p>
+              Pasang satu batas untuk sebulan, dan sisa jatah harianmu dihitung sendiri
+              dari situ. Kalau kamu ingin lihat persisnya habis ke pos mana, pindah ke
+              mode Per kategori tanpa kehilangan catatan yang sudah ada.
+            </p>
+            <ul class="list">
+              <li>Pemakaian dan sisa terbaca dari transaksi yang kamu catat sendiri.</li>
+              <li>Panduan harian dihitung dari sisa jatah dibagi hari yang tersisa di bulan itu.</li>
+              <li>Angkanya mengikuti catatanmu, jadi ia jujur sejauh catatanmu lengkap.</li>
+            </ul>
+          </div>
+
+          <div class="duo__visual">
+            <div class="ui">
+              <div class="ui__bar">
+                <span class="ui__title">Jatah bulan ini</span>
+                <span class="tag">Contoh</span>
+              </div>
+              <div class="ui__body">
+                <div class="seg" role="group" aria-label="Mode jatah">
+                  <span aria-current="true">Simpel</span>
+                  <span>Per kategori</span>
+                </div>
+              </div>
+              <div class="ui__body" style="padding-top: 0">
+                <div class="meter">
+                  <div class="meter__line">
+                    <span>Terpakai <span class="num">Rp3.200.000</span></span>
+                    <span>dari <strong class="num">Rp6.000.000</strong></span>
+                  </div>
+                  <div class="track"><span style="width: 53.3%"></span></div>
+                  <div class="meter__line">
+                    <span>Sisa <span class="num">Rp2.800.000</span></span>
+                    <span>7 hari lagi</span>
+                  </div>
+                </div>
+              </div>
+              <div class="ui__body" style="border-top: 1px solid var(--cs-line)">
+                <p class="mode-label">Kalau dipindah ke Per kategori</p>
+                <div class="cats">
+                  <div class="cat">
+                    <div class="cat__head">
+                      <span>Makan</span>
+                      <span class="num">Rp1.400.000 / Rp2.500.000</span>
+                    </div>
+                    <div class="track track--thin"><span style="width: 56%"></span></div>
+                  </div>
+                  <div class="cat">
+                    <div class="cat__head">
+                      <span>Transportasi</span>
+                      <span class="num">Rp600.000 / Rp1.000.000</span>
+                    </div>
+                    <div class="track track--thin"><span style="width: 60%"></span></div>
+                  </div>
+                  <div class="cat">
+                    <div class="cat__head">
+                      <span>Belanja</span>
+                      <span class="num">Rp800.000 / Rp1.500.000</span>
+                    </div>
+                    <div class="track track--thin"><span style="width: 53%"></span></div>
+                  </div>
+                  <div class="cat">
+                    <div class="cat__head">
+                      <span>Tagihan</span>
+                      <span class="num">Rp400.000 / Rp1.000.000</span>
+                    </div>
+                    <div class="track track--thin"><span style="width: 40%"></span></div>
+                  </div>
+                </div>
+              </div>
+              <p class="ui__foot">
+                Sisa Rp2.800.000 untuk 7 hari berarti sekitar Rp400.000 per hari. Hitungan
+                ini datang dari jatah dan catatanmu sendiri.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. FITUR PENDUKUNG ---------------------------------------------- -->
+      <section class="section">
+        <div class="wrap">
+          <div class="section__head">
+            <h2 class="h2">Tiga hal kecil yang sering menolong</h2>
+          </div>
+          <div class="trio">
+            <article class="ui">
+              <div class="ui__body">
+                <h3>Cocokkan Saldo</h3>
+                <p>Masukkan saldo sebenarnya, selisihnya dihitungkan untukmu.</p>
+                <div class="mini">
+                  <div class="mini__line"><span>Tercatat</span><span class="num">Rp750.000</span></div>
+                  <div class="mini__line"><span>Sebenarnya</span><span class="num">Rp735.000</span></div>
+                  <div class="mini__line">
+                    <span>Selisih</span><span class="num neg">−Rp15.000</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            <article class="ui">
+              <div class="ui__body">
+                <h3>Riwayat &amp; PDF</h3>
+                <p>Pilih bulan yang punya data, simpan catatannya jadi PDF yang rapi.</p>
+                <div class="mini">
+                  <div class="chips">
+                    <span class="chip">Jul</span>
+                    <span class="chip">Agu</span>
+                    <span class="chip" aria-current="true">Sep</span>
+                  </div>
+                  <div class="mini__line"><span>Riwayat September</span><span class="num">48 transaksi</span></div>
+                </div>
+              </div>
+            </article>
+
+            <article class="ui">
+              <div class="ui__body">
+                <h3>HP &amp; laptop</h3>
+                <p>Masuk dengan akun yang sama, catatanmu mengikuti, bukan perangkatnya.</p>
+                <div class="mini">
+                  <div class="frames" aria-hidden="true">
+                    <div class="frame frame--phone">
+                      <div class="frame__bar"></div>
+                    </div>
+                    <div class="frame frame--laptop">
+                      <div class="frame__bar"></div>
+                      <div class="frame__bar" style="width: 60%"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <!-- Sisanya cukup disebut sekali dalam satu baris padat. Dibuatkan
+               bagian sendiri-sendiri, halamannya jadi panjang tanpa menambah
+               alasan siapa pun untuk mendaftar. -->
+          <ul class="strip">
+            <li class="strip__item">
+              <span class="strip__icon"><svg><use href="#i-send" /></svg></span>
+              <span>
+                <strong>Kirim antar dompet</strong>
+                Pindahkan uangmu sendiri dari satu dompet ke dompet lain.
+              </span>
+            </li>
+            <li class="strip__item">
+              <span class="strip__icon"><svg><use href="#i-repeat" /></svg></span>
+              <span>
+                <strong>Tukar mata uang</strong>
+                Catat penukaran dengan kurs yang memang kamu pakai saat itu.
+              </span>
+            </li>
+            <li class="strip__item">
+              <span class="strip__icon"><svg><use href="#i-hide" /></svg></span>
+              <span>
+                <strong>Sembunyikan nominal</strong>
+                Semua angka jadi titik-titik waktu layarmu dilihat orang lain.
+              </span>
+            </li>
+            <li class="strip__item">
+              <span class="strip__icon"><svg><use href="#i-trend" /></svg></span>
+              <span>
+                <strong>Perkiraan pemasukan</strong>
+                Gajimu belum masuk? Isi perkiraannya, kondisimu tetap terbaca.
+              </span>
+            </li>
+            <li class="strip__item">
+              <span class="strip__icon"><svg><use href="#i-filter" /></svg></span>
+              <span>
+                <strong>Saring riwayat</strong>
+                Cari transaksi lama tanpa menggulir dari atas.
+              </span>
+            </li>
+            <li class="strip__item">
+              <span class="strip__icon"><svg><use href="#i-moon" /></svg></span>
+              <span>
+                <strong>Terang dan gelap</strong>
+                Ikut tema perangkatmu, atau kamu kunci sendiri.
+              </span>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- 6. CARA MULAI ---------------------------------------------------- -->
+      <section class="section section--soft">
+        <div class="wrap">
+          <div class="section__head">
+            <h2 class="h2">Mulainya cuma tiga langkah</h2>
+          </div>
+          <div class="steps">
+            <article class="step">
+              <span class="step__num">01</span>
+              <h3 class="h3">Masuk dan tambahkan dompet</h3>
+              <p>
+                Daftarkan rekening, e-wallet, dan uang tunai yang kamu pakai, lengkap
+                dengan mata uangnya masing-masing.
+              </p>
+            </article>
+            <article class="step">
+              <span class="step__num">02</span>
+              <h3 class="h3">Catat transaksi</h3>
+              <p>
+                Satu per satu lewat Catat Cepat, atau sekaligus banyak baris lewat Catat
+                Banyak saat catatanmu telanjur menumpuk.
+              </p>
+            </article>
+            <article class="step">
+              <span class="step__num">03</span>
+              <h3 class="h3">Pantau jatah dan sisihkan tabungan</h3>
+              <p>
+                Lihat pemakaian dan sisa jatahmu, lalu tandai dana yang memang disiapkan
+                untuk tujuan tertentu.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- 7. FAQ ----------------------------------------------------------- -->
+      <section class="section">
+        <div class="wrap">
+          <div class="section__head">
+            <h2 class="h2">Pertanyaan yang sering muncul</h2>
+          </div>
+          <div class="faq">
+            <details open>
+              <summary>Apakah CUANSYNC terhubung otomatis ke bank?</summary>
+              <p>
+                Tidak. Kamu yang mencatat, dan CUANSYNC membantu merapikan catatannya.
+                Tidak ada saldo atau mutasi rekening yang dibaca otomatis.
+              </p>
+            </details>
+            <details>
+              <summary>Apakah uang tabungan benar-benar dipindahkan?</summary>
+              <p>
+                Tidak. Uangnya tetap berada di sumber aslinya, entah rekening, e-wallet,
+                atau uang tunai. Tabungan hanya menandai bagian mana yang sudah punya
+                tujuan.
+              </p>
+            </details>
+            <details>
+              <summary>Apakah cocok kalau saya hanya memakai rupiah?</summary>
+              <p>
+                Cocok. Multi-mata-uang itu pilihan, bukan keharusan. Kalau semua dompetmu
+                rupiah, tampilannya tetap sederhana.
+              </p>
+            </details>
+            <details>
+              <summary>Bagaimana kalau saya lupa mencatat?</summary>
+              <p>
+                Pakai Catat Banyak: tulis semua yang kamu ingat, satu baris satu
+                transaksi, lalu periksa hasil pembacaannya sebelum menyimpan.
+              </p>
+            </details>
+            <details>
+              <summary>Apakah bisa dipakai di HP dan laptop?</summary>
+              <p>
+                Bisa, lewat peramban yang kompatibel dengan akun yang sama. Pemasangan ke
+                layar utama tersedia pada sebagian perangkat dan peramban, tergantung
+                dukungan masing-masing.
+              </p>
+            </details>
+            <details>
+              <summary>Apakah bisa mengekspor bulan sebelumnya?</summary>
+              <p>
+                Bisa, selama bulan itu punya data transaksi. Pilih bulannya di Riwayat,
+                lalu simpan sebagai PDF.
+              </p>
+            </details>
+            <details>
+              <summary>Bagaimana kalau saya ganti perangkat?</summary>
+              <p>
+                Masuk dengan akun yang sama, dan catatanmu sudah ada di sana tanpa perlu
+                memindahkan apa pun.
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <!-- 8. PENUTUP -------------------------------------------------------- -->
+      <section class="section">
+        <div class="wrap">
+          <div class="closing">
+            <h2 class="h2">Mulai saja dari satu catatan hari ini</h2>
+            <p>
+              Catat satu pengeluaran hari ini, dan kamu sudah bisa lihat sendiri bentuk
+              catatannya.
+            </p>
+            <a class="btn btn--onpanel btn--lg" data-app-link href="#">Mulai mencatat</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="wrap footer__inner">
+        <span>© <span id="tahun">2026</span> CUANSYNC</span>
+        <span class="footer__meta">
+          <a href="./privasi.html">Kebijakan Privasi</a>
+          <a href="./ketentuan.html">Ketentuan Layanan</a>
+          <a href="mailto:[ISI: alamat email]">Kontak</a>
+        </span>
+      </div>
+    </footer>
+
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>
