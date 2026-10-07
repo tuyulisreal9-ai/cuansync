@@ -5768,6 +5768,7 @@ function App() {
                     activeCurrencies=${dashboardActiveCurrencies}
                     dailyCurrency=${dailyExpenseCurrency}
                     baseCurrency=${walletBaseCurrency}
+                    globalRateSnapshot=${globalRateSnapshot}
                     valuationsByCurrency=${walletValuationsByCurrency}
                     totalValueBase=${walletTotalValueBase}
                     visible=${balanceVisible}

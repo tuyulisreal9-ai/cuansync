@@ -2,6 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
+@keyframes dc-budget-currency-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.dc-budget-currency-swap {
+  animation: dc-budget-currency-enter 360ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dc-budget-currency-swap { animation: none; }
+}
+
 /* Fondasi visual CUANSYNC Mobile redesign.
    Sumber nilai: project Claude Design "CuanSync mobile app redesign",
    objek THEME.light dan THEME.dark. Aksen mengikuti desain apa adanya:
