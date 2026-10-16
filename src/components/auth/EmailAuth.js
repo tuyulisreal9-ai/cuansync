@@ -1,6 +1,9 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 import htm from "htm";
+import { Browser } from "@capacitor/browser";
 import { CONFIRMATION_SENT_MESSAGE, RECOVERY_SENT_MESSAGE, PASSWORD_MIN_LENGTH, getEmailAuthError, validateNewPassword } from "../../lib/emailAuth.js";
+import { getPublicLegalLinks } from "../../lib/publicLegalLinks.js";
+import { isNativeMobileApp } from "../../lib/mobile.js";
 
 const html = htm.bind(React.createElement);
 const INPUT_CLASS = "cs-auth-input min-h-12 w-full min-w-0 rounded-xl px-3.5 py-3 text-base";
@@ -8,7 +11,20 @@ const BUTTON_CLASS = "dc-press min-h-12 w-full rounded-xl px-4 py-3 text-sm font
 const PRIMARY_STYLE = { background: "var(--cs-acc)", color: "var(--cs-on-acc)" };
 const MUTED_STYLE = { color: "var(--cs-mut)" };
 
-export function AuthFrame({ title, helper, appName = "CUANSYNC", children }) {
+export function AuthFrame({ title, helper, appName = "CUANSYNC", children, legalSiteUrl = import.meta.env?.VITE_LEGAL_SITE_URL }) {
+  const legalLinks = getPublicLegalLinks(legalSiteUrl);
+  const [legalError, setLegalError] = useState("");
+
+  async function openLegalDocument(event, url) {
+    if (!isNativeMobileApp()) return;
+    event.preventDefault();
+    setLegalError("");
+    try {
+      await Browser.open({ url });
+    } catch {
+      setLegalError("Halaman belum bisa dibuka. Periksa koneksi internetmu dan coba lagi.");
+    }
+  }
   return html`
     <main className="auth-shell px-4" style=${{ background: "var(--cs-bg)", color: "var(--cs-ink)" }}>
       <div className="mx-auto flex min-h-full w-full max-w-[400px] flex-col justify-center py-5 sm:py-10">
@@ -21,6 +37,19 @@ export function AuthFrame({ title, helper, appName = "CUANSYNC", children }) {
           <p className="mt-1.5 text-[13px] leading-relaxed" style=${MUTED_STYLE}>${helper}</p>
           <div className="mt-5">${children}</div>
         </section>
+        ${legalLinks && html`
+        <div className="mt-3">
+          <nav aria-label="Informasi layanan" className="flex flex-wrap items-center justify-center gap-x-4 text-[12px]" style=${MUTED_STYLE}>
+            <a href=${legalLinks.privacy} target="_blank" rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center underline underline-offset-4"
+              onClick=${(event) => openLegalDocument(event, legalLinks.privacy)}>Kebijakan Privasi</a>
+            <a href=${legalLinks.terms} target="_blank" rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center underline underline-offset-4"
+              onClick=${(event) => openLegalDocument(event, legalLinks.terms)}>Ketentuan Layanan</a>
+          </nav>
+          <${AuthNotice} text=${legalError} error=${true} />
+        </div>
+        `}
         <p className="mt-5 text-center text-[11px] tracking-[0.06em]" style=${MUTED_STYLE}>CATAT. PAHAMI. KENDALIKAN.</p>
       </div>
     </main>

@@ -16,6 +16,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { getTransactionFlow } from "../../domain/transactions.js";
+import { buildDailyBudgetCurrencyViews } from "../../domain/budgetDailyCurrencies.js";
 import {
   DEFAULT_BASE_CURRENCY,
   HIDDEN_BALANCE_TEXT,
@@ -174,12 +175,58 @@ function QuickAction({ icon: Icon, label, onClick, disabled }) {
   `;
 }
 
-function BudgetCard({ spent, limit, currency, visible, onOpen }) {
+function BudgetCard({
+  spent,
+  limit,
+  currency,
+  activeCurrencies = [],
+  globalRateSnapshot,
+  visible,
+  onOpen,
+}) {
   const hasBudget = Number(limit) > 0;
   const ratio = hasBudget ? Math.min(Math.max(spent / limit, 0), 1) : 0;
   const remaining = Math.max(limit - spent, 0);
   const days = daysLeftInMonth();
-  const perDay = days > 0 ? remaining / days : remaining;
+  const dailyViews = buildDailyBudgetCurrencyViews({
+    remaining,
+    daysLeft: days,
+    baseCurrency: currency,
+    activeCurrencies,
+    globalRateSnapshot,
+  });
+  const dailyViewsKey = dailyViews.map((item) => `${item.currency}:${item.amount}`).join("|");
+  const [dailyIndex, setDailyIndex] = React.useState(0);
+  const [reducedMotion, setReducedMotion] = React.useState(() =>
+    typeof window !== "undefined" &&
+    Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)").matches),
+  );
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return undefined;
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReducedMotion(preference.matches);
+    preference.addEventListener?.("change", update);
+    return () => preference.removeEventListener?.("change", update);
+  }, []);
+
+  React.useEffect(() => {
+    setDailyIndex(0);
+    if (!hasBudget || !visible || reducedMotion || remaining <= 0 || dailyViews.length < 2) {
+      return undefined;
+    }
+    const timer = window.setInterval(() => {
+      if (!document.hidden) setDailyIndex((current) => (current + 1) % dailyViews.length);
+    }, 7000);
+    return () => window.clearInterval(timer);
+  }, [dailyViewsKey, hasBudget, visible, reducedMotion, remaining]);
+
+  const dailyView = dailyViews[dailyIndex] || dailyViews[0];
+  const dailyLabel = days > 0 ? "Per hari" : "Untuk hari ini";
+  const rateUnavailable = remaining > 0 && activeCurrencies.some(
+    (code) => normalizeCurrencyCode(code) !== currency &&
+      !dailyViews.some((item) => item.currency === normalizeCurrencyCode(code)),
+  );
 
   return html`
     <button
@@ -190,7 +237,7 @@ function BudgetCard({ spent, limit, currency, visible, onOpen }) {
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-[15px] font-bold">Jatah bulan ini</span>
         <span className="shrink-0 text-xs text-[color:var(--cs-mut)]">
-          sisa ${days} hari
+          ${days > 0 ? `sisa ${days} hari` : "hari terakhir"}
         </span>
       </div>
 
@@ -208,11 +255,50 @@ function BudgetCard({ spent, limit, currency, visible, onOpen }) {
               <div className="dc-track h-2">
                 <span style=${{ width: `${ratio * 100}%` }}></span>
               </div>
-              <span className="text-xs leading-[1.45] text-[color:var(--cs-mut)]">
+              <div className="flex min-w-0 flex-col gap-1.5 text-xs leading-[1.45] text-[color:var(--cs-mut)]">
+                <span>
+                  ${visible
+                    ? spent > limit
+                      ? `Lewat ${formatCurrency(spent - limit, currency)} dari jatah · sisa ${formatCurrency(0, currency)}`
+                      : `Sisa ${formatCurrency(remaining, currency)}`
+                    : "Rincian jatah disembunyikan."}
+                </span>
+                <div className="flex min-w-0 items-baseline gap-2" aria-hidden="true">
+                  <span className="shrink-0">${dailyLabel}</span>
+                  <strong
+                    key=${dailyView?.currency || currency}
+                    className="dc-budget-currency-swap dc-num min-w-0 truncate text-[15px] font-medium text-[color:var(--cs-ink)]"
+                  >
+                    ${visible && dailyView
+                      ? `${dailyView.isEstimate ? "≈ " : ""}${formatCurrency(dailyView.amount, dailyView.currency)}`
+                      : HIDDEN_BALANCE_TEXT}
+                  </strong>
+                  ${visible && dailyView
+                    ? html`<span className="shrink-0 text-[11px]">${dailyView.currency}</span>`
+                    : null}
+                  ${visible && remaining > 0 && dailyViews.length > 1 && !reducedMotion
+                    ? html`<span className="ml-auto shrink-0 text-[10px] text-[color:var(--cs-faint)]">
+                        ${Math.min(dailyIndex, dailyViews.length - 1) + 1}/${dailyViews.length}
+                      </span>`
+                    : null}
+                </div>
                 ${visible
-                  ? `Sisa ${formatCurrency(remaining, currency)}, kira-kira ${formatCurrency(perDay, currency)} per hari.`
-                  : "Rincian jatah disembunyikan."}
-              </span>
+                  ? html`<span className="sr-only">
+                      ${dailyLabel}: ${dailyViews.map((item) =>
+                        `${item.isEstimate ? "sekitar " : ""}${formatCurrency(item.amount, item.currency)} ${item.currency}`,
+                      ).join(", ")}.
+                    </span>`
+                  : null}
+                ${visible && remaining > 0 && dailyViews.length > 1 && reducedMotion
+                  ? html`<span className="text-[11px]">
+                      ${dailyViews.slice(1).map((item) =>
+                        `≈ ${formatCurrency(item.amount, item.currency)} ${item.currency}`,
+                      ).join(" · ")}
+                    </span>`
+                  : visible && rateUnavailable
+                    ? html`<span className="text-[11px]">Mata uang lain menunggu kurs.</span>`
+                    : null}
+              </div>
             </div>
           `
         : html`
@@ -613,6 +699,8 @@ export function HomeDashboardPage({
   metrics,
   controlSummary,
   baseCurrency = DEFAULT_BASE_CURRENCY,
+  activeCurrencies = [],
+  globalRateSnapshot = null,
   totalValueBase = 0,
   visible = true,
   fallbackRate = 0,
@@ -692,6 +780,8 @@ export function HomeDashboardPage({
           spent=${Number(metrics.budgetSpentTotal || 0)}
           limit=${Number(metrics.budgetLimitTotal || 0)}
           currency=${currency}
+          activeCurrencies=${activeCurrencies}
+          globalRateSnapshot=${globalRateSnapshot}
           visible=${visible}
           onOpen=${() => onNavigate?.("budget")}
         />

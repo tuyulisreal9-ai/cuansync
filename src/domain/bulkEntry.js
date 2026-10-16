@@ -1,4 +1,5 @@
 import {
+  CURRENCY_REGISTRY,
   formatCurrency,
   getCurrencyMeta,
   getNumericInputOptions,
@@ -721,6 +722,20 @@ const CATEGORY_KEYWORDS = [
    Transportasi seperti "grab" di dalamnya, dan "pasta gigi" adalah Belanja,
    bukan Kesehatan seperti "gigi". */
 const CATEGORY_BY_KEYWORD = new Map();
+// Only explicit, whole-word shortcuts: no fuzzy matching of arbitrary words.
+const CATEGORY_SHORTCUTS = {
+  Makan: ["mkn", "mknn", "mnm", "mnmn", "srpn", "nsgr", "nasgor", "jjn", "cmln"],
+  Transportasi: ["prkr", "bnsn", "ojk", "gjk", "trnsprt", "trnsport", "ongkos", "sw motor", "sw mobil"],
+  Tagihan: ["tghn", "lstrk", "plsa", "inet", "ccln", "angsrn"],
+  Belanja: ["blnj", "blnja", "lndry", "sndl", "sptu", "obt nyamuk", "mknn kucing"],
+  Kesehatan: ["dktr", "obt", "aptk", "vtmn"],
+  "Tempat Tinggal": ["kontrkn", "rnvs", "sw rumah", "sw kos", "ccln rumah", "angsrn rumah"],
+  "Hiburan & Gaya Hidup": ["nntn", "bskp", "ptg rambut", "libur"],
+  Lainnya: ["sdqh", "sdkh", "dnsi"],
+};
+CATEGORY_KEYWORDS.forEach(([category, keywords]) => {
+  keywords.push(...(CATEGORY_SHORTCUTS[category] || []));
+});
 CATEGORY_KEYWORDS.forEach(([category, keywords]) => {
   keywords.forEach((keyword) => {
     if (!CATEGORY_BY_KEYWORD.has(keyword)) CATEGORY_BY_KEYWORD.set(keyword, category);
@@ -749,6 +764,32 @@ const SUFFIX_MULTIPLIER = {
   jt: 1000000,
   juta: 1000000,
 };
+
+const CURRENCY_CODES = new Set(CURRENCY_REGISTRY.map((item) => item.code));
+// Also handles 100LKR and USD5 without consuming any digit of the amount.
+const CURRENCY_PATTERN = new RegExp(`(^|[^a-z])(${[...CURRENCY_CODES].join("|")})(?=$|[^a-z])`, "gi");
+
+function extractCurrencyCodes(text) {
+  const codes = new Set();
+  const remaining = text.replace(CURRENCY_PATTERN, (_, prefix, code) => {
+    codes.add(code.toUpperCase());
+    return `${prefix} `;
+  });
+  return { text: remaining, codes: [...codes] };
+}
+
+function pickCurrencyAccount(accounts, currency) {
+  const candidates = accounts.filter((account) => normalizeCurrencyCode(account.currency) === currency);
+  const primary = candidates.filter((account) => account.isPrimary || account.is_primary);
+  if (primary.length === 1) return { account: primary[0], issue: "" };
+  if (candidates.length === 1) return { account: candidates[0], issue: "" };
+  return {
+    account: null,
+    issue: candidates.length
+      ? `Pilih dompet ${currency}; dompet utama belum jelas.`
+      : `Belum ada dompet ${currency}. Tambahkan dompet atau perbaiki mata uangnya.`,
+  };
+}
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -800,6 +841,8 @@ function findWalletMatch(text, accounts) {
   accounts.forEach((account) => {
     const name = String(account?.name || "").trim();
     if (name.length < 2) return;
+    // A name consisting solely of "LKR" is still a currency instruction.
+    if (CURRENCY_CODES.has(name.toUpperCase())) return;
     const pattern = new RegExp(`\\b${escapeRegExp(name)}\\b`, "i");
     const found = pattern.exec(text);
     if (!found) return;
@@ -892,8 +935,6 @@ export function parseBulkEntryLine(raw, context = {}) {
   working = working.replace(/^[+\-•*·]\s*/, "");
 
   const walletMatch = findWalletMatch(working, accounts);
-  const account = walletMatch ? walletMatch.account : fallbackAccount;
-  const currency = normalizeCurrencyCode(account?.currency || baseCurrency);
 
   if (walletMatch) {
     const before = working.slice(0, walletMatch.index);
@@ -903,6 +944,25 @@ export function parseBulkEntryLine(raw, context = {}) {
       "i",
     );
     working = `${before.replace(prepositionPattern, " ")} ${after}`;
+  }
+
+  const explicit = extractCurrencyCodes(working);
+  working = explicit.text;
+  const currency = explicit.codes[0] || normalizeCurrencyCode(walletMatch?.account?.currency || fallbackAccount?.currency || baseCurrency);
+  let account = walletMatch?.account || fallbackAccount;
+  let accountIssue = "";
+  if (explicit.codes.length > 1) {
+    account = null;
+    accountIssue = "Ada beberapa mata uang. Periksa nominal dan pilih satu dompet untuk baris ini.";
+  } else if (explicit.codes.length && walletMatch) {
+    if (normalizeCurrencyCode(walletMatch.account.currency) !== currency) {
+      account = null;
+      accountIssue = `Dompet ${walletMatch.account.name} memakai ${normalizeCurrencyCode(walletMatch.account.currency)}, bukan ${currency}. Pilih dompet yang benar.`;
+    }
+  } else if (explicit.codes.length) {
+    const selected = pickCurrencyAccount(accounts, currency);
+    account = selected.account;
+    accountIssue = selected.issue;
   }
 
   const dateKey = YESTERDAY_PATTERN.test(working)
@@ -933,6 +993,7 @@ export function parseBulkEntryLine(raw, context = {}) {
     currency,
     accountId: account?.id || "",
     accountName: account?.name || "",
+    accountIssue,
     dateKey,
     category,
     skipped: !(amount > 0),
@@ -953,6 +1014,7 @@ export function parseBulkEntryText(text, context = {}) {
 
 export function isBulkRowIncomplete(row) {
   if (!row) return true;
+  if (row.accountIssue) return true;
   if (!(Number(row.amount) > 0)) return true;
   if (!row.accountId) return true;
   return row.type === "expense" && !row.category;

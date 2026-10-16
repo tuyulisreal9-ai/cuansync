@@ -11,6 +11,7 @@ import {
   summarizeBulkEntryRows,
 } from "../src/domain/bulkEntry.js";
 import { CATEGORY_OPTIONS, isFinalExpenseCategory } from "../src/domain/categories.js";
+import { CURRENCY_REGISTRY } from "../src/lib/currency.js";
 
 const DOMPET = [
   {
@@ -329,4 +330,134 @@ test("nama dompet tidak ikut menentukan kategori", () => {
   assert.equal(baris.accountId, "acc-belanja");
   assert.equal(baris.category, "Makan");
   assert.equal(baris.description, "Makan siang");
+});
+
+const MULTI_DOMPET = [
+  ...DOMPET,
+  { id: "lkr-other", name: "Cash LKR", currency: "LKR", availableBalance: 10000 },
+  { id: "lkr-main", name: "Bank Sri Lanka", currency: "LKR", isPrimary: true, availableBalance: 10000 },
+  { id: "usd-main", name: "Dolar", currency: "USD", is_primary: true, availableBalance: 1000 },
+];
+const MULTI_KONTEKS = { ...KONTEKS, accounts: MULTI_DOMPET };
+
+test("singkatan sehari-hari dikenali sebagai kata utuh tanpa mengubah judul pengguna", () => {
+  for (const [text, category] of [
+    ["mkn", "Makan"], ["MNM", "Makan"], ["srpn", "Makan"], ["nasgor", "Makan"],
+    ["prkr", "Transportasi"], ["bnsn", "Transportasi"], ["ojk", "Transportasi"],
+    ["blnj", "Belanja"], ["lndry", "Belanja"], ["plsa", "Tagihan"],
+    ["lstrk", "Tagihan"], ["dktr", "Kesehatan"], ["obt", "Kesehatan"],
+    ["kontrkn", "Tempat Tinggal"], ["nntn", "Hiburan & Gaya Hidup"], ["sdkh", "Lainnya"],
+    ["obt nyamuk", "Belanja"], ["mknn kucing", "Belanja"], ["ccln rumah", "Tempat Tinggal"],
+    ["sw motor", "Transportasi"],
+  ]) {
+    const [row] = baca(`${text} 25rb`);
+    assert.equal(row.category, category, text);
+    assert.equal(row.amount, 25000);
+    assert.equal(row.type, "expense");
+  }
+  assert.equal(baca("mkn siang 25rb")[0].description, "Mkn siang");
+  assert.equal(detectBulkCategory("amknz aprkrz blnjxyz"), null);
+});
+
+test("kode mata uang memilih dompet utama yang sesuai meski defaultnya rupiah", () => {
+  for (const text of ["mkn 100 lkr", "mkn LKR 100", "mkn 100LKR", "LKR100 mkn"]) {
+    const [row] = baca(text, MULTI_KONTEKS);
+    assert.equal(row.accountId, "lkr-main", text);
+    assert.equal(row.currency, "LKR");
+    assert.equal(row.amount, 100);
+    assert.equal(row.category, "Makan");
+    assert.equal(row.description, "Mkn");
+    assert.equal(isBulkRowIncomplete(row), false);
+  }
+  const [bare] = baca("100 lkr", MULTI_KONTEKS);
+  assert.equal(bare.accountId, "lkr-main");
+  assert.equal(bare.amount, 100);
+  assert.equal(bare.description, "");
+  assert.equal(bare.category, null); // A wallet does not imply a category.
+  assert.equal(isBulkRowIncomplete(bare), true);
+});
+
+test("nama dompet lengkap mengalahkan dompet utama tanpa memotong kode di namanya", () => {
+  for (const text of ["mkn 100 Cash LKR", "mkn 100 LKR pakai Cash LKR"]) {
+    const [row] = baca(text, MULTI_KONTEKS);
+    assert.equal(row.accountId, "lkr-other");
+    assert.equal(row.currency, "LKR");
+    assert.equal(row.description, "Mkn");
+    assert.equal(row.accountIssue, "");
+  }
+  const [row] = baca("mkn 100 LKR", {
+    ...MULTI_KONTEKS, accounts: [...MULTI_DOMPET, { id: "named-lkr", name: "LKR", currency: "LKR" }],
+  });
+  assert.equal(row.accountId, "lkr-main");
+});
+
+test("tanpa kode/nama tetap memakai pilihan default; default valas tidak menimpa kode IDR", () => {
+  const context = { ...MULTI_KONTEKS, defaultAccountId: "lkr-other" };
+  assert.equal(baca("mkn 100", context)[0].accountId, "lkr-other");
+  assert.equal(baca("mkn 100 LKR", context)[0].accountId, "lkr-main");
+  assert.equal(baca("mkn 25rb IDR", context)[0].accountId, "acc-tunai");
+});
+
+test("semua kode mata uang terdaftar didukung tanpa mengonversi nominal", () => {
+  for (const { code } of CURRENCY_REGISTRY) {
+    const account = { id: `main-${code}`, name: `Dompet utama ${code}`, currency: code, is_primary: true };
+    const [row] = baca(`mkn 100 ${code.toLowerCase()}`, { ...KONTEKS, accounts: [account, ...DOMPET.filter((a) => a.currency !== code)] });
+    assert.equal(row.accountId, account.id, code);
+    assert.equal(row.currency, code);
+    assert.equal(row.amount, 100);
+  }
+  assert.equal(baca("mnm USD3.50", MULTI_KONTEKS)[0].amount, 3.5);
+  assert.equal(baca("mkn 1.200,50 LKR", MULTI_KONTEKS)[0].amount, 1200.5);
+  assert.equal(baca("mkn 1,5k LKR", MULTI_KONTEKS)[0].amount, 1500);
+});
+
+test("satu dompet mata uang boleh otomatis; beberapa tanpa utama atau utama ganda perlu dipilih", () => {
+  assert.equal(baca("mkn 100 THB")[0].accountId, "acc-kbank");
+  for (const accounts of [
+    MULTI_DOMPET.map((a) => a.currency === "LKR" ? { ...a, isPrimary: false, is_primary: false } : a),
+    MULTI_DOMPET.map((a) => a.currency === "LKR" ? { ...a, isPrimary: true } : a),
+    DOMPET,
+  ]) {
+    const [row] = baca("mkn 100 LKR", { ...KONTEKS, accounts });
+    assert.equal(row.accountId, "");
+    assert.equal(row.currency, "LKR");
+    assert.equal(row.amount, 100);
+    assert.equal(row.skipped, false);
+    assert.ok(row.accountIssue);
+    assert.equal(isBulkRowIncomplete(row), true);
+    assert.equal(planBulkEntrySave([row], { accounts }).ok, false);
+  }
+});
+
+test("konflik kode dan dompet tidak boleh tersimpan diam-diam dalam mata uang lain", () => {
+  for (const text of ["mkn 100 USD GoPay", "mkn 100 LKR USD"]) {
+    const [row] = baca(text, MULTI_KONTEKS);
+    assert.equal(row.accountId, "");
+    assert.ok(row.accountIssue);
+    assert.equal(planBulkEntrySave([row], { accounts: MULTI_DOMPET }).ok, false);
+  }
+});
+
+test("kode bukan potongan kata dan nama dompet tidak dianggap kata kategori singkatan", () => {
+  const [word] = baca("kursus usdollar 100", MULTI_KONTEKS);
+  assert.equal(word.accountId, "acc-tunai");
+  const [wallet] = baca("xyz 100 dompet mkn", {
+    ...KONTEKS, accounts: [{ id: "food", name: "Dompet Mkn", currency: "IDR" }],
+  });
+  assert.equal(wallet.category, null);
+});
+
+test("pemasukan dan pengeluaran kode mata uang tetap melalui validasi saldo per dompet", () => {
+  const rows = baca("mkn 100 LKR\n+gaji 5 USD\nprkr 25 LKR", MULTI_KONTEKS);
+  const plan = planBulkEntrySave(rows, { accounts: MULTI_DOMPET });
+  assert.equal(plan.ok, true);
+  assert.equal(plan.payloads[0].destination_account_id, "usd-main");
+  assert.equal(plan.payloads[0].amount, "5");
+  for (const payload of plan.payloads.filter((p) => p.type === "expense")) {
+    assert.equal(payload.source_account_id, "lkr-main");
+    assert.equal(payload.expense_currency, "LKR");
+  }
+  assert.equal(planBulkEntrySave(rows, { accounts: MULTI_DOMPET, availability: {
+    "lkr-main": { availableBalance: 120 },
+  } }).ok, false);
 });
