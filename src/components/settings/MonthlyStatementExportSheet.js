@@ -5,7 +5,7 @@ import {
   formatCurrency,
 } from "../../lib/currency.js";
 import { formatMonthKey, getMonthKey } from "../../lib/dates.js";
-import { isNativeMobileApp } from "../../lib/mobile.js";
+import { getPdfSaveMessage } from "../../lib/savePdfFile.js";
 import {
   exportMonthlyStatementPdf,
 } from "../../lib/monthlyStatementPdf.js";
@@ -181,7 +181,6 @@ export function MonthlyStatementExportSheet({
     [monthTransactions, assetAccounts, monthKey, baseCurrency, profile, user, rateSnapshot],
   );
   const hasTransactions = Boolean(statement?.summary.transactionCount > 0);
-  const native = isNativeMobileApp();
 
   async function handleExport() {
     if (!statement || !hasTransactions || loadFailed || loadingMonth || exporting) return;
@@ -207,16 +206,7 @@ export function MonthlyStatementExportSheet({
         generatedAt: now,
       });
       const result = await exportMonthlyStatementPdf(exportStatement);
-      /* "share" datang dari aplikasi native, "web-share" dari lembar berbagi
-         peramban yang dipakai iOS. Keduanya membuka lembar berbagi, bukan
-         mengunduh, jadi pesannya tidak boleh mengaku sudah mengunduh. */
-      const lewatBerbagi =
-        result.method === "share" || result.method === "web-share";
-      setMessage(
-        lewatBerbagi
-          ? "PDF siap disimpan atau dibagikan."
-          : `${result.filename} berhasil diunduh.`,
-      );
+      setMessage(getPdfSaveMessage(result));
     } catch (error) {
       setErrorMessage(
         error?.message || "PDF belum berhasil dibuat. Silakan coba lagi.",
@@ -402,9 +392,7 @@ export function MonthlyStatementExportSheet({
           >
             ${exporting
               ? "Menyusun PDF..."
-              : native
-                ? "Buat & bagikan PDF"
-                : "Buat & unduh PDF"}
+              : "Simpan PDF"}
           </button>
         <//>
       </div>

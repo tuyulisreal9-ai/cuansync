@@ -9,6 +9,7 @@ const styles = baca("src/styles.css");
 const main = baca("src/main.js");
 const pdf = baca("src/lib/monthlyStatementPdf.js");
 const sheet = baca("src/components/settings/MonthlyStatementExportSheet.js");
+const savePdf = baca("src/lib/savePdfFile.js");
 
 test("mode terpasang ke Layar Utama dikenali terpisah dari aplikasi native", () => {
   // Capacitor.isNativePlatform() bernilai false di PWA, jadi is-native-app
@@ -49,25 +50,23 @@ test("theme-color mengikuti sakelar tema aplikasi, bukan hanya sistem", () => {
   assert.equal(warnaMeta[2], warnaNative[2]);
 });
 
-test("ekspor PDF punya jalur berbagi untuk peramban", () => {
-  // iOS Safari mengabaikan atribut download, jadi jalur unduhan tidak
-  // menghasilkan berkas di iPhone.
-  assert.match(pdf, /async function sharePdfViaWebShare/);
-  assert.match(pdf, /navigator\.canShare\(\{ files: \[berkas\] \}\)/);
-  assert.match(pdf, /method: "web-share"/);
-
-  // Urutannya: native dulu, lalu Web Share, baru unduhan biasa.
-  const iNative = pdf.indexOf('method: "share"');
-  const iWeb = pdf.indexOf('method: "web-share"');
-  const iUnduh = pdf.indexOf('method: "download"');
-  assert.ok(iNative < iWeb && iWeb < iUnduh, "urutan jalur ekspor salah");
+test("ekspor PDF di peramban memprioritaskan unduhan tanpa membuka berbagi", () => {
+  assert.match(pdf, /return savePdfFile\(doc, filename\)/);
+  assert.match(savePdf, /platform === "web"/);
+  assert.match(savePdf, /link.download = filename/);
+  assert.doesNotMatch(pdf + savePdf, /navigator\.share|navigator\.canShare|web-share/);
 });
 
-test("membatalkan lembar berbagi tidak diulang jadi unduhan", () => {
-  // Menutup lembar berbagi adalah keputusan pengguna, bukan kegagalan.
-  assert.match(pdf, /if \(error\?\.name === "AbortError"\) return true;/);
+test("PDF iOS native disimpan di Documents yang bisa dibuka dari Files", () => {
+  assert.match(savePdf, /platform === "ios"/);
+  assert.match(savePdf, /directory: Directory.Documents/);
+  const plist = baca("ios/App/App/Info.plist");
+  assert.match(plist, /<key>UIFileSharingEnabled<\/key>\s*<true\/>/);
+  assert.match(plist, /<key>LSSupportsOpeningDocumentsInPlace<\/key>\s*<true\/>/);
 });
 
-test("pesan hasil tidak mengaku mengunduh saat yang terbuka lembar berbagi", () => {
-  assert.match(sheet, /result\.method === "share" \|\| result\.method === "web-share"/);
+test("hasil unduhan hanya mengaku dimulai dan memberi petunjuk pratinjau browser", () => {
+  assert.match(sheet, /getPdfSaveMessage\(result\)/);
+  assert.match(savePdf, /Unduhan PDF dimulai/);
+  assert.match(savePdf, /Jika muncul pratinjau/);
 });

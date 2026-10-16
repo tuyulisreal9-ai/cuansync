@@ -10,6 +10,7 @@ public class MainActivity extends BridgeActivity {
     protected void onCreate(Bundle savedInstanceState) {
         // Plugin lokal harus terdaftar sebelum Bridge Capacitor dibangun.
         registerPlugin(CuansyncWidgetPlugin.class);
+        registerPlugin(CuansyncDocumentsPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }
