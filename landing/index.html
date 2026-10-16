@@ -6,51 +6,34 @@
     <title>CUANSYNC — Catat Uang Harian</title>
     <meta
       name="description"
-      content="Sering bingung uangmu habis ke mana? Catat pengeluaranmu sekali duduk, atur jatah bulanan, dan pisahkan tabungan. Rekening, e-wallet, tunai, sampai mata uang asing, semuanya di satu tempat."
+      content="Catat transaksi harian satu per satu atau sekaligus, atur jatah bulanan, dan sisihkan tabungan. Pantau rekening, e-wallet, dan tunai dalam rupiah, dolar AS, serta mata uang lainnya."
     />
     <!-- Halaman ini selalu krem, apa pun setelan perangkat pengunjung, jadi
          hanya ada satu warna bilah peramban. -->
     <meta name="theme-color" content="#faf7f1" />
 
-    <!-- Alamat aplikasi yang dituju semua tombol di halaman ini. Ini satu-
-         satunya tempat yang perlu diubah kalau aplikasinya pindah alamat.
+    <!-- Alamat aplikasi yang dituju semua tombol di halaman ini. Jika berubah,
+         perbarui juga href pada data-app-link agar tetap bekerja tanpa JavaScript.
          Saat dibuka dari localhost, alamat ini diabaikan dan tombolnya
          menunjuk ke server pengembangan di porta 5173. -->
-    <meta name="cuansync-app-url" content="GANTI_DENGAN_ALAMAT_APLIKASI" />
+    <meta name="cuansync-app-url" content="https://cuansync.vercel.app/" />
 
-    <!-- Tampilan saat tautannya dibagikan di WhatsApp, Telegram, atau X.
-
-         WhatsApp dan X hanya membaca alamat gambar yang lengkap, bukan alamat
-         relatif, dan perayap tidak menjalankan JavaScript. Jadi keempat
-         penanda GANTI_DENGAN_ALAMAT_HALAMAN_INI di bawah harus diisi alamat
-         penuh halaman ini, tanpa garis miring di akhir, begitu domainnya jadi.
-         Contoh: https://cuansync-landing.vercel.app -->
-    <link rel="canonical" href="GANTI_DENGAN_ALAMAT_HALAMAN_INI/" />
+    <!-- Tambahkan canonical, og:url, og:image dan twitter:image setelah URL
+         landing dikonfirmasi. Jangan gunakan URL aplikasi sebagai canonical
+         halaman ini. Panduan: docs/LANDING_RELEASE.md. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="CUANSYNC" />
     <meta property="og:locale" content="id_ID" />
-    <meta property="og:url" content="GANTI_DENGAN_ALAMAT_HALAMAN_INI/" />
     <meta property="og:title" content="CUANSYNC — Catat Uang Harian" />
     <meta
       property="og:description"
-      content="Sering bingung uangmu habis ke mana? Catat pengeluaranmu sekali duduk, atur jatah bulanan, dan pisahkan tabungan."
+      content="Catat transaksi harian satu per satu atau sekaligus, atur jatah bulanan, dan sisihkan tabungan."
     />
-    <meta
-      property="og:image"
-      content="GANTI_DENGAN_ALAMAT_HALAMAN_INI/branding/og-cuansync.png"
-    />
-    <meta property="og:image:width" content="1774" />
-    <meta property="og:image:height" content="887" />
-    <meta property="og:image:alt" content="CUANSYNC" />
-    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="CUANSYNC — Catat Uang Harian" />
     <meta
       name="twitter:description"
-      content="Sering bingung uangmu habis ke mana? Catat pengeluaranmu sekali duduk, atur jatah bulanan, dan pisahkan tabungan."
-    />
-    <meta
-      name="twitter:image"
-      content="GANTI_DENGAN_ALAMAT_HALAMAN_INI/branding/og-cuansync.png"
+      content="Catat transaksi harian satu per satu atau sekaligus, atur jatah bulanan, dan sisihkan tabungan."
     />
 
     <link rel="icon" type="image/png" href="./branding/logo-mark-96.png" />
@@ -143,8 +126,8 @@
           <a class="nav__link" href="#fitur">Fitur</a>
           <a class="nav__link" href="#cara-kerja">Cara kerja</a>
         </nav>
-        <a class="btn btn--plain" data-app-link href="#">Masuk</a>
-        <a class="btn btn--primary" data-app-link href="#">Mulai mencatat</a>
+        <a class="btn btn--plain" data-app-link href="https://cuansync.vercel.app/">Masuk</a>
+        <a class="btn btn--primary" data-app-link href="https://cuansync.vercel.app/">Mulai mencatat</a>
       </div>
     </header>
 
@@ -156,12 +139,13 @@
             <p class="eyebrow">Pencatat uang harian</p>
             <h1 class="h1">Sering bingung uangmu habis ke mana?</h1>
             <p class="lead">
-              Catat pengeluaranmu sekali duduk, lihat sisa jatah bulan ini, dan tahu mana
-              uang yang memang sudah disiapkan buat tabungan. Rekening, e-wallet, tunai,
-              sampai mata uang asing, semuanya di satu tempat.
+              Catat transaksi harian satu per satu atau sekaligus. Lihat sisa jatah
+              bulanan dan uang yang sudah kamu sisihkan untuk tabungan. Pantau rekening,
+              e-wallet, dan uang tunai dalam rupiah, dolar AS, atau mata uang lainnya
+              dari satu tempat.
             </p>
             <div class="hero__actions">
-              <a class="btn btn--primary btn--lg" data-app-link href="#">Mulai mencatat</a>
+              <a class="btn btn--primary btn--lg" data-app-link href="https://cuansync.vercel.app/">Mulai mencatat</a>
               <a class="btn btn--ghost btn--lg" href="#cara-kerja">Lihat cara kerjanya</a>
             </div>
             <p class="hero__note">
@@ -187,7 +171,7 @@
               <span class="total__label">Nilai setara semua dompet</span>
               <span class="total__value">
                 <span class="total__symbol">Rp</span>
-                <span class="total__number num">19.142.000</span>
+                <span class="total__number num">18.950.000</span>
               </span>
             </div>
             <div class="row">
@@ -212,17 +196,17 @@
             <div class="row">
               <span class="row__icon"><svg><use href="#i-wallet" /></svg></span>
               <span class="row__body">
-                <span class="row__title">Cash THB</span>
-                <span class="row__meta">Baht</span>
+                <span class="row__title">Cash USD</span>
+                <span class="row__meta">Dolar AS · USD</span>
               </span>
               <span class="row__amount">
-                <span class="row__value num">฿6.400</span>
-                <span class="row__equiv num">≈ Rp3.392.000</span>
+                <span class="row__value num">US$200.00</span>
+                <span class="row__equiv num">≈ Rp3.200.000</span>
               </span>
             </div>
             <p class="ui__foot">
-              Nominal asli tiap dompet tetap terlihat. Nilai setara dihitung dari kurs
-              yang tersedia di aplikasi, bukan kurs transaksi bank.
+              Nominal asli tiap dompet tetap terlihat. Ilustrasi ini memakai contoh
+              kurs US$1 = Rp16.000. Di aplikasi, nilai setara mengikuti kurs yang tersedia.
             </p>
           </div>
         </div>
@@ -248,7 +232,7 @@
               </div>
               <p class="typed">makan 25000 BCA
 parkir 5000 Tunai
-kopi 60 Cash THB</p>
+kopi 5 Cash USD</p>
               <p class="ui__foot">
                 Sebut nama dompet di barisnya kalau berbeda dari dompet bawaan yang kamu
                 pilih. Nominal boleh ditulis 25rb, dan kata “kemarin” memundurkan
@@ -285,20 +269,20 @@ kopi 60 Cash THB</p>
                 <span class="row__icon"><svg><use href="#i-out" /></svg></span>
                 <span class="row__body">
                   <span class="row__title">Kopi</span>
-                  <span class="row__meta">Cash THB · Baht</span>
+                  <span class="row__meta">Cash USD · Dolar AS</span>
                 </span>
-                <span class="row__amount"><span class="row__value num">฿60</span></span>
+                <span class="row__amount"><span class="row__value num">US$5.00</span></span>
               </div>
               <div class="check">
                 <span class="check__totals">
                   <span class="num">2 transaksi · Rp30.000</span>
-                  <span class="num">1 transaksi · ฿60</span>
+                  <span class="num">1 transaksi · US$5.00</span>
                 </span>
                 <span>Belum tersimpan</span>
               </div>
               <p class="ui__foot">
                 Tiap baris masih bisa diperbaiki: nama, nominal, kategori, dompet, dan
-                tanggalnya. Rupiah dan baht dihitung terpisah, tidak dijumlahkan menjadi
+                tanggalnya. Rupiah dan dolar AS dihitung terpisah, tidak dijumlahkan menjadi
                 satu angka.
               </p>
             </div>
@@ -314,11 +298,10 @@ kopi 60 Cash THB</p>
         <div class="wrap">
           <div class="band__head">
             <p class="eyebrow eyebrow--on-band">Setelah sebulan mencatat</p>
-            <h2 class="h2">Habis mencatat sebulan, kamu dapat apa?</h2>
+            <h2 class="h2">Makin rutin mencatat, makin jelas keuanganmu.</h2>
             <p class="lead lead--on-band">
-              Bukan cuma daftar pengeluaran. Catatanmu dihitung jadi satu gambaran
-              kondisi keuangan, lengkap dengan hal yang paling berguna kamu bereskan
-              lebih dulu.
+              Lihat ke mana uangmu pergi, berapa yang masih tersisa, dan bagian mana
+              yang perlu kamu perhatikan lebih dulu.
             </p>
           </div>
 
@@ -372,15 +355,15 @@ kopi 60 Cash THB</p>
             <h2 class="h2">Pisahkan dulu yang buat tabungan, sebelum kepakai.</h2>
             <p>
               Tandai sebagian isi dompetmu untuk satu tujuan, dan sisanya baru terhitung
-              sebagai uang yang bisa dipakai. Sumbernya tetap kelihatan, dan totalmu tidak
-              ikut membengkak karena uangnya memang tidak ke mana-mana.
+              sebagai uang yang bisa dipakai. Sumber dananya tetap jelas. Tabungan
+              merupakan bagian dari saldo dompet, sehingga tidak dihitung dua kali.
             </p>
             <ul class="list">
-              <li>Satu tujuan bisa ditopang satu dompet, dan dompet itu tetap menunjukkan saldo aslinya.</li>
-              <li>Ada alurnya sendiri untuk memakai dana tabungan atau melepas alokasinya kembali.</li>
+              <li>Satu tabungan bisa berasal dari satu atau beberapa dompet dengan mata uang yang sama. Kamu tetap bisa melihat jumlah dari setiap sumber.</li>
+              <li>Saat dibutuhkan, catat pengeluaran dari tabungan atau kembalikan dananya ke saldo yang bisa dipakai.</li>
               <li>Ini penandaan di dalam aplikasi, bukan penguncian dana di rekening bankmu.</li>
             </ul>
-            <p class="quote">Uangnya tetap di rekeningmu. Tujuannya lebih jelas di CUANSYNC.</p>
+            <p class="quote">Uangnya tetap di tempat asalnya. Tujuannya lebih jelas di CUANSYNC.</p>
           </div>
 
           <div class="duo__visual">
@@ -435,7 +418,7 @@ kopi 60 Cash THB</p>
             <ul class="list">
               <li>Pemakaian dan sisa terbaca dari transaksi yang kamu catat sendiri.</li>
               <li>Panduan harian dihitung dari sisa jatah dibagi hari yang tersisa di bulan itu.</li>
-              <li>Angkanya mengikuti catatanmu, jadi ia jujur sejauh catatanmu lengkap.</li>
+              <li>Semakin lengkap catatanmu, semakin akurat sisa jatah yang ditampilkan.</li>
             </ul>
           </div>
 
@@ -545,7 +528,7 @@ kopi 60 Cash THB</p>
             <article class="ui">
               <div class="ui__body">
                 <h3>HP &amp; laptop</h3>
-                <p>Masuk dengan akun yang sama, catatanmu mengikuti, bukan perangkatnya.</p>
+                <p>Buka catatan yang sama di HP dan laptop dengan satu akun.</p>
                 <div class="mini">
                   <div class="frames" aria-hidden="true">
                     <div class="frame frame--phone">
@@ -569,7 +552,7 @@ kopi 60 Cash THB</p>
               <span class="strip__icon"><svg><use href="#i-send" /></svg></span>
               <span>
                 <strong>Kirim antar dompet</strong>
-                Pindahkan uangmu sendiri dari satu dompet ke dompet lain.
+                Catat perpindahan uang yang kamu lakukan antar dompet.
               </span>
             </li>
             <li class="strip__item">
@@ -622,7 +605,7 @@ kopi 60 Cash THB</p>
               <span class="step__num">01</span>
               <h3 class="h3">Masuk dan tambahkan dompet</h3>
               <p>
-                Daftarkan rekening, e-wallet, dan uang tunai yang kamu pakai, lengkap
+                Tambahkan rekening, e-wallet, dan uang tunai yang kamu pakai, lengkap
                 dengan mata uangnya masing-masing.
               </p>
             </article>
@@ -630,7 +613,7 @@ kopi 60 Cash THB</p>
               <span class="step__num">02</span>
               <h3 class="h3">Catat transaksi</h3>
               <p>
-                Satu per satu lewat Catat Cepat, atau sekaligus banyak baris lewat Catat
+                Satu per satu lewat Catat transaksi, atau sekaligus banyak baris lewat Catat
                 Banyak saat catatanmu telanjur menumpuk.
               </p>
             </article>
@@ -653,6 +636,14 @@ kopi 60 Cash THB</p>
             <h2 class="h2">Pertanyaan yang sering muncul</h2>
           </div>
           <div class="faq">
+            <details>
+              <summary>Apakah harus punya akun Google?</summary>
+              <p>
+                Tidak. Kamu bisa masuk dengan Google atau mendaftar memakai email dan
+                kata sandi. Jika sebelumnya masuk dengan Google, tambahkan kata sandi
+                melalui Pengaturan → Metode masuk. Catatanmu tetap di akun yang sama.
+              </p>
+            </details>
             <details open>
               <summary>Apakah CUANSYNC terhubung otomatis ke bank?</summary>
               <p>
@@ -693,15 +684,17 @@ kopi 60 Cash THB</p>
             <details>
               <summary>Apakah bisa mengekspor bulan sebelumnya?</summary>
               <p>
-                Bisa, selama bulan itu punya data transaksi. Pilih bulannya di Riwayat,
-                lalu simpan sebagai PDF.
+                Bisa, selama bulan itu punya data transaksi. Buka Pengaturan → Data
+                &amp; laporan → Laporan transaksi bulanan, pilih bulan yang kamu inginkan,
+                lalu ekspor PDF.
               </p>
             </details>
             <details>
               <summary>Bagaimana kalau saya ganti perangkat?</summary>
               <p>
-                Masuk dengan akun yang sama, dan catatanmu sudah ada di sana tanpa perlu
-                memindahkan apa pun.
+                Masuk dengan akun yang sama untuk membuka catatan yang sudah tersimpan
+                online. Catatan dalam mode demo hanya tersimpan di perangkat tempat
+                kamu mencobanya.
               </p>
             </details>
           </div>
@@ -717,7 +710,7 @@ kopi 60 Cash THB</p>
               Catat satu pengeluaran hari ini, dan kamu sudah bisa lihat sendiri bentuk
               catatannya.
             </p>
-            <a class="btn btn--onpanel btn--lg" data-app-link href="#">Mulai mencatat</a>
+            <a class="btn btn--onpanel btn--lg" data-app-link href="https://cuansync.vercel.app/">Mulai mencatat</a>
           </div>
         </div>
       </section>
@@ -729,7 +722,7 @@ kopi 60 Cash THB</p>
         <span class="footer__meta">
           <a href="./privasi.html">Kebijakan Privasi</a>
           <a href="./ketentuan.html">Ketentuan Layanan</a>
-          <a href="mailto:[ISI: alamat email]">Kontak</a>
+          <!-- Tambahkan tautan kontak setelah email dukungan dikonfirmasi. -->
         </span>
       </div>
     </footer>

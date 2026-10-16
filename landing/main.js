@@ -20,22 +20,28 @@ const alamatMeta = document
   ?.content?.trim();
 const diLokal =
   location.hostname === "localhost" || location.hostname === "127.0.0.1";
-const alamatSiap = Boolean(alamatMeta) && !alamatMeta.startsWith("GANTI");
+let alamatAplikasi;
+try {
+  const url = new URL(alamatMeta);
+  if (url.protocol === "https:" && !url.username && !url.password) {
+    alamatAplikasi = url.href;
+  }
+} catch {
+  // Href di HTML tetap menjadi tujuan cadangan jika konfigurasi tidak valid.
+}
 
-if (!diLokal && !alamatSiap) {
+if (!diLokal && !alamatAplikasi) {
   console.warn(
-    '[cuansync] Alamat aplikasi belum diisi pada <meta name="cuansync-app-url">, jadi tombolnya masih menunjuk ke halaman ini sendiri.',
+    '[cuansync] Alamat aplikasi tidak valid. Tombol tetap memakai alamat cadangan pada href HTML.',
   );
 }
 
 const APP_URL = diLokal
   ? `${location.protocol}//${location.hostname}:5173/`
-  : alamatSiap
-    ? alamatMeta
-    : "/";
+  : alamatAplikasi;
 
 document.querySelectorAll("[data-app-link]").forEach((tautan) => {
-  tautan.setAttribute("href", APP_URL);
+  if (APP_URL) tautan.setAttribute("href", APP_URL);
 });
 
 /* Garis bawah navbar baru muncul setelah halaman digulir, supaya bagian

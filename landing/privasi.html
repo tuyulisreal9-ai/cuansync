@@ -9,7 +9,7 @@
       content="Data apa saja yang disimpan CUANSYNC, di mana disimpannya, dan apa yang tidak pernah kami minta."
     />
     <meta name="theme-color" content="#faf7f1" />
-    <meta name="robots" content="index, follow" />
+    <meta name="robots" content="noindex, follow" />
     <link rel="icon" type="image/png" href="./branding/logo-mark-96.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -48,9 +48,12 @@
       <h2>Data yang kami kumpulkan</h2>
       <ul>
         <li>
-          <strong>Data akun.</strong> Saat kamu masuk dengan Google, kami menerima nama,
-          alamat email, dan foto profil dari akun Google-mu. Kami tidak pernah menerima
-          kata sandi akun Google-mu.
+          <strong>Data akun.</strong> Kamu bisa masuk dengan Google atau email dan kata
+          sandi. Jika memakai Google, kami menerima nama, alamat email, dan foto profil,
+          tanpa menerima kata sandi Google-mu. Jika memakai email dan kata sandi,
+          autentikasi ditangani oleh Supabase Auth; kata sandi tidak disimpan dalam
+          catatan keuanganmu. Nama tampilan dan foto yang kamu tambahkan sendiri juga
+          disimpan sebagai bagian dari profil.
         </li>
         <li>
           <strong>Catatan keuangan yang kamu masukkan.</strong> Dompet beserta saldo dan
@@ -77,10 +80,10 @@
 
       <h2>Mode demo</h2>
       <p>
-        Mode demo menyimpan seluruh datanya di penyimpanan lokal peramban pada
-        perangkatmu dan <strong>tidak dikirim ke server mana pun</strong>. Menghapus data
-        peramban akan menghapus data demo itu juga. Data demo terpisah dari data akun
-        online dan tidak saling tersinkron.
+        Catatan keuangan dalam mode demo disimpan di penyimpanan lokal peramban pada
+        perangkatmu dan tidak disinkronkan ke akun online. Menghapus data peramban akan
+        menghapus data demo itu juga. Aplikasi tetap dapat mengakses layanan seperti
+        penyedia kurs dan huruf saat terhubung ke internet.
       </p>
 
       <h2>Di mana datamu disimpan</h2>
