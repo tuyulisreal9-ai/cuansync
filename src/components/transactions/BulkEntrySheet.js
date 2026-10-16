@@ -33,7 +33,7 @@ const html = htm.bind(React.createElement);
 const CONTOH_TEKS = [
   "kopi 18rb",
   "gojek ke kantor 24rb",
-  "makan siang nasi padang 32k",
+  "mkn siang 32k",
   "parkir 5000 pakai gopay",
   "kemarin bensin 30rb",
   "indomaret 63,5rb",
@@ -156,6 +156,7 @@ export function BulkEntrySheet({
     updateRow(row.id, {
       accountId,
       accountName: account?.name || "",
+      accountIssue: "",
       currency,
       amount: Math.round(Number(row.amount || 0) * factor) / factor,
     });
@@ -444,7 +445,7 @@ export function BulkEntrySheet({
                     onChange=${(event) => setText(event.target.value)}
                     rows=${8}
                     spellCheck=${false}
-                    placeholder=${"kopi 18rb\ngojek 24rb\n+gaji 8,2jt"}
+                    placeholder=${"mkn 25rb\nprkr 5rb\nmkn 100 LKR\n+gaji 8,2jt"}
                     aria-label="Daftar transaksi"
                     className="min-h-[168px] resize-none rounded-[16px] border p-[14px] text-[13.5px] leading-[1.7]"
                     style=${{
@@ -457,7 +458,7 @@ export function BulkEntrySheet({
                     className="px-0.5 text-[11.5px] leading-[1.5]"
                     style=${{ color: "var(--cs-faint)" }}
                   >
-                    ${'Tulis + di depan untuk pemasukan. Sebut nama dompet atau "kemarin" di baris mana pun untuk mengganti default.'}
+                    ${'mkn = makan, prkr = parkir. 100 LKR → dompet utama LKR. Sebut nama dompet untuk memilih yang lain; + untuk pemasukan, "kemarin" untuk tanggalnya.'}
                   </p>
                 </div>
 
@@ -468,7 +469,7 @@ export function BulkEntrySheet({
                           ${[
                             `${liveSummary.readyCount} transaksi terbaca`,
                             liveSummary.incompleteCount
-                              ? `${liveSummary.incompleteCount} perlu kategori`
+                              ? `${liveSummary.incompleteCount} perlu dilengkapi`
                               : "",
                             liveSummary.skippedCount
                               ? `${liveSummary.skippedCount} dilewati`
@@ -689,7 +690,7 @@ function PreviewRow({ row, todayKey, baseCode }) {
     ? row.skipReason
     : [
         row.type === "income" ? "Masuk" : row.category || "Belum ada kategori",
-        row.accountName,
+        row.accountName || "Pilih dompet",
         row.dateKey === todayKey ? "" : describeDate(row.dateKey, todayKey),
         code === baseCode ? "" : code,
       ]
@@ -711,6 +712,7 @@ function PreviewRow({ row, todayKey, baseCode }) {
         >
           ${konteks}
         </span>
+        ${row.accountIssue && html`<span className="text-[11.5px] leading-snug" style=${{ color: "var(--cs-warn)" }}>${row.accountIssue}</span>`}
       </span>
       <span
         className="dc-num shrink-0 text-[12.5px]"
@@ -773,7 +775,7 @@ function ReviewRow({
   }, [open]);
   const konteks = [
     isExpense ? row.category || "Pilih kategori" : "Masuk",
-    row.accountName,
+    row.accountName || "Pilih dompet",
     row.dateKey === todayKey ? "" : describeDate(row.dateKey, todayKey),
     code === baseCode ? "" : code,
   ]
@@ -904,6 +906,7 @@ function ReviewRow({
                   `
                 : null}
 
+              ${row.accountIssue && html`<p role="alert" className="text-xs leading-relaxed" style=${{ color: "var(--cs-warn)" }}>${row.accountIssue}</p>`}
               ${accounts.length
                 ? html`
                     <div className="flex flex-col gap-1.5">
